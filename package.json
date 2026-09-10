@@ -6,9 +6,9 @@
     "dev": "vite dev --host 127.0.0.1",
     "db:local": "wrangler d1 migrations apply DB --local",
     "db:remote": "wrangler d1 migrations apply DB --remote",
-    "deploy": "npm run build && wrangler deploy",
+    "deploy": "pnpm run build && wrangler deploy",
     "test": "node --test",
-    "check": "npm test && npm run build",
+    "check": "pnpm test && pnpm run build",
     "build": "vite build && tsc --noEmit",
     "preview": "vite preview --host 127.0.0.1",
     "dev:offline": "HOPON_OFFLINE=1 vite dev --host 127.0.0.1"
@@ -29,7 +29,5 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
-  "overrides": {
-    "sharp": "^0.35.4"
-  }
+  "packageManager": "pnpm@11.5.2"
 }
