@@ -1,0 +1,35 @@
+{
+  "name": "hopon",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev --host 127.0.0.1",
+    "db:local": "wrangler d1 migrations apply DB --local",
+    "db:remote": "wrangler d1 migrations apply DB --remote",
+    "deploy": "npm run build && wrangler deploy",
+    "test": "node --test",
+    "check": "npm test && npm run build",
+    "build": "vite build && tsc --noEmit",
+    "preview": "vite preview --host 127.0.0.1",
+    "dev:offline": "HOPON_OFFLINE=1 vite dev --host 127.0.0.1"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.54.6",
+    "@types/node": "^22.20.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2",
+    "wrangler": "^4.0.0"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "^1.170.34",
+    "@tanstack/react-start": "^1.168.51",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "overrides": {
+    "sharp": "^0.35.4"
+  }
+}
