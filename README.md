@@ -6,12 +6,12 @@
 
 ## 本地运行
 
-需要 Node.js 24+（测试使用内置 `node:sqlite`）。
+需要 Node.js 24+（测试使用内置 `node:sqlite`）和 pnpm 11.5.2。
 
 ```sh
-npm ci
-npm run db:local
-npm run dev:offline
+pnpm install --frozen-lockfile
+pnpm run db:local
+pnpm run dev:offline
 ```
 
 打开终端显示的本地地址。离线模式可以试玩两个明确标记为官方示例的游戏、检查布局及表单；不会用模板冒充 AI 生成。生成按钮会提示需要连接 Workers AI。
@@ -19,9 +19,9 @@ npm run dev:offline
 ## 连接真实 AI
 
 ```sh
-npx wrangler login
-npx wrangler whoami
-CLOUDFLARE_ACCOUNT_ID=<选定账号ID> npm run dev
+pnpm exec wrangler login
+pnpm exec wrangler whoami
+CLOUDFLARE_ACCOUNT_ID=<选定账号ID> pnpm run dev
 ```
 
 D1 在开发环境仍是本地 SQLite；只有 AI 推理访问 Cloudflare，会消耗该账号 Workers AI 的额度。模型配置在 `wrangler.jsonc` 的 `AI_MODEL` 中，当前使用 `@cf/moonshotai/kimi-k2.5`。设置 `chat_template_kwargs.thinking: false`，最多输出 6000 tokens，提示模型生成紧凑游戏。API 读取其 `choices[0].message.content`，验证 JSON 和完整 HTML 后保存为私有草稿。
@@ -31,22 +31,22 @@ D1 在开发环境仍是本地 SQLite；只有 AI 推理访问 Cloudflare，会�
 已配置用户选择的 Chengchao60827@gmail.com 账号及专用 hopon D1 数据库。下面的创建命令仅供迁移到另一个账号时使用，不要重复创建现有数据库。
 
 ```sh
-CLOUDFLARE_ACCOUNT_ID=<选定账号ID> npx wrangler d1 create hopon
+CLOUDFLARE_ACCOUNT_ID=<选定账号ID> pnpm exec wrangler d1 create hopon
 ```
 
 将命令返回的数据库 ID 填入 `wrangler.jsonc` 对应的 D1 binding。然后执行：
 
 ```sh
-npm run db:remote
-npm run deploy
+pnpm run db:remote
+pnpm run deploy
 ```
 
-`npm run deploy` 构建后使用 Cloudflare Vite 生成的 Worker 配置部署，静态文件一并上传。无需 R2：小游戏是有大小限制的自包含 HTML，D1 已足够；增加图片/音频上传时再引入对象存储。
+`pnpm run deploy` 构建后使用 Cloudflare Vite 生成的 Worker 配置部署，静态文件一并上传。无需 R2：小游戏是有大小限制的自包含 HTML，D1 已足够；增加图片/音频上传时再引入对象存储。
 
 ## 检查
 
 ```sh
-npm run check
+pnpm run check
 ```
 
 包括真实 SQLite 上的 SQL/权限/分页/配额测试、AI 输出边界测试、客户端/Worker 构建和 TypeScript 检查。测试中的 AI 返回值是模拟响应；它们不能证明真实模型输出可玩。每次真实生成后仍需在预览中试玩，再明确发布。
