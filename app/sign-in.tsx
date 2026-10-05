@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Text } from '@/components/ui/text';
 import { useSignIn, useSignUp } from '@clerk/expo';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 
@@ -13,6 +13,7 @@ const describe = (e: ClerkFailure) => e.longMessage ?? e.message;
 
 // One screen for both: an email code signs in an existing user, or signs up a new one.
 export default function SignIn() {
+  const { next } = useLocalSearchParams<{ next?: 'create' | 'me' }>();
   const { signIn, fetchStatus } = useSignIn();
   const { signUp } = useSignUp();
   const [email, setEmail] = useState('');
@@ -54,7 +55,8 @@ export default function SignIn() {
       if (error) return error;
       if (resource.status !== 'complete') return { message: 'Could not finish signing in. Please try again.' };
       await resource.finalize();
-      router.replace('/create');
+      // Next: pick a handle (skipped automatically if you have one), then back to Me or on into Create.
+      router.replace(next === 'me' ? '/handle?auto=1' : '/handle?next=create&auto=1');
     });
 
   return (
@@ -126,7 +128,7 @@ export default function SignIn() {
           <Text>Use a different email</Text>
         </Button>
       )}
-      <Button variant="ghost" onPress={() => router.dismissTo('/')}>
+      <Button variant="ghost" onPress={() => router.back()}>
         <Text>Cancel</Text>
       </Button>
     </View>

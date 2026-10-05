@@ -13,9 +13,10 @@ const keys = await crypto.subtle.generateKey(
 );
 const CLERK_JWT_KEY = `-----BEGIN PUBLIC KEY-----\n${Buffer.from(await crypto.subtle.exportKey('spki', keys.publicKey)).toString('base64')}\n-----END PUBLIC KEY-----`;
 const b64 = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
-async function sign(sub, { exp = 60, key = keys.privateKey } = {}) {
+// `username` mirrors the Clerk session claim {{user.username}}: null until the user picks a handle.
+async function sign(sub, { exp = 60, key = keys.privateKey, username = null } = {}) {
   const now = Math.floor(Date.now() / 1000);
-  const body = `${b64({ alg: 'RS256', typ: 'JWT', kid: 'ins_test' })}.${b64({ sub, iat: now, nbf: now, exp: now + exp })}`;
+  const body = `${b64({ alg: 'RS256', typ: 'JWT', kid: 'ins_test' })}.${b64({ sub, username, iat: now, nbf: now, exp: now + exp })}`;
   return `${body}.${Buffer.from(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(body))).toString('base64url')}`;
 }
 const generated = {
@@ -42,13 +43,16 @@ async function setup(t) {
   };
   const count = async (table) => (await DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first()).n;
   const owner = 'user_owner';
-  const call = async (path, { method = 'GET', body, user = owner, token, contentType = 'application/json' } = {}) =>
+  const call = async (
+    path,
+    { method = 'GET', body, user = owner, username = 'maya_makes', token, contentType = 'application/json' } = {},
+  ) =>
     worker.fetch(
       new Request(`https://hopon.test${path}`, {
         method,
         headers: {
           'Content-Type': contentType,
-          ...(user || token ? { Authorization: `Bearer ${token ?? (await sign(user))}` } : {}),
+          ...(user || token ? { Authorization: `Bearer ${token ?? (await sign(user, { username }))}` } : {}),
         },
         ...(body === undefined ? {} : { body: typeof body === 'string' ? body : JSON.stringify(body) }),
       }),
@@ -86,6 +90,9 @@ test('generation, private preview, latest draft, owned publish, public discovery
   assert.equal((await call(`/api/games/${draft.id}/document`, { user: '' })).status, 404);
   assert.equal((await call(`/api/games/${draft.id}/document`)).status, 200);
   assert.equal((await call(`/api/games/${draft.id}/publish`, { method: 'POST', user: 'user_other' })).status, 404);
+  const nameless = await call(`/api/games/${draft.id}/publish`, { method: 'POST', username: null });
+  assert.equal(nameless.status, 400);
+  assert.deepEqual(await nameless.json(), { error: 'Pick your name before publishing.' });
   assert.equal((await call(`/api/games/${draft.id}/publish`, { method: 'POST' })).status, 200);
   assert.equal((await call(`/api/games/${draft.id}/publish`, { method: 'POST' })).status, 200);
   const document = await call(`/api/games/${draft.id}/document`, { user: '' });
@@ -100,6 +107,11 @@ test('generation, private preview, latest draft, owned publish, public discovery
   assert.equal(list.games[0].id, draft.id);
   assert.equal(list.games[0].html, undefined);
   assert.equal(list.games[0].owner, undefined);
+  assert.equal(list.games[0].author, 'maya_makes'); // the handle from the publisher's token
+  assert.deepEqual(
+    list.games.slice(1).map((g) => g.author),
+    ['hopon', 'hopon'],
+  );
   const unknown = await call('/index.html');
   assert.equal(unknown.status, 404);
   assert.deepEqual(await unknown.json(), { error: 'Endpoint not found.' });

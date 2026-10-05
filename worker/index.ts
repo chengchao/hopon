@@ -10,13 +10,18 @@ type HoponEnv = Env & { CLERK_JWT_KEY?: string; HOPON_OFFLINE?: string };
 const json = (value: unknown, status = 200) =>
   Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
 // Clerk session JWT from `Authorization: Bearer`, verified offline with the dashboard's PEM key (CLERK_JWT_KEY).
-async function userId(request: Request, env: HoponEnv) {
+// `username` is a custom session claim ({{user.username}}) set on the Clerk instance; null until the user picks one.
+async function session(request: Request, env: HoponEnv) {
   const token = /^Bearer (\S+)$/.exec(request.headers.get('Authorization') || '')?.[1];
-  if (!token || !env.CLERK_JWT_KEY) return undefined;
+  if (!token || !env.CLERK_JWT_KEY) return {};
   try {
-    return (await verifyToken(token, { jwtKey: env.CLERK_JWT_KEY })).sub;
+    const claims = await verifyToken(token, { jwtKey: env.CLERK_JWT_KEY });
+    return {
+      owner: claims.sub,
+      username: typeof claims.username === 'string' && claims.username ? claims.username : null,
+    };
   } catch {
-    return undefined;
+    return {};
   }
 }
 
@@ -56,14 +61,19 @@ async function route(request: Request, env: HoponEnv) {
   const url = new URL(request.url);
   const path = url.pathname;
   // Bearer tokens are never sent automatically by browsers, so writes need no Origin/CSRF check.
-  const owner = await userId(request, env);
+  const { owner, username } = await session(request, env);
   if (path.startsWith('/api/') && request.method !== 'GET' && !owner) throw fail(401, 'Sign in to create games.');
   if (path === '/api/games' && request.method === 'GET') {
     const raw = url.searchParams.get('before');
     if (raw && !/^[1-9]\d{0,14}$/.test(raw)) throw fail(400, 'Invalid pagination cursor.');
     const before = raw ? Number(raw) : Number.MAX_SAFE_INTEGER;
     const results = await db
-      .select({ id: games.id, title: games.title, description: games.description })
+      .select({
+        id: games.id,
+        title: games.title,
+        description: games.description,
+        author: games.author,
+      })
       .from(games)
       .where(and(eq(games.published, 1), lt(games.id, before)))
       .orderBy(desc(games.id))
@@ -137,9 +147,11 @@ async function route(request: Request, env: HoponEnv) {
   if (match) {
     const id = Number(match[1]);
     if (match[2] === 'publish' && request.method === 'POST') {
+      // Published games always show who made them, so a handle is required (the client asks for one first).
+      if (!username) throw fail(400, 'Pick your name before publishing.');
       const game = await db
         .update(games)
-        .set({ published: 1 })
+        .set({ published: 1, author: username })
         .where(and(eq(games.id, id), eq(games.owner, owner!)))
         .returning({ id: games.id })
         .get();

@@ -1,10 +1,13 @@
 import { GameView } from '@/components/GameView';
-import { Ticket } from '@/components/Ticket';
+import { CommentsSheet } from '@/components/CommentsSheet';
+import { Byline, Ticket } from '@/components/Ticket';
+import { TicketActions } from '@/components/TicketActions';
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
 import { api, gameUrl, type Game } from '@/lib/api';
+import { toggleLike, toggleSave, usePrototype } from '@/lib/prototype';
 import { snapTarget } from '@/lib/feed-motion';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, FlatList, PanResponder, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,6 +22,8 @@ export default function Discover() {
   const [next, setNext] = useState<number | null>(null);
   const [height, setHeight] = useState(0);
   const [reduceMotion, setReduceMotion] = useState(false);
+  const [commentsFor, setCommentsFor] = useState<Game | null>(null);
+  const { liked, saved } = usePrototype();
   const list = useRef<FlatList<Game>>(null);
   const busy = useRef(false);
   const origin = useRef(0);
@@ -76,6 +81,7 @@ export default function Discover() {
       go(Math.round(snapTarget(origin.current, position(dy), height, games.length) / height));
     return PanResponder.create({
       onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponderCapture: (_, g) => Math.abs(g.dy) > 8 && Math.abs(g.dy) > Math.abs(g.dx),
       onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: () => {
         origin.current = active * height;
@@ -88,14 +94,6 @@ export default function Discover() {
 
   return (
     <View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
-      <View className="flex-row items-center justify-between px-5 pb-3 pt-1">
-        <Text accessibilityRole="header" className="font-display text-[40px] leading-[44px] text-foreground">
-          hopon
-        </Text>
-        <Button size="sm" className="rounded-full px-4" onPress={() => router.push('/create')}>
-          <Text>Make a game</Text>
-        </Button>
-      </View>
       <View className="flex-1" onLayout={(e) => setHeight(e.nativeEvent.layout.height)}>
         {height > 0 && (
           <FlatList
@@ -108,7 +106,7 @@ export default function Discover() {
             windowSize={3}
             extraData={active}
             renderItem={({ item, index }) => (
-              <View style={{ height, paddingBottom: Math.max(insets.bottom, 12) }} className="px-3">
+              <View style={{ height }} className="px-3 pb-3 pt-2">
                 <View className="flex-1 overflow-hidden rounded-t-2xl bg-card">
                   {Math.abs(index - active) <= 1 && <GameView uri={gameUrl(item.id)} title={item.title} />}
                 </View>
@@ -118,18 +116,28 @@ export default function Discover() {
                   accessibilityRole="adjustable"
                   accessibilityLabel={`${item.title}. ${item.description}`}
                   accessibilityHint="Swipe up or down here to change games"
-                  accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
-                  onAccessibilityAction={(e) => go(active + (e.nativeEvent.actionName === 'increment' ? 1 : -1))}
-                  label={`No. ${String(item.id).padStart(4, '0')}`}
+                  // The ticket is one VoiceOver element, so its buttons are offered as custom actions too.
+                  accessibilityActions={[
+                    { name: 'increment' },
+                    { name: 'decrement' },
+                    { name: 'like', label: liked.has(item.id) ? 'Unlike' : 'Like' },
+                    { name: 'comments', label: 'Comments' },
+                    { name: 'save', label: saved.some((g) => g.id === item.id) ? 'Remove from saved' : 'Save' },
+                  ]}
+                  onAccessibilityAction={(e) => {
+                    const action = e.nativeEvent.actionName;
+                    if (action === 'increment' || action === 'decrement')
+                      go(active + (action === 'increment' ? 1 : -1));
+                    else if (action === 'like') toggleLike(item.id);
+                    else if (action === 'save') toggleSave(item);
+                    else if (action === 'comments') setCommentsFor(item);
+                  }}
+                  compact
+                  byline={<Byline author={item.author} />}
                   title={item.title}
                   description={item.description}
-                >
-                  <Text className="pt-2 font-strong text-sm text-primary-foreground/60">
-                    {index === games.length - 1 && !next
-                      ? "That's every game. Swipe down to go back."
-                      : 'Swipe up on this ticket for the next game'}
-                  </Text>
-                </Ticket>
+                  actions={<TicketActions game={item} onComments={() => setCommentsFor(item)} />}
+                />
               </View>
             )}
           />
@@ -155,6 +163,7 @@ export default function Discover() {
           </View>
         )}
       </View>
+      <CommentsSheet game={commentsFor} onClose={() => setCommentsFor(null)} />
     </View>
   );
 }

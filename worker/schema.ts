@@ -10,6 +10,8 @@ export const games = sqliteTable(
     description: text('description').notNull(),
     html: text('html').notNull(),
     published: integer('published').notNull().default(0),
+    // The creator's @handle when they published (Clerk username); null for drafts of users without one.
+    author: text('author'),
     createdAt: text('created_at')
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),

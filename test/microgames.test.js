@@ -80,3 +80,7 @@ test('Odd Duck: three correct choices, wrong choice, timeout, and restart', () =
   assert.equal(g.run('score'), 0);
   assert.equal(g.run('state'), 'playing');
 });
+
+test('originals carry no index labels', () => {
+  for (const title of ['Toast Panic', 'Odd Duck']) assert.ok(!html(title).includes('MICRO /'), title);
+});

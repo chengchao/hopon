@@ -1,4 +1,4 @@
-export type Game = { id: number; title: string; description: string };
+export type Game = { id: number; title: string; description: string; author?: string | null };
 
 // iOS Simulator reaches the host at localhost; Android emulator needs http://10.0.2.2:8787; a phone needs the LAN IP.
 export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8787';

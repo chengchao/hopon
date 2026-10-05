@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { useAuth, useUser } from '@clerk/expo';
 import { Redirect, router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, ScrollView, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const examples = [
@@ -19,7 +19,7 @@ const examples = [
 
 export default function Create() {
   const insets = useSafeAreaInsets();
-  const { isLoaded, isSignedIn, getToken, signOut } = useAuth();
+  const { isLoaded, isSignedIn, getToken } = useAuth();
   const { user } = useUser();
   const [prompt, setPrompt] = useState('');
   const [draft, setDraft] = useState<Game | null>(null);
@@ -61,7 +61,7 @@ export default function Create() {
         <Text className="text-muted-foreground">Loading…</Text>
       </View>
     );
-  if (!isSignedIn) return <Redirect href="/sign-in" />;
+  if (!isSignedIn) return <Redirect href="/sign-in?next=create" />;
 
   async function generate() {
     if (busy) return;
@@ -78,35 +78,18 @@ export default function Create() {
 
   async function publish() {
     if (!draft || publishing) return;
+    // Published games show their maker, so ask for a handle first; this screen is still here afterwards.
+    if (!user?.username) return router.push('/handle');
     setPublishing(true);
     setError('');
     try {
-      await api(`/api/games/${draft.id}/publish`, { token: await getToken(), method: 'POST' });
+      await api(`/api/games/${draft.id}/publish`, { token: await getToken({ skipCache: true }), method: 'POST' });
       router.dismissTo({ pathname: '/', params: { published: String(draft.id) } });
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setPublishing(false);
     }
-  }
-
-  function deleteAccount() {
-    Alert.alert(
-      'Delete your account?',
-      'You will be signed out and your account removed. Published games stay public.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () =>
-            void user?.delete().then(
-              () => router.dismissTo('/'),
-              (e) => setError((e as Error).message),
-            ),
-        },
-      ],
-    );
   }
 
   const locked = busy || publishing;
@@ -199,7 +182,11 @@ export default function Create() {
           )}
         </View>
         {draft && (
-          <Ticket label="Unpublished draft" title={draft.title} description={draft.description}>
+          <Ticket
+            byline={<Text className="font-strong text-xs text-primary-foreground/60">Unpublished draft</Text>}
+            title={draft.title}
+            description={draft.description}
+          >
             <View className="flex-row gap-2 pt-3">
               <Button
                 variant="outline"
@@ -219,23 +206,6 @@ export default function Create() {
             </View>
           </Ticket>
         )}
-      </View>
-
-      <View className="gap-3 pt-4">
-        <Text className="text-sm text-muted-foreground">Signed in as {user?.primaryEmailAddress?.emailAddress}</Text>
-        <View className="flex-row gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="rounded-full bg-transparent"
-            onPress={() => void signOut().then(() => router.dismissTo('/'))}
-          >
-            <Text>Sign out</Text>
-          </Button>
-          <Button size="sm" variant="ghost" className="rounded-full" onPress={deleteAccount}>
-            <Text className="text-destructive">Delete account</Text>
-          </Button>
-        </View>
       </View>
     </ScrollView>
   );

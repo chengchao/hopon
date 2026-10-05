@@ -15,6 +15,20 @@
       "when": 1791177334789,
       "tag": "20261005051534_originals",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791188254250,
+      "tag": "20261005081734_remove_original_index_labels",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1791188290587,
+      "tag": "20261005081810_game_author",
+      "breakpoints": true
     }
   ]
 }

@@ -32,9 +32,10 @@ export default function RootLayout() {
       <ThemeProvider value={NAV_THEME}>
         <StatusBar style="light" />
         <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="index" />
+          <Stack.Screen name="(tabs)" />
           <Stack.Screen name="create" options={{ presentation: 'modal' }} />
           <Stack.Screen name="sign-in" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="handle" options={{ presentation: 'modal' }} />
         </Stack>
         <PortalHost />
       </ThemeProvider>
