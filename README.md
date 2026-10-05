@@ -11,7 +11,7 @@ worker/ migrations/     Cloudflare Worker API（D1 + Drizzle、Workers AI、Cler
 
 ## 准备
 
-需要 Node.js 24+、pnpm 11.5.2、Xcode（iOS 模拟器）或 Android Studio（模拟器）。pnpm 11.5.2 没有 Intel Mac 的原生二进制；Intel Mac 上用 `npx pnpm@11.5.2` 代替 `pnpm`。
+需要 Node.js 24+、pnpm 12（`package.json` 固定为 12.9.1，已安装的 pnpm 会自动切换）、Xcode（iOS 模拟器）或 Android Studio（模拟器）。
 
 1. 在 [Clerk 控制台](https://dashboard.clerk.com) 创建应用：开启 Email address + Email verification code，开启 Native API。若需应用内删除账户，确认允许用户删除账户。
 2. 应用环境变量写入 `.env`（已被 git 忽略）：
