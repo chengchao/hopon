@@ -1,4 +1,4 @@
-# Calls node_modules/.bin directly: pnpm 11.5.2 has no native binary for Intel Macs.
+# Calls node_modules/.bin directly so hooks don't depend on how pnpm is installed.
 # Vendored Clerk skills and generated files are left exactly as their tools wrote them.
 pre-commit:
   parallel: true
