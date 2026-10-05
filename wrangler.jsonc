@@ -1,25 +1,23 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "hopon",
-  "main": "src/server.ts",
+  "main": "worker/index.ts",
   "compatibility_date": "2026-09-01",
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "hopon",
       "database_id": "6be33570-2067-48c6-b716-69e0afb04586",
-      "migrations_dir": "migrations"
-    }
+      "migrations_dir": "migrations",
+    },
   ],
   "ai": {
     "binding": "AI",
-    "remote": true
+    "remote": true,
   },
   "vars": {
-    "AI_MODEL": "@cf/moonshotai/kimi-k2.5"
+    "AI_MODEL": "@cf/moonshotai/kimi-k2.5",
   },
-  "compatibility_flags": [
-    "nodejs_compat"
-  ],
-  "account_id": "51a5a41f7bd8425703a6f1d92f867f4d"
+  "compatibility_flags": ["nodejs_compat"],
+  "account_id": "51a5a41f7bd8425703a6f1d92f867f4d",
 }
