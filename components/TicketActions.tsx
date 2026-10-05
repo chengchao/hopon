@@ -1,25 +1,28 @@
 import { Text } from '@/components/ui/text';
 import type { Game } from '@/lib/api';
-import { toggleLike, toggleSave, usePrototype } from '@/lib/prototype';
+import { toggleSave, usePrototype } from '@/lib/prototype';
 import { COLORS } from '@/lib/theme';
 import { Bookmark, Heart, MessageCircle } from 'lucide-react-native';
 import type { ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 
 // Like, comment and save sit on the ticket, never over the game, so they can't steal the game's touches.
-export function TicketActions({ game, onComments }: { game: Game; onComments: () => void }) {
-  const { liked, saved, comments } = usePrototype();
-  const isLiked = liked.has(game.id);
+export function TicketActions({
+  game,
+  onLike,
+  onComments,
+}: {
+  game: Game;
+  onLike: () => void;
+  onComments: () => void;
+}) {
+  const { saved, comments } = usePrototype();
+  const isLiked = !!game.liked;
   const isSaved = saved.some((g) => g.id === game.id);
   const commentCount = comments[game.id]?.length ?? 0;
   return (
     <View className="flex-row items-center gap-1.5">
-      <Pill
-        label={isLiked ? 'Unlike' : 'Like'}
-        selected={isLiked}
-        onPress={() => toggleLike(game.id)}
-        count={isLiked ? 1 : 0}
-      >
+      <Pill label={isLiked ? 'Unlike' : 'Like'} selected={isLiked} onPress={onLike} count={game.likes ?? 0}>
         <Heart
           size={18}
           strokeWidth={2.25}

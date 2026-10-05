@@ -180,3 +180,25 @@ test('generation uses Kimi non-thinking mode with a bounded output budget', asyn
     201,
   );
 });
+
+test('likes: published only, one per user, counted in the feed, removable', async (t) => {
+  const { call, env } = await setup(t);
+  await assert.rejects(env.DB.prepare("INSERT INTO likes(game_id, user) VALUES (999999, 'x')").run(), /FOREIGN KEY/);
+  const [game] = (await (await call('/api/games')).json()).games;
+  const like = (id, options) => call(`/api/games/${id}/like`, { method: 'PUT', ...options });
+  assert.equal((await like(game.id, { user: '' })).status, 401);
+  const draft = await (await call('/api/games', { method: 'POST', body: { prompt: '点击星星的小游戏' } })).json();
+  assert.equal((await like(draft.id)).status, 404);
+  assert.deepEqual(await (await like(game.id)).json(), { liked: true, likes: 1 });
+  assert.deepEqual(await (await like(game.id)).json(), { liked: true, likes: 1 });
+  assert.deepEqual(await (await like(game.id, { user: 'user_other' })).json(), { liked: true, likes: 2 });
+  const feed = async (user) => (await (await call('/api/games', { user })).json()).games[0];
+  assert.deepEqual(await feed(), { ...game, likes: 2, liked: true });
+  assert.deepEqual(await feed(''), { ...game, likes: 2, liked: false });
+  assert.deepEqual(await (await call('/api/likes/count')).json(), { count: 1 });
+  const unlike = await call(`/api/games/${game.id}/like`, { method: 'DELETE' });
+  assert.deepEqual(await unlike.json(), { liked: false, likes: 1 });
+  assert.deepEqual(await (await call('/api/likes/count')).json(), { count: 0 });
+  assert.deepEqual(await (await call('/api/likes/count', { user: 'user_other' })).json(), { count: 1 });
+  assert.equal((await call('/api/likes/count', { user: '' })).status, 401);
+});

@@ -47,7 +47,7 @@ pnpm run db:generate   # drizzle-kit 写入 migrations/（与 wrangler 的 migra
 pnpm run db:local
 ```
 
-`0001_games.sql` 是早于 Drizzle 的手写迁移，线上已应用；`*_baseline.sql` 是空操作，只为 drizzle-kit 提供快照。Toast Panic 和 Odd Duck 由 `*_originals.sql` 作为普通已发布游戏写入。
+`*_baseline.sql` 由 `schema.ts` 生成完整表结构；Toast Panic 和 Odd Duck 由 `*_originals.sql`（`drizzle-kit generate --custom`）作为普通已发布游戏写入。已在任何共享数据库上应用过的迁移只追加、不修改。
 
 ## 部署
 

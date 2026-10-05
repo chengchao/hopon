@@ -5,9 +5,10 @@ import { TicketActions } from '@/components/TicketActions';
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
 import { api, gameUrl, type Game } from '@/lib/api';
-import { toggleLike, toggleSave, usePrototype } from '@/lib/prototype';
+import { toggleSave, usePrototype } from '@/lib/prototype';
 import { snapTarget } from '@/lib/feed-motion';
-import { useLocalSearchParams } from 'expo-router';
+import { useAuth } from '@clerk/expo';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, FlatList, PanResponder, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,7 +24,13 @@ export default function Discover() {
   const [height, setHeight] = useState(0);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [commentsFor, setCommentsFor] = useState<Game | null>(null);
-  const { liked, saved } = usePrototype();
+  const { saved } = usePrototype();
+  const { isSignedIn, getToken } = useAuth();
+  // Clerk's getToken isn't referentially stable, so `load` reads it through a ref instead of its deps.
+  const token = useRef(getToken);
+  useEffect(() => {
+    token.current = getToken;
+  });
   const list = useRef<FlatList<Game>>(null);
   const busy = useRef(false);
   const origin = useRef(0);
@@ -38,7 +45,9 @@ export default function Discover() {
     setLoading(true);
     setError('');
     try {
-      const data = await api<{ games: Game[]; next: number | null }>(`/api/games${before ? `?before=${before}` : ''}`);
+      const data = await api<{ games: Game[]; next: number | null }>(`/api/games${before ? `?before=${before}` : ''}`, {
+        token: await token.current(),
+      });
       setGames((old) => (before ? [...old, ...data.games] : data.games));
       setNext(data.next);
     } catch (e) {
@@ -49,12 +58,12 @@ export default function Discover() {
     }
   }, []);
 
-  // First load, and a fresh feed (scrolled to the top) after Create publishes a game.
+  // First load, and a fresh feed (scrolled to the top) after Create publishes a game or you sign in or out.
   useEffect(() => {
     setActive(0);
     scrollTo(0, false);
     void load();
-  }, [load, published, scrollTo]);
+  }, [load, published, isSignedIn, scrollTo]);
   useEffect(() => {
     if (next && active >= games.length - 2 && !error) void load(next);
   }, [active, next, games.length, load, error]);
@@ -63,6 +72,25 @@ export default function Discover() {
     const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
     return () => sub.remove();
   }, []);
+
+  // Optimistic: flip the heart now, then settle on the server's count, or flip back if the request fails.
+  async function like(game: Game) {
+    if (!isSignedIn) return router.push('/sign-in');
+    const patch = (next: Pick<Game, 'liked' | 'likes'>) =>
+      setGames((old) => old.map((g) => (g.id === game.id ? { ...g, ...next } : g)));
+    const liked = !game.liked;
+    patch({ liked, likes: (game.likes ?? 0) + (liked ? 1 : -1) });
+    try {
+      patch(
+        await api<Pick<Game, 'liked' | 'likes'>>(`/api/games/${game.id}/like`, {
+          token: await getToken(),
+          method: liked ? 'PUT' : 'DELETE',
+        }),
+      );
+    } catch {
+      patch({ liked: game.liked, likes: game.likes });
+    }
+  }
 
   const go = useCallback(
     (index: number) => {
@@ -120,7 +148,7 @@ export default function Discover() {
                   accessibilityActions={[
                     { name: 'increment' },
                     { name: 'decrement' },
-                    { name: 'like', label: liked.has(item.id) ? 'Unlike' : 'Like' },
+                    { name: 'like', label: item.liked ? 'Unlike' : 'Like' },
                     { name: 'comments', label: 'Comments' },
                     { name: 'save', label: saved.some((g) => g.id === item.id) ? 'Remove from saved' : 'Save' },
                   ]}
@@ -128,7 +156,7 @@ export default function Discover() {
                     const action = e.nativeEvent.actionName;
                     if (action === 'increment' || action === 'decrement')
                       go(active + (action === 'increment' ? 1 : -1));
-                    else if (action === 'like') toggleLike(item.id);
+                    else if (action === 'like') void like(item);
                     else if (action === 'save') toggleSave(item);
                     else if (action === 'comments') setCommentsFor(item);
                   }}
@@ -136,7 +164,9 @@ export default function Discover() {
                   byline={<Byline author={item.author} />}
                   title={item.title}
                   description={item.description}
-                  actions={<TicketActions game={item} onComments={() => setCommentsFor(item)} />}
+                  actions={
+                    <TicketActions game={item} onLike={() => void like(item)} onComments={() => setCommentsFor(item)} />
+                  }
                 />
               </View>
             )}
