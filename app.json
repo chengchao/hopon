@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "hopon",
+    "slug": "hopon",
+    "scheme": "hopon",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#1C1D45",
+    "ios": {
+      "supportsTablet": true
+    },
+    "plugins": ["expo-router", "expo-secure-store", "expo-font"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

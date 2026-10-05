@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Funfair at night: indigo sky, marigold ride tickets, ink type, a red bulb for errors. Values are HSL. */
+@layer base {
+  :root {
+    --background: 239 42% 19%; /* night #1C1D45 */
+    --foreground: 245 100% 98%; /* #F4F3FF */
+    --card: 238 42% 28%; /* night raised #2A2C66 */
+    --card-foreground: 245 100% 98%;
+    --popover: 238 42% 28%;
+    --popover-foreground: 245 100% 98%;
+    --primary: 47 100% 65%; /* ticket #FFD84A */
+    --primary-foreground: 242 35% 13%; /* ink #17162E */
+    --secondary: 238 42% 28%;
+    --secondary-foreground: 245 100% 98%;
+    --muted: 238 42% 28%;
+    --muted-foreground: 238 45% 78%; /* mist #AEB0E0 */
+    --accent: 238 40% 34%;
+    --accent-foreground: 245 100% 98%;
+    --destructive: 4 100% 65%; /* bulb #FF5A4E */
+    --border: 238 38% 37%;
+    --input: 238 38% 37%;
+    --ring: 47 100% 65%;
+    --radius: 0.75rem;
+  }
+}
