@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { getPlatformProxy, unstable_splitSqlQuery } from 'wrangler';
-import worker from '../worker/index.ts';
-import { parseGame, GAME_CSP } from '../worker/game.ts';
+import worker from '../src/index.ts';
+import { parseGame, GAME_CSP } from '../src/game.ts';
 
 // Throwaway RS256 key standing in for the Clerk instance; tokens below are really signed and verified.
 const keys = await crypto.subtle.generateKey(
