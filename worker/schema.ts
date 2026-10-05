@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 export const games = sqliteTable(
   'games',
@@ -28,3 +28,19 @@ export const generationLimits = sqliteTable('generation_limits', {
   bucket: text('bucket').primaryKey(),
   count: integer('count').notNull(),
 });
+
+// One row per (game, Clerk user). The primary key also serves the per-game counts; likes_user serves "my likes".
+export const likes = sqliteTable(
+  'likes',
+  {
+    // No cascade: SQLite table rebuilds drop and recreate `games`, which would cascade-delete every like.
+    gameId: integer('game_id')
+      .notNull()
+      .references(() => games.id),
+    user: text('user').notNull(),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [primaryKey({ columns: [table.gameId, table.user] }), index('likes_user').on(table.user)],
+);

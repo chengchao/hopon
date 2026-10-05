@@ -1,18 +1,36 @@
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
 import { usePrototype } from '@/lib/prototype';
+import { api } from '@/lib/api';
 import { useAuth, useUser } from '@clerk/expo';
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { Alert, Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function Me() {
   const insets = useSafeAreaInsets();
-  const { isLoaded, isSignedIn, signOut } = useAuth();
+  const { isLoaded, isSignedIn, signOut, getToken } = useAuth();
   const { user } = useUser();
-  const { liked, saved } = usePrototype();
+  const { saved } = usePrototype();
   const [error, setError] = useState('');
+  const [liked, setLiked] = useState<number | null>(null);
+
+  // Refetched whenever Me comes into view, so likes made on Discover show up.
+  // getToken isn't stable, so it's left out of the deps; isSignedIn is what matters.
+  useFocusEffect(
+    useCallback(() => {
+      if (!isSignedIn) return;
+      void (async () => {
+        try {
+          setLiked((await api<{ count: number }>('/api/likes/count', { token: await getToken() })).count);
+        } catch {
+          // Keep the last count; the stat isn't worth an error banner.
+        }
+      })();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isSignedIn]),
+  );
 
   function deleteAccount() {
     Alert.alert(
@@ -57,7 +75,7 @@ export default function Me() {
             <Text className="text-sm text-muted-foreground">{user?.primaryEmailAddress?.emailAddress}</Text>
           </View>
           <View className="flex-row gap-3">
-            <Stat value={liked.size} label="Liked" />
+            <Stat value={liked ?? '–'} label="Liked" />
             <Stat value={saved.length} label="Saved" />
           </View>
           {!!error && (
@@ -88,7 +106,7 @@ export default function Me() {
   );
 }
 
-function Stat({ value, label }: { value: number; label: string }) {
+function Stat({ value, label }: { value: number | string; label: string }) {
   return (
     <View className="flex-1 rounded-2xl bg-card px-4 py-3">
       <Text className="font-display text-[36px] leading-[40px]">{value}</Text>

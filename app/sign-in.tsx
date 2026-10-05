@@ -55,8 +55,8 @@ export default function SignIn() {
       if (error) return error;
       if (resource.status !== 'complete') return { message: 'Could not finish signing in. Please try again.' };
       await resource.finalize();
-      // Next: pick a handle (skipped automatically if you have one), then back to Me or on into Create.
-      router.replace(next === 'me' ? '/handle?auto=1' : '/handle?next=create&auto=1');
+      // Next: pick a handle (skipped automatically if you have one), then on into Create or back where you were.
+      router.replace(next === 'create' ? '/handle?next=create&auto=1' : '/handle?auto=1');
     });
 
   return (

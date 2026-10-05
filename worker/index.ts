@@ -1,8 +1,8 @@
 import { verifyToken } from '@clerk/backend';
-import { and, desc, eq, lt, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, lt, or, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { fail, GAME_CSP, parseGame } from './game.ts';
-import { games, generationLimits } from './schema.ts';
+import { games, generationLimits, likes } from './schema.ts';
 
 // Secrets/vars outside wrangler.jsonc, so `wrangler types` can't see them.
 type HoponEnv = Env & { CLERK_JWT_KEY?: string; HOPON_OFFLINE?: string };
@@ -62,7 +62,7 @@ async function route(request: Request, env: HoponEnv) {
   const path = url.pathname;
   // Bearer tokens are never sent automatically by browsers, so writes need no Origin/CSRF check.
   const { owner, username } = await session(request, env);
-  if (path.startsWith('/api/') && request.method !== 'GET' && !owner) throw fail(401, 'Sign in to create games.');
+  if (path.startsWith('/api/') && request.method !== 'GET' && !owner) throw fail(401, 'Sign in to continue.');
   if (path === '/api/games' && request.method === 'GET') {
     const raw = url.searchParams.get('before');
     if (raw && !/^[1-9]\d{0,14}$/.test(raw)) throw fail(400, 'Invalid pagination cursor.');
@@ -73,12 +73,22 @@ async function route(request: Request, env: HoponEnv) {
         title: games.title,
         description: games.description,
         author: games.author,
+        likes: sql<number>`(SELECT COUNT(*) FROM ${likes} WHERE ${likes.gameId} = ${games.id})`,
+        liked:
+          sql`EXISTS(SELECT 1 FROM ${likes} WHERE ${likes.gameId} = ${games.id} AND ${likes.user} = ${owner ?? ''})`.mapWith(
+            Boolean,
+          ),
       })
       .from(games)
       .where(and(eq(games.published, 1), lt(games.id, before)))
       .orderBy(desc(games.id))
       .limit(9);
     return json({ games: results.slice(0, 8), next: results.length > 8 ? results[7].id : null });
+  }
+  if (path === '/api/likes/count' && request.method === 'GET') {
+    if (!owner) throw fail(401, 'Sign in to see your likes.');
+    const row = await db.select({ count: count() }).from(likes).where(eq(likes.user, owner)).get();
+    return json({ count: row!.count });
   }
   if (path === '/api/drafts/latest' && request.method === 'GET') {
     if (!owner) throw fail(401, 'Sign in to see your draft.');
@@ -143,7 +153,7 @@ async function route(request: Request, env: HoponEnv) {
       .get();
     return json({ id: row!.id, title: game.title, description: game.description }, 201);
   }
-  const match = /^\/api\/games\/([1-9]\d{0,14})\/(document|publish)$/.exec(path);
+  const match = /^\/api\/games\/([1-9]\d{0,14})\/(document|publish|like)$/.exec(path);
   if (match) {
     const id = Number(match[1]);
     if (match[2] === 'publish' && request.method === 'POST') {
@@ -157,6 +167,19 @@ async function route(request: Request, env: HoponEnv) {
         .get();
       if (!game) throw fail(404, 'Draft not found.');
       return json({ id: game.id });
+    }
+    if (match[2] === 'like' && (request.method === 'PUT' || request.method === 'DELETE')) {
+      const game = await db
+        .select({ id: games.id })
+        .from(games)
+        .where(and(eq(games.id, id), eq(games.published, 1)))
+        .get();
+      if (!game) throw fail(404, 'This game does not exist or is not published yet.');
+      const liked = request.method === 'PUT';
+      if (liked) await db.insert(likes).values({ gameId: id, user: owner! }).onConflictDoNothing();
+      else await db.delete(likes).where(and(eq(likes.gameId, id), eq(likes.user, owner!)));
+      const row = await db.select({ count: count() }).from(likes).where(eq(likes.gameId, id)).get();
+      return json({ liked, likes: row!.count });
     }
     if (match[2] === 'document' && request.method === 'GET') {
       const game = await db

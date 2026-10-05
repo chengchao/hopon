@@ -1,8 +1,8 @@
 {
+  "id": "35e8309c-6e96-4e54-a806-087375762506",
+  "prevId": "3ea853ac-cf1d-46ea-8655-670cfb0690d8",
   "version": "6",
   "dialect": "sqlite",
-  "id": "b0a0f294-da09-4634-835c-c9cd503ca875",
-  "prevId": "7373638f-6aa7-44b3-8ed9-29b2443cfd71",
   "tables": {
     "games": {
       "name": "games",
@@ -117,14 +117,76 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
+    },
+    "likes": {
+      "name": "likes",
+      "columns": {
+        "game_id": {
+          "name": "game_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user": {
+          "name": "user",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "likes_user": {
+          "name": "likes_user",
+          "columns": [
+            "user"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "likes_game_id_games_id_fk": {
+          "name": "likes_game_id_games_id_fk",
+          "tableFrom": "likes",
+          "columnsFrom": [
+            "game_id"
+          ],
+          "tableTo": "games",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "likes_game_id_user_pk": {
+          "columns": [
+            "game_id",
+            "user"
+          ],
+          "name": "likes_game_id_user_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     }
   },
   "views": {},
   "enums": {},
   "_meta": {
+    "columns": {},
     "schemas": {},
-    "tables": {},
-    "columns": {}
+    "tables": {}
   },
   "internal": {
     "indexes": {
