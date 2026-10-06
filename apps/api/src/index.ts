@@ -79,8 +79,8 @@ async function spend(db: ReturnType<typeof drizzle>, key: string, max: number) {
   return !!row;
 }
 
-// A feed card: the public fields, counts, and whether the signed-in user (if any) liked or saved it.
-const feedColumns = (owner = '') => ({
+// A feed card: the public fields, counts, and whether the viewer (the signed-in user, if any) liked or saved it.
+const feedColumns = (viewer = '') => ({
   id: games.id,
   title: games.title,
   description: games.description,
@@ -88,10 +88,10 @@ const feedColumns = (owner = '') => ({
   // Qualified by hand: Drizzle leaves columns bare in a one-table select, and a bare "id" here would mean comments.id.
   likes: sql<number>`(SELECT COUNT(*) FROM ${likes} WHERE ${likes}.game_id = ${games}.id)`,
   comments: sql<number>`(SELECT COUNT(*) FROM ${comments} WHERE ${comments}.game_id = ${games}.id)`,
-  liked: sql`EXISTS(SELECT 1 FROM ${likes} WHERE ${likes}.game_id = ${games}.id AND ${likes}.user = ${owner})`.mapWith(
+  liked: sql`EXISTS(SELECT 1 FROM ${likes} WHERE ${likes}.game_id = ${games}.id AND ${likes}.user = ${viewer})`.mapWith(
     Boolean,
   ),
-  saved: sql`EXISTS(SELECT 1 FROM ${saves} WHERE ${saves}.game_id = ${games}.id AND ${saves}.user = ${owner})`.mapWith(
+  saved: sql`EXISTS(SELECT 1 FROM ${saves} WHERE ${saves}.game_id = ${games}.id AND ${saves}.user = ${viewer})`.mapWith(
     Boolean,
   ),
 });

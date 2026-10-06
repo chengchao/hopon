@@ -89,7 +89,7 @@ export function Feed({ path, start, empty }: { path: string; start?: number; emp
       patch(game.id, { liked: game.liked, likes: game.likes });
     }
   }
-  // Same for the bookmark. An unsaved game stays in the feed (even the Saved one) until you leave it.
+  // Same for the save. An unsaved game stays in the feed (even the Saved one) until you leave it.
   async function save(game: Game) {
     if (!isSignedIn) return router.push('/sign-in');
     const saved = !game.saved;
@@ -211,7 +211,7 @@ export function Feed({ path, start, empty }: { path: string; start?: number; emp
               size="sm"
               variant="outline"
               className="rounded-full"
-              onPress={() => void load(next ?? undefined, true)}
+              onPress={() => void (next ? load(next, true) : load(start, false))}
             >
               <Text>Try again</Text>
             </Button>
