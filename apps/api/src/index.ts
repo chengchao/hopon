@@ -11,6 +11,7 @@ import type {
 } from "@hopon/schemas";
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
+import { Effect } from "effect";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -67,24 +68,26 @@ const cursor = (raw: string | undefined) => {
 };
 
 // Atomically counts one use against a per-account UTC-day bucket; false once `max` is reached. Failed attempts still count.
-const spend = async (
+const spend = Effect.fn("spend")(function* (
   db: ReturnType<typeof drizzle>,
   key: string,
   max: number
-) => {
+) {
   const bucket = `${key}:${new Date().toISOString().slice(0, 10)}`;
-  const row = await db
-    .insert(generationLimits)
-    .values({ bucket, count: 1 })
-    .onConflictDoUpdate({
-      set: { count: sql`${generationLimits.count} + 1` },
-      setWhere: sql`${generationLimits.count} < ${max}`,
-      target: generationLimits.bucket,
-    })
-    .returning({ count: generationLimits.count })
-    .get();
+  const row = yield* Effect.promise(() =>
+    db
+      .insert(generationLimits)
+      .values({ bucket, count: 1 })
+      .onConflictDoUpdate({
+        set: { count: sql`${generationLimits.count} + 1` },
+        setWhere: sql`${generationLimits.count} < ${max}`,
+        target: generationLimits.bucket,
+      })
+      .returning({ count: generationLimits.count })
+      .get()
+  );
   return !!row;
-};
+});
 
 // Kimi isn't in Cloudflare's generated model types yet.
 interface Completion {
@@ -94,15 +97,10 @@ interface KimiRunner {
   run: (model: string, input: object) => Promise<Completion | undefined>;
 }
 
-const generate = async (env: HoponEnv, prompt: string) => {
-  const timeout = Promise.withResolvers<never>();
-  const timer = setTimeout(
-    () =>
-      timeout.reject(fail(504, "Generation took too long. Please try again.")),
-    180_000
-  );
-  try {
-    return await Promise.race([
+const generate = (env: HoponEnv, prompt: string) =>
+  Effect.tryPromise({
+    catch: () => fail(502, "AI is temporarily unavailable. Please try again."),
+    try: () =>
       (env.AI as unknown as KimiRunner).run(env.AI_MODEL, {
         chat_template_kwargs: { thinking: false },
         max_completion_tokens: 6000,
@@ -112,16 +110,14 @@ const generate = async (env: HoponEnv, prompt: string) => {
         ],
         response_format: { type: "json_object" },
       }),
-      timeout.promise,
-    ]);
-  } catch (error) {
-    throw (error as { status?: number }).status
-      ? error
-      : fail(502, "AI is temporarily unavailable. Please try again.");
-  } finally {
-    clearTimeout(timer);
-  }
-};
+  }).pipe(
+    Effect.timeoutOrElse({
+      duration: "3 minutes",
+      orElse: () =>
+        Effect.fail(fail(504, "Generation took too long. Please try again.")),
+    }),
+    Effect.withSpan("generate")
+  );
 
 // A feed card: the public fields, counts, and whether the viewer (the signed-in user, if any) liked or saved it.
 const feedColumns = (viewer = "") => ({
@@ -295,39 +291,48 @@ app.get("/api/drafts/latest", async (c) => {
 app.post(
   "/api/games",
   jsonBody(newGame, "Describe your game in 4–2000 characters."),
-  async (c) => {
+  (c) => {
     const { db } = c.var;
     const owner = signedInOwner(c);
     const { env } = c;
     const { prompt } = c.req.valid("json");
-    if (env.HOPON_OFFLINE === "1" || !env.AI) {
-      throw fail(503, "Connect Cloudflare Workers AI to create a game.");
-    }
-    if (!(await spend(db, owner, 10))) {
-      throw fail(
-        429,
-        "Daily limit reached: 10 creations per account. Try again tomorrow."
-      );
-    }
-    const result = await generate(env, prompt);
-    const choice = result?.choices?.[0];
-    console.info("Generation result", {
-      characters: choice?.message?.content?.length,
-      finishReason: choice?.finish_reason,
-      model: env.AI_MODEL,
-    });
-    const game = parseGame(choice?.message?.content);
-    const [row] = await db
-      .insert(games)
-      .values({ owner, ...game })
-      .returning({ id: games.id });
-    return c.json(
-      {
-        description: game.description,
-        id: row.id,
-        title: game.title,
-      } satisfies GameSummary,
-      201
+    return Effect.runPromise(
+      Effect.gen(function* () {
+        if (env.HOPON_OFFLINE === "1" || !env.AI) {
+          return yield* fail(
+            503,
+            "Connect Cloudflare Workers AI to create a game."
+          );
+        }
+        if (!(yield* spend(db, owner, 10))) {
+          return yield* fail(
+            429,
+            "Daily limit reached: 10 creations per account. Try again tomorrow."
+          );
+        }
+        const result = yield* generate(env, prompt);
+        const choice = result?.choices?.[0];
+        yield* Effect.logInfo("Generation result", {
+          characters: choice?.message?.content?.length,
+          finishReason: choice?.finish_reason,
+          model: env.AI_MODEL,
+        });
+        const game = yield* parseGame(choice?.message?.content);
+        const [row] = yield* Effect.promise(() =>
+          db
+            .insert(games)
+            .values({ owner, ...game })
+            .returning({ id: games.id })
+        );
+        return c.json(
+          {
+            description: game.description,
+            id: row.id,
+            title: game.title,
+          } satisfies GameSummary,
+          201
+        );
+      })
     );
   }
 );
@@ -423,7 +428,7 @@ app.post(
     }
     const game = await publishedGame(db, id);
     const { body } = c.req.valid("json");
-    if (!(await spend(db, `comment:${owner}`, 100))) {
+    if (!(await Effect.runPromise(spend(db, `comment:${owner}`, 100)))) {
       throw fail(
         429,
         "Daily limit reached: 100 comments per account. Try again tomorrow."
