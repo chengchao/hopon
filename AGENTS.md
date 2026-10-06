@@ -14,6 +14,15 @@ Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 
 Single-context: one root `GLOSSARY.md` plus `docs/adr/`, created lazily. See `docs/agents/domain.md`.
 
+### Vendored source
+
+`repos/effect` is Effect's source (v4), vendored with `git subtree` as read-only reference. When writing or reviewing Effect code, grep it for the real API and idiomatic patterns (`packages/*/src`, `packages/*/test`) before guessing or searching the web. Import from the `effect` npm package; edit nothing under `repos/`. Update by re-adding it; `git subtree pull` fails because squash-merged PRs drop the subtree metadata:
+
+```bash
+git rm -rq repos/effect && git commit -m "chore: drop vendored Effect for re-add"
+git subtree add --prefix=repos/effect https://github.com/Effect-TS/effect.git main --squash -m "chore: update vendored Effect"
+```
+
 # Ultracite Code Standards
 
 This project uses **Ultracite**, a zero-config preset that enforces strict code quality standards through automated formatting and linting.

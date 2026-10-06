@@ -1,9 +1,10 @@
 # Calls node_modules/.bin directly so hooks don't depend on how pnpm is installed.
-# Vendored Clerk skills and generated files are left exactly as their tools wrote them.
+# Vendored Clerk skills, vendored repos/, and generated files are left exactly as their tools wrote them.
 pre-commit:
   exclude:
     - ".agents/**"
     - ".claude/**"
+    - "repos/**"
     - "**/migrations/**"
     - "**/worker-configuration.d.ts"
     - "skills-lock.json"

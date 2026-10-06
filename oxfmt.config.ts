@@ -9,6 +9,7 @@ export default defineConfig({
     "**/migrations/**",
     ".agents/**",
     ".claude/**",
+    "repos/**",
     "skills-lock.json",
   ],
 });

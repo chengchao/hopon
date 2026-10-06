@@ -9,5 +9,6 @@ export default defineConfig({
     "**/migrations/**",
     ".agents/**",
     ".claude/**",
+    "repos/**",
   ],
 });
