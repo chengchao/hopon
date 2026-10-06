@@ -4,25 +4,14 @@ Make a small game from one sentence, then swipe a feed to discover and play othe
 
 ## Language
 
-**Game**:
-A small playable HTML game made from one sentence. It is a **Draft** until its **Creator** publishes it.
-_Avoid_: Microgame, app, post
+**Game**: A small playable HTML game made from one sentence. It is a **Draft** until its **Creator** publishes it. _Avoid_: Microgame, app, post
 
-**Draft**:
-A **Game** that only its **Creator** can see and play.
+**Draft**: A **Game** that only its **Creator** can see and play.
 
-**Creator**:
-The signed-in person who made a **Game**.
-_Avoid_: Author, owner (in product language)
+**Creator**: The signed-in person who made a **Game**. _Avoid_: Author, owner (in product language)
 
-**Handle**:
-The public @name a person picks; it is shown on their published **Games** and **Comments**.
-_Avoid_: Username, display name
+**Handle**: The public @name a person picks; it is shown on their published **Games** and **Comments**. _Avoid_: Username, display name
 
-**Save**:
-A private mark a signed-in person puts on a published **Game** so they can find it again later in their **Saved** list. Only that person ever sees their saves; unlike a like, nobody else can see or count them.
-_Avoid_: Bookmark, favorite
+**Save**: A private mark a signed-in person puts on a published **Game** so they can find it again later in their **Saved** list. Only that person ever sees their saves; unlike a like, nobody else can see or count them. _Avoid_: Bookmark, favorite
 
-**Comment**:
-A short plain-text note a signed-in person leaves on a published **Game**. Comments form one flat list per **Game**, with no replies, and either the person who wrote it or the **Game**'s **Creator** can delete it.
-_Avoid_: Reply, message, review
+**Comment**: A short plain-text note a signed-in person leaves on a published **Game**. Comments form one flat list per **Game**, with no replies, and either the person who wrote it or the **Game**'s **Creator** can delete it. _Avoid_: Reply, message, review

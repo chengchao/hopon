@@ -1,11 +1,12 @@
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Text } from '@/components/ui/text';
-import { cn } from '@/lib/utils';
-import { useUser } from '@clerk/expo';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { View } from 'react-native';
+import { useUser } from "@clerk/expo";
+import { router, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
+import { View } from "react-native";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Text } from "@/components/ui/text";
+import { cn } from "@/lib/utils";
 
 // Clerk usernames: at least 4 characters, not only digits. We keep them simple and lowercase.
 const HANDLE = /^(?=.*[a-z_])[a-z0-9_]{4,20}$/;
@@ -13,28 +14,44 @@ const HANDLE = /^(?=.*[a-z_])[a-z0-9_]{4,20}$/;
 // Shown once after the first sign-in (and before publishing): the @handle that appears on your games.
 export default function Handle() {
   // `auto`: opened right after sign-in, so skip straight on if a handle already exists.
-  const { next, auto } = useLocalSearchParams<{ next?: 'create'; auto?: '1' }>();
+  const { next, auto } = useLocalSearchParams<{
+    next?: "create";
+    auto?: "1";
+  }>();
   const { user } = useUser();
-  const [name, setName] = useState(user?.username ?? '');
-  const [error, setError] = useState('');
+  const [name, setName] = useState(user?.username ?? "");
+  const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const done = useCallback(() => (next === 'create' ? router.replace('/create') : router.back()), [next]);
+  const done = useCallback(
+    () => (next === "create" ? router.replace("/create") : router.back()),
+    [next]
+  );
   useEffect(() => {
-    if (auto && user?.username) done();
+    if (auto && user?.username) {
+      done();
+    }
   }, [auto, user?.username, done]);
 
   async function save() {
-    if (!user || !HANDLE.test(name) || saving) return;
+    if (!user || !HANDLE.test(name) || saving) {
+      return;
+    }
     setSaving(true);
-    setError('');
+    setError("");
     try {
       await user.update({ username: name });
       done();
-    } catch (e) {
-      const clerk = e as { errors?: { longMessage?: string; message?: string }[]; message?: string };
+    } catch (error) {
+      const clerk = error as {
+        errors?: { longMessage?: string; message?: string }[];
+        message?: string;
+      };
       setError(
-        clerk.errors?.[0]?.longMessage ?? clerk.errors?.[0]?.message ?? clerk.message ?? 'Could not save that name.',
+        clerk.errors?.[0]?.longMessage ??
+          clerk.errors?.[0]?.message ??
+          clerk.message ??
+          "Could not save that name."
       );
     } finally {
       setSaving(false);
@@ -44,7 +61,10 @@ export default function Handle() {
   return (
     <View className="flex-1 gap-5 bg-background px-6 pt-20">
       <View className="gap-2">
-        <Text accessibilityRole="header" className="font-display text-[52px] leading-[52px]">
+        <Text
+          accessibilityRole="header"
+          className="font-display text-[52px] leading-[52px]"
+        >
           Pick your name
         </Text>
         <Text className="text-base leading-[22px] text-muted-foreground">
@@ -55,7 +75,9 @@ export default function Handle() {
         <Text className="font-strong text-lg text-muted-foreground">@</Text>
         <Input
           value={name}
-          onChangeText={(text) => setName(text.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+          onChangeText={(text) =>
+            setName(text.toLowerCase().replaceAll(/[^a-z0-9_]/g, ""))
+          }
           placeholder="maya_makes"
           accessibilityLabel="Your name"
           autoCapitalize="none"
@@ -67,15 +89,26 @@ export default function Handle() {
           className="h-14 flex-1 border-0 bg-transparent px-1 text-lg dark:bg-transparent"
         />
       </View>
-      <Text className={cn('-mt-2 text-sm', error ? 'text-destructive' : 'text-muted-foreground')}>
-        {error || '4 to 20 characters: lowercase letters, numbers and underscores.'}
+      <Text
+        className={cn(
+          "-mt-2 text-sm",
+          error ? "text-destructive" : "text-muted-foreground"
+        )}
+      >
+        {error ||
+          "4 to 20 characters: lowercase letters, numbers and underscores."}
       </Text>
       <Button
-        className={cn('h-12 rounded-full', !HANDLE.test(name) && 'bg-card opacity-100')}
+        className={cn(
+          "h-12 rounded-full",
+          !HANDLE.test(name) && "bg-card opacity-100"
+        )}
         disabled={!HANDLE.test(name) || saving}
         onPress={() => void save()}
       >
-        <Text className={cn(!HANDLE.test(name) && 'text-muted-foreground')}>{saving ? 'Saving…' : 'Continue'}</Text>
+        <Text className={cn(!HANDLE.test(name) && "text-muted-foreground")}>
+          {saving ? "Saving…" : "Continue"}
+        </Text>
       </Button>
       <Button variant="ghost" onPress={done}>
         <Text>Not now</Text>

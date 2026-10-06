@@ -1,22 +1,28 @@
-import { Text } from '@/components/ui/text';
-import { COLORS } from '@/lib/theme';
-import { cn } from '@/lib/utils';
-import { router } from 'expo-router';
-import { Tabs, type BottomTabBarProps } from 'expo-router/js-tabs';
-import { Bookmark, Compass, Plus, User, type LucideIcon } from 'lucide-react-native';
-import { Pressable, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { router } from "expo-router";
+import { Tabs } from "expo-router/js-tabs";
+import type { BottomTabBarProps } from "expo-router/js-tabs";
+import { Bookmark, Compass, Plus, User } from "lucide-react-native";
+import type { LucideIcon } from "lucide-react-native";
+import { Pressable, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const MIST = '#AEB0E0';
+import { Text } from "@/components/ui/text";
+import { COLORS } from "@/lib/theme";
+import { cn } from "@/lib/utils";
+
+const MIST = "#AEB0E0";
 const TABS: { name: string; label: string; Icon: LucideIcon }[] = [
-  { name: 'index', label: 'Discover', Icon: Compass },
-  { name: 'saved', label: 'Saved', Icon: Bookmark },
-  { name: 'me', label: 'Me', Icon: User },
+  { Icon: Compass, label: "Discover", name: "index" },
+  { Icon: Bookmark, label: "Saved", name: "saved" },
+  { Icon: User, label: "Me", name: "me" },
 ];
 
 export default function TabsLayout() {
   return (
-    <Tabs screenOptions={{ headerShown: false }} tabBar={(props) => <TabBar {...props} />}>
+    <Tabs
+      screenOptions={{ headerShown: false }}
+      tabBar={(props) => <TabBar {...props} />}
+    >
       <Tabs.Screen name="index" />
       <Tabs.Screen name="saved" />
       <Tabs.Screen name="me" />
@@ -40,9 +46,20 @@ function TabBar({ state, navigation }: BottomTabBarProps) {
         className="flex-1 items-center gap-1 pt-1"
       >
         <View className="h-7 justify-center">
-          <Icon size={24} strokeWidth={focused ? 2.5 : 2} color={focused ? COLORS.ticket : MIST} />
+          <Icon
+            size={24}
+            strokeWidth={focused ? 2.5 : 2}
+            color={focused ? COLORS.ticket : MIST}
+          />
         </View>
-        <Text className={cn('text-xs', focused ? 'font-strong text-primary' : 'text-muted-foreground')}>{label}</Text>
+        <Text
+          className={cn(
+            "text-xs",
+            focused ? "font-strong text-primary" : "text-muted-foreground"
+          )}
+        >
+          {label}
+        </Text>
       </Pressable>
     );
   };
@@ -55,12 +72,17 @@ function TabBar({ state, navigation }: BottomTabBarProps) {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Make a game"
-        onPress={() => router.push('/create')}
+        onPress={() => router.push("/create")}
         className="flex-1 items-center gap-1 pt-1"
       >
         {({ pressed }) => (
           <>
-            <View className={cn('h-7 w-11 items-center justify-center rounded-lg bg-primary', pressed && 'opacity-80')}>
+            <View
+              className={cn(
+                "h-7 w-11 items-center justify-center rounded-lg bg-primary",
+                pressed && "opacity-80"
+              )}
+            >
               <Plus size={20} strokeWidth={3} color={COLORS.ink} />
             </View>
             <Text className="font-strong text-xs text-primary">Make</Text>

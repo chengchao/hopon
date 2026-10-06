@@ -9,6 +9,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "pnpm run fix --hook",
+            "type": "command"
+          }
+        ],
+        "matcher": "Write|Edit"
+      }
     ]
   }
 }

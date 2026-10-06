@@ -16,7 +16,8 @@
     "check": "pnpm -r test && oxlint && oxfmt --check && pnpm -r typecheck",
     "lint": "oxlint",
     "format": "oxfmt",
-    "format:check": "oxfmt --check"
+    "format:check": "oxfmt --check",
+    "fix": "ultracite fix"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.3",
@@ -25,7 +26,8 @@
     "lefthook": "^2.1.16",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "ultracite": "7.12.2"
   },
   "packageManager": "pnpm@12.9.1"
 }
