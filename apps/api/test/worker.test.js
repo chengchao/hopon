@@ -311,3 +311,73 @@ test('comments: counted in the feed', async (t) => {
   await call(`/api/comments/${posted.id}`, { method: 'DELETE' });
   assert.equal((await feed()).comments, 1);
 });
+test('saves: sign-in, published only, one per user, flagged in the feed, removable', async (t) => {
+  const { call, env, count } = await setup(t);
+  await assert.rejects(env.DB.prepare("INSERT INTO saves(game_id, user) VALUES (999999, 'x')").run(), /FOREIGN KEY/);
+  const [game] = (await (await call('/api/games')).json()).games;
+  const save = (id, options) => call(`/api/games/${id}/save`, { method: 'PUT', ...options });
+  assert.equal((await save(game.id, { user: '' })).status, 401);
+  assert.equal((await call(`/api/games/${game.id}/save`, { method: 'DELETE', user: '' })).status, 401);
+  assert.equal((await call('/api/saves', { user: '' })).status, 401);
+  assert.equal((await call('/api/saves/count', { user: '' })).status, 401);
+  const draft = await (await call('/api/games', { method: 'POST', body: { prompt: '点击星星的小游戏' } })).json();
+  assert.equal((await save(draft.id)).status, 404);
+  assert.equal((await save(999999)).status, 404);
+  assert.deepEqual(await (await save(game.id)).json(), { saved: true });
+  assert.deepEqual(await (await save(game.id)).json(), { saved: true });
+  assert.equal(await count('saves'), 1);
+  const feed = async (user) => (await (await call('/api/games', { user })).json()).games[0];
+  assert.deepEqual(await feed(), { ...game, saved: true });
+  assert.deepEqual(await feed(''), { ...game, saved: false });
+  assert.deepEqual(await (await call('/api/saves/count')).json(), { count: 1 });
+  const { games, next } = await (await call('/api/saves')).json();
+  assert.equal(next, null);
+  assert.equal(games.length, 1);
+  assert.equal(typeof games[0].saveId, 'number');
+  assert.deepEqual(games[0], { ...game, saved: true, saveId: games[0].saveId });
+  const unsave = await call(`/api/games/${game.id}/save`, { method: 'DELETE' });
+  assert.deepEqual(await unsave.json(), { saved: false });
+  assert.equal(await count('saves'), 0);
+  assert.deepEqual(await (await call('/api/saves/count')).json(), { count: 0 });
+  assert.deepEqual(await (await call('/api/saves')).json(), { games: [], next: null });
+});
+test('saves: private to the person who saved', async (t) => {
+  const { call } = await setup(t);
+  const [game] = (await (await call('/api/games')).json()).games;
+  await call(`/api/games/${game.id}/save`, { method: 'PUT', user: 'user_a' });
+  assert.deepEqual(await (await call('/api/saves', { user: 'user_b' })).json(), { games: [], next: null });
+  assert.deepEqual(await (await call('/api/saves/count', { user: 'user_b' })).json(), { count: 0 });
+  const feed = async (user) => (await (await call('/api/games', { user })).json()).games[0];
+  assert.equal((await feed('user_b')).saved, false);
+  assert.equal((await feed('user_a')).saved, true);
+  // Unsaving someone else's save only touches your own (absent) row.
+  await call(`/api/games/${game.id}/save`, { method: 'DELETE', user: 'user_b' });
+  assert.deepEqual(await (await call('/api/saves/count', { user: 'user_a' })).json(), { count: 1 });
+});
+test('saves: newest save first, 8 per page, no duplicates', async (t) => {
+  const { call, env, owner } = await setup(t);
+  for (let i = 0; i < 17; i++)
+    await env.DB.prepare('INSERT INTO games(owner,title,description,html,published) VALUES (?,?,?,?,1)')
+      .bind(owner, 'game ' + i, '', generated.html)
+      .run();
+  // Save newest game first, then the older ones: save order, not game order, decides the list.
+  const ids = (await env.DB.prepare('SELECT id FROM games ORDER BY id DESC').all()).results.map((r) => r.id);
+  for (const id of ids) await call(`/api/games/${id}/save`, { method: 'PUT' });
+  const page = async (query = '') => (await call(`/api/saves${query}`)).json();
+  const first = await page();
+  const second = await page(`?before=${first.next}`);
+  const third = await page(`?before=${second.next}`);
+  assert.equal(third.next, null);
+  const listed = [...first.games, ...second.games, ...third.games];
+  assert.deepEqual(
+    listed.map((g) => g.id),
+    [...ids].reverse(),
+  );
+  assert.equal(first.games.length, 8);
+  assert.ok(listed.every((g) => g.saved));
+  assert.equal(first.next, first.games[7].saveId);
+  assert.equal((await call('/api/saves?before=abc')).status, 400);
+  // The saved feed opens at a tapped game with before = its saveId + 1.
+  const tapped = second.games[2];
+  assert.equal((await page(`?before=${tapped.saveId + 1}`)).games[0].id, tapped.id);
+});

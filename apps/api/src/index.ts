@@ -2,7 +2,7 @@ import { verifyToken } from '@clerk/backend';
 import { and, count, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { fail, GAME_CSP, parseGame } from './game.ts';
-import { comments, games, generationLimits, likes } from './schema.ts';
+import { comments, games, generationLimits, likes, saves } from './schema.ts';
 
 // Secrets/vars outside wrangler.jsonc, so `wrangler types` can't see them.
 type HoponEnv = Env & { CLERK_JWT_KEY?: string; HOPON_OFFLINE?: string };
@@ -79,6 +79,23 @@ async function spend(db: ReturnType<typeof drizzle>, key: string, max: number) {
   return !!row;
 }
 
+// A feed card: the public fields, counts, and whether the signed-in user (if any) liked or saved it.
+const feedColumns = (owner = '') => ({
+  id: games.id,
+  title: games.title,
+  description: games.description,
+  author: games.author,
+  // Qualified by hand: Drizzle leaves columns bare in a one-table select, and a bare "id" here would mean comments.id.
+  likes: sql<number>`(SELECT COUNT(*) FROM ${likes} WHERE ${likes}.game_id = ${games}.id)`,
+  comments: sql<number>`(SELECT COUNT(*) FROM ${comments} WHERE ${comments}.game_id = ${games}.id)`,
+  liked: sql`EXISTS(SELECT 1 FROM ${likes} WHERE ${likes}.game_id = ${games}.id AND ${likes}.user = ${owner})`.mapWith(
+    Boolean,
+  ),
+  saved: sql`EXISTS(SELECT 1 FROM ${saves} WHERE ${saves}.game_id = ${games}.id AND ${saves}.user = ${owner})`.mapWith(
+    Boolean,
+  ),
+});
+
 async function route(request: Request, env: HoponEnv) {
   const db = drizzle(env.DB);
   const url = new URL(request.url);
@@ -89,19 +106,7 @@ async function route(request: Request, env: HoponEnv) {
   if (path === '/api/games' && request.method === 'GET') {
     const before = cursor(url);
     const results = await db
-      .select({
-        id: games.id,
-        title: games.title,
-        description: games.description,
-        author: games.author,
-        // Qualified by hand: Drizzle leaves columns bare in a one-table select, and a bare "id" here would mean comments.id.
-        likes: sql<number>`(SELECT COUNT(*) FROM ${likes} WHERE ${likes}.game_id = ${games}.id)`,
-        comments: sql<number>`(SELECT COUNT(*) FROM ${comments} WHERE ${comments}.game_id = ${games}.id)`,
-        liked:
-          sql`EXISTS(SELECT 1 FROM ${likes} WHERE ${likes}.game_id = ${games}.id AND ${likes}.user = ${owner ?? ''})`.mapWith(
-            Boolean,
-          ),
-      })
+      .select(feedColumns(owner))
       .from(games)
       .where(and(eq(games.published, 1), lt(games.id, before)))
       .orderBy(desc(games.id))
@@ -111,6 +116,22 @@ async function route(request: Request, env: HoponEnv) {
   if (path === '/api/likes/count' && request.method === 'GET') {
     if (!owner) throw fail(401, 'Sign in to see your likes.');
     const row = await db.select({ count: count() }).from(likes).where(eq(likes.user, owner)).get();
+    return json({ count: row!.count });
+  }
+  if (path === '/api/saves' && request.method === 'GET') {
+    if (!owner) throw fail(401, 'Sign in to see your saved games.');
+    const results = await db
+      .select({ ...feedColumns(owner), saveId: saves.id })
+      .from(saves)
+      .innerJoin(games, eq(games.id, saves.gameId))
+      .where(and(eq(saves.user, owner), eq(games.published, 1), lt(saves.id, cursor(url))))
+      .orderBy(desc(saves.id))
+      .limit(9);
+    return json({ games: results.slice(0, 8), next: results.length > 8 ? results[7].saveId : null });
+  }
+  if (path === '/api/saves/count' && request.method === 'GET') {
+    if (!owner) throw fail(401, 'Sign in to see your saved games.');
+    const row = await db.select({ count: count() }).from(saves).where(eq(saves.user, owner)).get();
     return json({ count: row!.count });
   }
   if (path === '/api/drafts/latest' && request.method === 'GET') {
@@ -185,7 +206,7 @@ async function route(request: Request, env: HoponEnv) {
     if (!deleted) throw fail(404, 'Comment not found.');
     return new Response(null, { status: 204 });
   }
-  const match = /^\/api\/games\/([1-9]\d{0,14})\/(document|publish|like|comments)$/.exec(path);
+  const match = /^\/api\/games\/([1-9]\d{0,14})\/(document|publish|like|save|comments)$/.exec(path);
   if (match) {
     const id = Number(match[1]);
     if (match[2] === 'comments' && (request.method === 'GET' || request.method === 'POST')) {
@@ -241,13 +262,20 @@ async function route(request: Request, env: HoponEnv) {
       if (!game) throw fail(404, 'Draft not found.');
       return json({ id: game.id });
     }
-    if (match[2] === 'like' && (request.method === 'PUT' || request.method === 'DELETE')) {
+    if ((match[2] === 'like' || match[2] === 'save') && (request.method === 'PUT' || request.method === 'DELETE')) {
       const game = await db
         .select({ id: games.id })
         .from(games)
         .where(and(eq(games.id, id), eq(games.published, 1)))
         .get();
       if (!game) throw fail(404, 'This game does not exist or is not published yet.');
+      if (match[2] === 'save') {
+        // Private, so no count comes back.
+        const saved = request.method === 'PUT';
+        if (saved) await db.insert(saves).values({ gameId: id, user: owner! }).onConflictDoNothing();
+        else await db.delete(saves).where(and(eq(saves.gameId, id), eq(saves.user, owner!)));
+        return json({ saved });
+      }
       const liked = request.method === 'PUT';
       if (liked) await db.insert(likes).values({ gameId: id, user: owner! }).onConflictDoNothing();
       else await db.delete(likes).where(and(eq(likes.gameId, id), eq(likes.user, owner!)));
