@@ -27,13 +27,13 @@ export function Feed({ path, start, empty }: { path: string; start?: number; emp
   useEffect(() => {
     token.current = getToken;
   });
-  const list = useRef<FlatList<Game>>(null);
+  // State, not a ref, so the pan handlers built during render never read a ref.
+  const [list, setList] = useState<FlatList<Game> | null>(null);
   const busy = useRef(false);
-  const origin = useRef(0);
 
   const scrollTo = useCallback(
-    (offset: number, animated: boolean) => list.current?.scrollToOffset({ offset, animated }),
-    [],
+    (offset: number, animated: boolean) => list?.scrollToOffset({ offset, animated }),
+    [list],
   );
   // `more` appends the page after `before`; otherwise the page replaces the feed.
   const load = useCallback(
@@ -117,18 +117,15 @@ export function Feed({ path, start, empty }: { path: string; start?: number; emp
   );
 
   // Only the name/description area pages the feed; the game keeps every touch. A drag moves at most one game.
+  // `active` only changes when a drag settles, so `origin` holds for the whole gesture.
   const pan = useMemo(() => {
-    const position = (dy: number) =>
-      Math.max(origin.current - height, Math.min(origin.current + height, origin.current - dy));
-    const settle = (dy: number) =>
-      go(Math.round(snapTarget(origin.current, position(dy), height, games.length) / height));
+    const origin = active * height;
+    const position = (dy: number) => Math.max(origin - height, Math.min(origin + height, origin - dy));
+    const settle = (dy: number) => go(Math.round(snapTarget(origin, position(dy), height, games.length) / height));
     return PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponderCapture: (_, g) => Math.abs(g.dy) > 8 && Math.abs(g.dy) > Math.abs(g.dx),
       onPanResponderTerminationRequest: () => false,
-      onPanResponderGrant: () => {
-        origin.current = active * height;
-      },
       onPanResponderMove: (_, g) => scrollTo(position(g.dy), false),
       onPanResponderRelease: (_, g) => settle(g.dy),
       onPanResponderTerminate: (_, g) => settle(g.dy),
@@ -140,7 +137,7 @@ export function Feed({ path, start, empty }: { path: string; start?: number; emp
       <View className="flex-1" onLayout={(e) => setHeight(e.nativeEvent.layout.height)}>
         {height > 0 && (
           <FlatList
-            ref={list}
+            ref={setList}
             data={games}
             keyExtractor={(game) => String(game.id)}
             scrollEnabled={false}
