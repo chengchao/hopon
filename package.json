@@ -13,8 +13,8 @@
     "db:remote": "pnpm -F api db:remote",
     "deploy": "pnpm -F api deploy",
     "test": "pnpm -r test",
-    "check": "pnpm -r test && oxlint && oxfmt --check && pnpm -r typecheck",
-    "lint": "oxlint",
+    "check": "pnpm -r test && oxlint --disable-nested-config && oxfmt --check && pnpm -r typecheck",
+    "lint": "oxlint --disable-nested-config",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "fix": "ultracite fix"
