@@ -22,3 +22,50 @@ export const newComment = z.object({
     })
   ),
 });
+
+// What the API sends back. The API checks each response with `satisfies`, so renaming a field breaks the build instead of a screen.
+
+/** A new game, or the signed-in user's latest draft. */
+export interface GameSummary {
+  id: number;
+  title: string;
+  description: string;
+}
+
+/** A published game on a feed, as the viewer sees it. */
+export interface FeedGame extends GameSummary {
+  /** The creator's @handle when they published. */
+  author: string | null;
+  likes: number;
+  liked: boolean;
+  comments: number;
+  /** Saves are private, so there's no count. */
+  saved: boolean;
+}
+
+/** A game in the viewer's Saved list. */
+export interface SavedGame extends FeedGame {
+  /** The save's id, which is the list's paging cursor. */
+  saveId: number;
+}
+
+export interface Comment {
+  id: number;
+  /** The commenter's @handle when they posted. */
+  author: string;
+  body: string;
+  createdAt: string;
+  /** True for the commenter and for the game's creator. */
+  canDelete: boolean;
+}
+
+// Pages run newest first. `next` is the `?before=` cursor for the following page, or null after the last one.
+export interface GamePage<T extends FeedGame = FeedGame> {
+  games: T[];
+  next: number | null;
+}
+
+export interface CommentPage {
+  comments: Comment[];
+  next: number | null;
+}

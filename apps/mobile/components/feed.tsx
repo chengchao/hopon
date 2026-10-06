@@ -1,4 +1,5 @@
 import { useAuth } from "@clerk/expo";
+import type { FeedGame, GamePage } from "@hopon/schemas";
 import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessibilityInfo, FlatList, PanResponder, View } from "react-native";
@@ -10,7 +11,6 @@ import { TicketActions } from "@/components/ticket-actions";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api, gameUrl } from "@/lib/api";
-import type { Game } from "@/lib/api";
 import { snapTarget } from "@/lib/feed-motion";
 
 // The vertical, one-game-at-a-time feed over a paged endpoint (`?before=` cursor). `start` is the first page's cursor.
@@ -23,14 +23,14 @@ export const Feed = ({
   start?: number;
   empty: string;
 }) => {
-  const [games, setGames] = useState<Game[]>([]);
+  const [games, setGames] = useState<FeedGame[]>([]);
   const [active, setActive] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [next, setNext] = useState<number | null>(null);
   const [height, setHeight] = useState(0);
   const [reduceMotion, setReduceMotion] = useState(false);
-  const [commentsFor, setCommentsFor] = useState<Game | null>(null);
+  const [commentsFor, setCommentsFor] = useState<FeedGame | null>(null);
   const { isSignedIn, getToken } = useAuth();
   // Clerk's getToken isn't referentially stable, so `load` reads it through a ref instead of its deps.
   const token = useRef(getToken);
@@ -38,7 +38,7 @@ export const Feed = ({
     token.current = getToken;
   });
   // State, not a ref, so the pan handlers built during render never read a ref.
-  const [list, setList] = useState<FlatList<Game> | null>(null);
+  const [list, setList] = useState<FlatList<FeedGame> | null>(null);
   const busy = useRef(false);
 
   const scrollTo = useCallback(
@@ -56,7 +56,7 @@ export const Feed = ({
       setLoading(true);
       setError("");
       try {
-        const data = await api<{ games: Game[]; next: number | null }>(
+        const data = await api<GamePage>(
           `${path}${before ? `?before=${before}` : ""}`,
           {
             token: await token.current(),
@@ -93,29 +93,32 @@ export const Feed = ({
     return () => sub.remove();
   }, []);
 
-  const patch = (id: number, fields: Partial<Game>) =>
+  const patch = (id: number, fields: Partial<FeedGame>) =>
     setGames((old) => old.map((g) => (g.id === id ? { ...g, ...fields } : g)));
   // Optimistic: flip the heart now, then settle on the server's count, or flip back if the request fails.
-  const like = async (game: Game) => {
+  const like = async (game: FeedGame) => {
     if (!isSignedIn) {
       return router.push("/sign-in");
     }
     const liked = !game.liked;
-    patch(game.id, { liked, likes: (game.likes ?? 0) + (liked ? 1 : -1) });
+    patch(game.id, { liked, likes: game.likes + (liked ? 1 : -1) });
     try {
       patch(
         game.id,
-        await api<Pick<Game, "liked" | "likes">>(`/api/games/${game.id}/like`, {
-          method: liked ? "PUT" : "DELETE",
-          token: await getToken(),
-        })
+        await api<Pick<FeedGame, "liked" | "likes">>(
+          `/api/games/${game.id}/like`,
+          {
+            method: liked ? "PUT" : "DELETE",
+            token: await getToken(),
+          }
+        )
       );
     } catch {
       patch(game.id, { liked: game.liked, likes: game.likes });
     }
   };
   // Same for the save. An unsaved game stays in the feed (even the Saved one) until you leave it.
-  const save = async (game: Game) => {
+  const save = async (game: FeedGame) => {
     if (!isSignedIn) {
       return router.push("/sign-in");
     }
@@ -124,7 +127,7 @@ export const Feed = ({
     try {
       patch(
         game.id,
-        await api<Pick<Game, "saved">>(`/api/games/${game.id}/save`, {
+        await api<Pick<FeedGame, "saved">>(`/api/games/${game.id}/save`, {
           method: saved ? "PUT" : "DELETE",
           token: await getToken(),
         })
@@ -281,7 +284,7 @@ export const Feed = ({
         onCount={(id, delta) =>
           setGames((old) =>
             old.map((g) =>
-              g.id === id ? { ...g, comments: (g.comments ?? 0) + delta } : g
+              g.id === id ? { ...g, comments: g.comments + delta } : g
             )
           )
         }

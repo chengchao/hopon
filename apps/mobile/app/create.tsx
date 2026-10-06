@@ -1,5 +1,6 @@
 import { useAuth, useUser } from "@clerk/expo";
 import { newGame, PROMPT_MAX } from "@hopon/schemas";
+import type { GameSummary } from "@hopon/schemas";
 import { Redirect, router } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, View } from "react-native";
@@ -11,7 +12,6 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Textarea } from "@/components/ui/textarea";
 import { api, gameUrl } from "@/lib/api";
-import type { Game } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const examples = [
@@ -37,7 +37,7 @@ const Create = () => {
   const { isLoaded, isSignedIn, getToken } = useAuth();
   const { user } = useUser();
   const [prompt, setPrompt] = useState("");
-  const [draft, setDraft] = useState<Game | null>(null);
+  const [draft, setDraft] = useState<GameSummary | null>(null);
   const [preview, setPreview] = useState<{ key: number; token?: string }>({
     key: 0,
   });
@@ -48,7 +48,7 @@ const Create = () => {
 
   // Clerk tokens live ~60s, so every request and every preview load gets a fresh one.
   const showDraft = useCallback(
-    async (game: Game | null) => {
+    async (game: GameSummary | null) => {
       setDraft(game);
       if (game) {
         const token = (await getToken()) ?? undefined;
@@ -67,9 +67,12 @@ const Create = () => {
     restored.current = true;
     const restore = async () => {
       try {
-        const latest = await api<{ draft: Game | null }>("/api/drafts/latest", {
-          token: await getToken(),
-        });
+        const latest = await api<{ draft: GameSummary | null }>(
+          "/api/drafts/latest",
+          {
+            token: await getToken(),
+          }
+        );
         await showDraft(latest.draft);
       } catch (restoreError) {
         setError((restoreError as Error).message);
@@ -97,7 +100,7 @@ const Create = () => {
     setError("");
     try {
       await showDraft(
-        await api<Game>("/api/games", {
+        await api<GameSummary>("/api/games", {
           body: { prompt },
           token: await getToken(),
         })

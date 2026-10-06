@@ -1,6 +1,14 @@
 import { verifyToken } from "@clerk/backend";
 import { zValidator } from "@hono/zod-validator";
 import { newComment, newGame } from "@hopon/schemas";
+import type {
+  Comment,
+  CommentPage,
+  FeedGame,
+  GamePage,
+  GameSummary,
+  SavedGame,
+} from "@hopon/schemas";
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
@@ -221,7 +229,7 @@ app.get("/api/games", async (c) => {
   return c.json({
     games: results.slice(0, 8),
     next: results.length > 8 ? results[7].id : null,
-  });
+  } satisfies GamePage);
 });
 
 app.get("/api/likes/count", async (c) => {
@@ -253,7 +261,7 @@ app.get("/api/saves", async (c) => {
   return c.json({
     games: results.slice(0, 8),
     next: results.length > 8 ? results[7].saveId : null,
-  });
+  } satisfies GamePage<SavedGame>);
 });
 
 app.get("/api/saves/count", async (c) => {
@@ -279,7 +287,9 @@ app.get("/api/drafts/latest", async (c) => {
     .where(and(eq(games.owner, owner), eq(games.published, 0)))
     .orderBy(desc(games.id))
     .get();
-  return c.json({ draft: draft ?? null });
+  return c.json({ draft: draft ?? null } satisfies {
+    draft: GameSummary | null;
+  });
 });
 
 app.post(
@@ -307,13 +317,16 @@ app.post(
       model: env.AI_MODEL,
     });
     const game = parseGame(choice?.message?.content);
-    const row = await db
+    const [row] = await db
       .insert(games)
       .values({ owner, ...game })
-      .returning({ id: games.id })
-      .get();
+      .returning({ id: games.id });
     return c.json(
-      { description: game.description, id: row?.id, title: game.title },
+      {
+        description: game.description,
+        id: row.id,
+        title: game.title,
+      } satisfies GameSummary,
       201
     );
   }
@@ -366,7 +379,7 @@ const commentView = (
   { user, ...comment }: typeof comments.$inferSelect,
   viewer: string | undefined,
   gameOwner: string
-) => ({
+): Comment => ({
   author: comment.author,
   body: comment.body,
   canDelete: user === viewer || gameOwner === viewer,
@@ -394,7 +407,7 @@ app.get(`/api/games/${ID}/comments`, async (c) => {
       .slice(0, 30)
       .map((row) => commentView(row, owner, game.owner)),
     next: rows.length > 30 ? rows[29].id : null,
-  });
+  } satisfies CommentPage);
 });
 
 app.post(
@@ -467,13 +480,16 @@ app.on(["PUT", "DELETE"], `/api/games/${ID}/:kind{like|save}`, async (c) => {
       : db
           .delete(saves)
           .where(and(eq(saves.gameId, id), eq(saves.user, owner))));
-    return c.json({ saved });
+    return c.json({ saved } satisfies Pick<FeedGame, "saved">);
   }
   const liked = c.req.method === "PUT";
   await (liked
     ? db.insert(likes).values({ gameId: id, user: owner }).onConflictDoNothing()
     : db.delete(likes).where(and(eq(likes.gameId, id), eq(likes.user, owner))));
-  return c.json({ liked, likes: await db.$count(likes, eq(likes.gameId, id)) });
+  return c.json({
+    liked,
+    likes: await db.$count(likes, eq(likes.gameId, id)),
+  } satisfies Pick<FeedGame, "liked" | "likes">);
 });
 
 app.get(`/api/games/${ID}/document`, async (c) => {
