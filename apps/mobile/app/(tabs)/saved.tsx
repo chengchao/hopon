@@ -1,20 +1,22 @@
-import { Byline, Ticket } from '@/components/Ticket';
-import { Button } from '@/components/ui/button';
-import { Text } from '@/components/ui/text';
-import { api, type Game } from '@/lib/api';
-import { useAuth } from '@clerk/expo';
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { FlatList, Pressable, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from "@clerk/expo";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { FlatList, Pressable, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-export default function Saved() {
+import { Byline, Ticket } from "@/components/ticket";
+import { Button } from "@/components/ui/button";
+import { Text } from "@/components/ui/text";
+import { api } from "@/lib/api";
+import type { Game } from "@/lib/api";
+
+const Saved = () => {
   const insets = useSafeAreaInsets();
   const { isLoaded, isSignedIn, getToken } = useAuth();
   const [games, setGames] = useState<Game[]>([]);
   const [next, setNext] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   // Clerk's getToken isn't referentially stable, so `load` reads it through a ref instead of its deps.
   const token = useRef(getToken);
   useEffect(() => {
@@ -26,56 +28,81 @@ export default function Saved() {
 
   // No `before` refreshes from the newest save; a `before` appends the next page.
   const load = useCallback(async (before?: number) => {
-    if (before && busy.current) return;
-    const current = before ? generation.current : ++generation.current;
+    if (before && busy.current) {
+      return;
+    }
+    if (!before) {
+      generation.current += 1;
+    }
+    const { current } = generation;
     busy.current = true;
     setLoading(true);
-    setError('');
+    setError("");
     try {
-      const data = await api<{ games: Game[]; next: number | null }>(`/api/saves${before ? `?before=${before}` : ''}`, {
-        token: await token.current(),
-      });
-      if (current !== generation.current) return;
-      setGames((old) => (before ? [...old, ...data.games] : data.games));
-      setNext(data.next);
-    } catch (e) {
-      if (current === generation.current) setError((e as Error).message);
-    } finally {
+      const data = await api<{ games: Game[]; next: number | null }>(
+        `/api/saves${before ? `?before=${before}` : ""}`,
+        {
+          token: await token.current(),
+        }
+      );
       if (current === generation.current) {
-        busy.current = false;
-        setLoading(false);
+        setGames((old) => (before ? [...old, ...data.games] : data.games));
+        setNext(data.next);
       }
+    } catch (loadError) {
+      if (current === generation.current) {
+        setError((loadError as Error).message);
+      }
+    }
+    if (current === generation.current) {
+      busy.current = false;
+      setLoading(false);
     }
   }, []);
 
   // Refetched whenever Saved comes into view, so saves made or removed elsewhere show up.
   useFocusEffect(
     useCallback(() => {
-      if (isSignedIn) void load();
-      else {
-        generation.current++;
+      if (isSignedIn) {
+        load();
+      } else {
+        generation.current += 1;
         setGames([]);
         setNext(null);
       }
-    }, [isSignedIn, load]),
+    }, [isSignedIn, load])
   );
 
   const header = (
-    <Text accessibilityRole="header" className="px-2 pb-1 pt-4 font-display text-[44px] leading-[48px]">
+    <Text
+      accessibilityRole="header"
+      className="px-2 pb-1 pt-4 font-display text-[44px] leading-[48px]"
+    >
       Saved
     </Text>
   );
-  if (!isLoaded) return <View className="flex-1 bg-background" />;
-  if (!isSignedIn)
+  if (!isLoaded) {
+    return <View className="flex-1 bg-background" />;
+  }
+  if (!isSignedIn) {
     return (
-      <View className="flex-1 gap-4 bg-background px-3" style={{ paddingTop: insets.top }}>
+      <View
+        className="flex-1 gap-4 bg-background px-3"
+        style={{ paddingTop: insets.top }}
+      >
         {header}
-        <Text className="px-2 text-base leading-[22px] text-muted-foreground">Sign in to see your saved games</Text>
-        <Button className="mx-2 h-12 self-start rounded-full px-6" onPress={() => router.push('/sign-in')}>
+        <Text className="px-2 text-base leading-[22px] text-muted-foreground">
+          Sign in to see your saved games
+        </Text>
+        <Button
+          className="mx-2 h-12 self-start rounded-full px-6"
+          onPress={() => router.push("/sign-in")}
+        >
           <Text>Sign in</Text>
         </Button>
       </View>
     );
+  }
   return (
     <View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
       <FlatList
@@ -84,7 +111,9 @@ export default function Saved() {
         contentContainerClassName="gap-4 px-3 pb-6"
         ListHeaderComponent={header}
         onEndReached={() => {
-          if (next && !error) void load(next);
+          if (next && !error) {
+            load(next);
+          }
         }}
         renderItem={({ item }) => (
           <Pressable
@@ -107,7 +136,7 @@ export default function Saved() {
         ListEmptyComponent={
           loading || error ? null : (
             <Text className="px-2 pt-2 text-base leading-[22px] text-muted-foreground">
-              Tap the bookmark on a game's ticket to keep it here.
+              Tap the bookmark on a game&apos;s ticket to keep it here.
             </Text>
           )
         }
@@ -118,7 +147,9 @@ export default function Saved() {
               <Button
                 variant="outline"
                 className="rounded-full"
-                onPress={() => void load(games.length ? (next ?? undefined) : undefined)}
+                onPress={() =>
+                  load(games.length ? (next ?? undefined) : undefined)
+                }
               >
                 <Text>Try again</Text>
               </Button>
@@ -128,4 +159,6 @@ export default function Saved() {
       />
     </View>
   );
-}
+};
+
+export default Saved;

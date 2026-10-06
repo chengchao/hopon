@@ -1,20 +1,16 @@
 # Calls node_modules/.bin directly so hooks don't depend on how pnpm is installed.
 # Vendored Clerk skills and generated files are left exactly as their tools wrote them.
 pre-commit:
-  parallel: true
   exclude:
-    - '.agents/**'
-    - '.claude/**'
-    - '**/migrations/**'
-    - '**/worker-configuration.d.ts'
-    - 'skills-lock.json'
+    - ".agents/**"
+    - ".claude/**"
+    - "**/migrations/**"
+    - "**/worker-configuration.d.ts"
+    - "skills-lock.json"
   commands:
-    lint:
-      glob: '*.{js,cjs,ts,tsx}'
-      run: node_modules/.bin/oxlint {staged_files}
-    format:
-      glob: '*.{js,cjs,ts,tsx,json,jsonc,css,md,yml}'
-      run: node_modules/.bin/oxfmt --no-error-on-unmatched-pattern {staged_files}
+    fix:
+      glob: "*.{js,cjs,ts,tsx,json,jsonc,css,md,yml}"
+      run: node_modules/.bin/ultracite fix {staged_files}
       stage_fixed: true
 
 commit-msg:

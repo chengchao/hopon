@@ -9,13 +9,17 @@ Initial documentation research: 2026-09-09. Subsequent live inference and deploy
 Install `@tanstack/react-start`, `@tanstack/react-router`, `react`, `react-dom`; development dependencies are `vite`, `@vitejs/plugin-react`, `@cloudflare/vite-plugin`, `wrangler`, and TypeScript/types if using TS. Start generates the route tree; retain only the root route, index route and router required by this application. [TanStack build from scratch](https://tanstack.com/start/latest/docs/framework/react/build-from-scratch)
 
 ```js
-import { defineConfig } from 'vite';
-import { cloudflare } from '@cloudflare/vite-plugin';
-import { tanstackStart } from '@tanstack/react-start/plugin/vite';
-import react from '@vitejs/plugin-react';
+import { defineConfig } from "vite";
+import { cloudflare } from "@cloudflare/vite-plugin";
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import react from "@vitejs/plugin-react";
 
 export default defineConfig({
-  plugins: [cloudflare({ viteEnvironment: { name: 'ssr' } }), tanstackStart(), react()],
+  plugins: [
+    cloudflare({ viteEnvironment: { name: "ssr" } }),
+    tanstackStart(),
+    react(),
+  ],
 });
 ```
 
@@ -24,12 +28,14 @@ Use `vite dev`, `vite build`, `vite preview`, and `vite build && wrangler deploy
 The following adaptation preserves the existing API handler without adding another router:
 
 ```js
-import handler from '@tanstack/react-start/server-entry';
-import api from './worker.js';
+import handler from "@tanstack/react-start/server-entry";
+import api from "./worker.js";
 
 export default {
   fetch(request, env) {
-    return new URL(request.url).pathname.startsWith('/api/') ? api.fetch(request, env) : handler.fetch(request);
+    return new URL(request.url).pathname.startsWith("/api/")
+      ? api.fetch(request, env)
+      : handler.fetch(request);
   },
 };
 ```
@@ -68,14 +74,14 @@ The K2.5 diagnostic completed with valid JSON in 141.1 seconds and zero reasonin
 
 With the deployed K2.5 configuration, a fresh production natural-language request created private Button Sprint draft #2 in 110.972 seconds (HTTP 201). Its owner document returned 200 with the game CSP; an unauthenticated request returned 404. Its inline JavaScript parsed successfully. The exact returned HTML, without edits, was then served locally under that same CSP for browser verification: START, five-second timeout, Play Again reset, five taps, and YOU WIN with 5/5 all worked. The test draft remains unpublished; the existing published Ocean Memory and the two labeled originals remain the public feed.
 
-| Requirement                         | Authoritative evidence                                                                                                                                                                                          |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Natural-language creation           | Deployed POST `/api/games` produced Button Sprint from an English gameplay prompt, saved in D1; exact output passed browser win/loss/retry checks.                                                              |
-| Preview and publish                 | Owner-only document and publish checks pass against real SQLite; deployed Ocean Memory is publicly playable after publishing.                                                                                   |
-| Browse other games vertically       | Deployed feed shows Ocean Memory, Toast Panic, Odd Duck. Browser scrolling the description advances a full game height. Drag and snap checks cover short and long gestures; game-area scrolling stays in place. |
-| English UI                          | Source routes, game instructions, navigation, errors and rendered production pages are English.                                                                                                                 |
-| Cloudflare stack and TanStack Start | Deployed Worker version `754628ba-3467-4910-9bde-af18386905aa`, D1 binding and Workers AI binding; TanStack client/SSR build and TypeScript check pass.                                                         |
-| Minimal scope                       | Discover and Create routes only; no comments, likes, follows, rankings, payments or messaging.                                                                                                                  |
-| Research and requested microgames   | UI research records Aippy/Sekai observations and the user's gesture correction. Toast Panic and Odd Duck are original short microgames with tested outcomes, not copies of Nintendo assets.                     |
+| Requirement | Authoritative evidence |
+| --- | --- |
+| Natural-language creation | Deployed POST `/api/games` produced Button Sprint from an English gameplay prompt, saved in D1; exact output passed browser win/loss/retry checks. |
+| Preview and publish | Owner-only document and publish checks pass against real SQLite; deployed Ocean Memory is publicly playable after publishing. |
+| Browse other games vertically | Deployed feed shows Ocean Memory, Toast Panic, Odd Duck. Browser scrolling the description advances a full game height. Drag and snap checks cover short and long gestures; game-area scrolling stays in place. |
+| English UI | Source routes, game instructions, navigation, errors and rendered production pages are English. |
+| Cloudflare stack and TanStack Start | Deployed Worker version `754628ba-3467-4910-9bde-af18386905aa`, D1 binding and Workers AI binding; TanStack client/SSR build and TypeScript check pass. |
+| Minimal scope | Discover and Create routes only; no comments, likes, follows, rankings, payments or messaging. |
+| Research and requested microgames | UI research records Aippy/Sekai observations and the user's gesture correction. Toast Panic and Odd Duck are original short microgames with tested outcomes, not copies of Nintendo assets. |
 
 All ten automated checks pass. The product's requested creation/publication/browsing flow is verified. Model generation remains stochastic: provider outages and malformed output are surfaced as errors, and preview-before-publish remains necessary; the observed 111 seconds is a measurement, not a service guarantee.
