@@ -13,7 +13,7 @@ During the migration, Hono stays the HTTP shell: routing, `bodyLimit`, headers, 
 ## Order
 
 1. Done: generation (`POST /api/games`). The AI output is decoded with Schema, and `Effect.timeoutOrElse` replaces the hand-rolled timer.
-2. The other routes, using the same bridge. Move per-request dependencies (db, AI, viewer) into `Context.Service`s once more than one route needs them.
+2. Done: every route. `run(c, effect)` provides the `Db` and `Viewer` services from the Hono context. Middleware (session, body validation, body limit) stays in Hono until step 3.
 3. Replace Hono with `effect/http-api`. This also moves the request and response schemas in `packages/schemas` from zod to Effect Schema, so mobile changes in the same step.
 4. Optionally, replace Drizzle with `@effect/sql-d1`.
 
