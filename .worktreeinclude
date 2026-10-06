@@ -1,0 +1,3 @@
+# Gitignored files copied into each new Claude Code worktree (gitignore syntax), so the app and local API run there.
+apps/mobile/.env
+apps/api/.dev.vars
