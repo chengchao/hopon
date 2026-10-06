@@ -1,4 +1,5 @@
 import { useAuth, useUser } from "@clerk/expo";
+import { newGame, PROMPT_MAX } from "@hopon/schemas";
 import { Redirect, router } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, View } from "react-native";
@@ -133,7 +134,7 @@ const Create = () => {
   };
 
   const locked = busy || publishing;
-  const canMake = !locked && prompt.trim().length >= 4;
+  const canMake = !locked && newGame.safeParse({ prompt }).success;
   const makeLabel = draft ? "Make it again" : "Make the game";
   return (
     <ScrollView
@@ -171,7 +172,7 @@ const Create = () => {
         <Textarea
           value={prompt}
           onChangeText={setPrompt}
-          maxLength={2000}
+          maxLength={PROMPT_MAX}
           editable={!locked}
           accessibilityLabel="Game idea"
           placeholder="A cat on the moon. Tap to dodge meteors and collect stars."
@@ -196,7 +197,7 @@ const Create = () => {
         </View>
         <View className="flex-row items-center justify-between pt-1">
           <Text className="text-sm text-muted-foreground">
-            {prompt.length} / 2000
+            {prompt.length} / {PROMPT_MAX}
           </Text>
           <Button
             className={cn(

@@ -202,6 +202,9 @@ importers:
       '@hono/zod-validator':
         specifier: ^0.9.1
         version: 0.9.1(hono@4.13.13)(zod@4.6.5)
+      '@hopon/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
       drizzle-orm:
         specifier: ^0.45.3
         version: 0.45.3
@@ -230,6 +233,9 @@ importers:
       '@expo-google-fonts/big-shoulders-display':
         specifier: ^0.2.3
         version: 0.2.3
+      '@hopon/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
       '@rn-primitives/portal':
         specifier: ^1.5.3
         version: 1.5.3(@types/react@19.3.0)(react-native@0.86.3(@babel/core@7.29.7(supports-color@10.2.2))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@10.2.2))(supports-color@10.2.2))(@types/react@19.3.0)(react@19.2.3)(supports-color@10.2.2))(react@19.2.3)
@@ -321,6 +327,12 @@ importers:
       '@types/react':
         specifier: ^19.2.18
         version: 19.3.0
+
+  packages/schemas:
+    dependencies:
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
 packages:
 
