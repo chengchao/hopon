@@ -6,6 +6,18 @@ export type Game = {
   /** Feed only: total likes, and whether the signed-in user is one of them. */
   likes?: number;
   liked?: boolean;
+  /** Feed only: total comments. */
+  comments?: number;
+};
+
+export type Comment = {
+  id: number;
+  /** The commenter's @handle when they posted. */
+  author: string;
+  body: string;
+  createdAt: string;
+  /** True for the commenter and for the game's creator. */
+  canDelete: boolean;
 };
 
 // iOS Simulator reaches the host at localhost; Android emulator needs http://10.0.2.2:8787; a phone needs the LAN IP.

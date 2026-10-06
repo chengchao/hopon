@@ -44,3 +44,25 @@ export const likes = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.gameId, table.user] }), index('likes_user').on(table.user)],
 );
+
+// A flat list per published game. `author` is the commenter's @handle when they posted, like `games.author`.
+export const comments = sqliteTable(
+  'comments',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    // No cascade, for the same reason as `likes`.
+    gameId: integer('game_id')
+      .notNull()
+      .references(() => games.id),
+    user: text('user').notNull(),
+    author: text('author').notNull(),
+    body: text('body').notNull(),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index('comments_game').on(table.gameId, sql`${table.id} DESC`),
+    check('comments_body', sql`length(${table.body}) BETWEEN 1 AND 300`),
+  ],
+);

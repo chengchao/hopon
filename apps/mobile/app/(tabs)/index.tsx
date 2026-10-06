@@ -193,7 +193,13 @@ export default function Discover() {
           </View>
         )}
       </View>
-      <CommentsSheet game={commentsFor} onClose={() => setCommentsFor(null)} />
+      <CommentsSheet
+        game={commentsFor}
+        onClose={() => setCommentsFor(null)}
+        onCount={(id, delta) =>
+          setGames((old) => old.map((g) => (g.id === id ? { ...g, comments: (g.comments ?? 0) + delta } : g)))
+        }
+      />
     </View>
   );
 }
