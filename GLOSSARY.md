@@ -19,3 +19,5 @@ Make a small game from one sentence, then swipe a feed to discover and play othe
 **Delete**: Permanently take away a published **Game** or a **Comment**, so nobody can see it again. Deleting a **Game** also takes away its likes, **Comments** and **Saves**. The **Creator** or the **Operator** deletes a **Game**; there is no hiding it and bringing it back. _Avoid_: Remove, unpublish, take down
 
 **Operator**: The person who runs hopon and deletes **Games** and **Comments** that break its rules. _Avoid_: Admin, moderator
+
+**Report**: A signed-in person's flag on someone else's published **Game** or **Comment**, giving a reason, for the **Operator** to review. The reported **Game** or **Comment** disappears for the reporter at once and stays up for everyone else until the **Operator** **Deletes** it. A report outlives the **Game** or **Comment** it points at. _Avoid_: Flag, complaint
