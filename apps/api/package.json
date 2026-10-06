@@ -14,8 +14,10 @@
   },
   "dependencies": {
     "@clerk/backend": "^3.22.0",
+    "@hono/zod-validator": "^0.9.1",
     "drizzle-orm": "^0.45.3",
-    "hono": "^4.13.13"
+    "hono": "^4.13.13",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.11",
