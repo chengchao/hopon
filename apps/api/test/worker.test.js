@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 
+import { Effect } from "effect";
 import { getPlatformProxy, unstable_splitSqlQuery } from "wrangler";
 
 import { parseGame, GAME_CSP } from "../src/game.ts";
@@ -111,21 +112,25 @@ const setup = async (t) => {
     );
   return { call, count, env, owner };
 };
-test("AI JSON boundary rejects invalid and truncated output", () => {
+test("AI JSON boundary rejects invalid and truncated output", async () => {
   assert.deepEqual(
-    parseGame(`\`\`\`json\n${JSON.stringify(generated)}\n\`\`\``),
+    await Effect.runPromise(
+      parseGame(`\`\`\`json\n${JSON.stringify(generated)}\n\`\`\``)
+    ),
     generated
   );
-  for (const output of [
-    undefined,
-    "no",
-    "null",
-    "{}",
-    JSON.stringify({ ...generated, title: "" }),
-    JSON.stringify({ ...generated, html: "<html><script>" }),
-  ]) {
-    assert.throws(() => parseGame(output), { status: 502 });
-  }
+  await Promise.all(
+    [
+      undefined,
+      "no",
+      "null",
+      "{}",
+      JSON.stringify({ ...generated, title: "" }),
+      JSON.stringify({ ...generated, html: "<html><script>" }),
+    ].map((output) =>
+      assert.rejects(Effect.runPromise(parseGame(output)), { status: 502 })
+    )
+  );
 });
 test("generation, private preview, latest draft, owned publish, public discovery, sandbox", async (t) => {
   const { call } = await setup(t);
@@ -304,6 +309,16 @@ test("cursor pages have no duplicates; invalid AI never inserts a game", async (
       })
     ),
     502
+  );
+  env.AI.run = () => Promise.reject(new Error("AI down"));
+  assert.deepEqual(
+    await json(
+      call("/api/games", {
+        body: { prompt: "造一个小游戏" },
+        method: "POST",
+      })
+    ),
+    { error: "AI is temporarily unavailable. Please try again." }
   );
   assert.equal(await count("games"), 17 + ORIGINALS);
 });
