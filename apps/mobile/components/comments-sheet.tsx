@@ -1,4 +1,5 @@
 import { useAuth, useUser } from "@clerk/expo";
+import { characters, COMMENT_MAX, newComment } from "@hopon/schemas";
 import { router } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -93,8 +94,8 @@ export const CommentsSheet = ({
   // Signed out, or signed in without a handle: the input leads there first, as Create does.
   const handleGate = isLoaded && !user?.username ? "/handle" : null;
   const gate = isSignedIn ? handleGate : "/sign-in";
-  const { length } = [...text.trim()];
-  const sendable = length >= 1 && length <= 300 && !posting;
+  const length = characters(text.trim());
+  const sendable = newComment.safeParse({ body: text }).success && !posting;
   const emptyText = error
     ? ""
     : `No comments on ${game?.title} yet. Be the first.`;
@@ -253,8 +254,8 @@ export const CommentsSheet = ({
               {error}
             </Text>
           )}
-          {length > 300 && (
-            <Text className="pb-2 text-center text-sm text-destructive">{`Too long: ${length}/300 characters`}</Text>
+          {length > COMMENT_MAX && (
+            <Text className="pb-2 text-center text-sm text-destructive">{`Too long: ${length}/${COMMENT_MAX} characters`}</Text>
           )}
           {gate ? (
             <Pressable
