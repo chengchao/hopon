@@ -105,21 +105,22 @@ type ButtonProps = React.ComponentProps<typeof Pressable> &
   React.RefAttributes<typeof Pressable> &
   VariantProps<typeof buttonVariants>;
 
-function Button({ className, variant, size, ...props }: ButtonProps) {
+const Button = ({ className, variant, size, ...props }: ButtonProps) => {
+  const textClass = buttonTextVariants({ size, variant });
   return (
-    <TextClassContext.Provider value={buttonTextVariants({ size, variant })}>
+    <TextClassContext.Provider value={textClass}>
       <Pressable
         className={cn(
           props.disabled && "opacity-50",
           buttonVariants({ size, variant }),
           className
         )}
-        role="button"
+        accessibilityRole="button"
         {...props}
       />
     </TextClassContext.Provider>
   );
-}
+};
 
 export { Button, buttonTextVariants, buttonVariants };
 export type { ButtonProps };

@@ -21,7 +21,7 @@ if (!publishableKey) {
 
 export { ErrorBoundary } from "expo-router";
 
-export default function RootLayout() {
+const RootLayout = () => {
   const [fontsLoaded] = useFonts({
     AtkinsonHyperlegibleNext_400Regular,
     AtkinsonHyperlegibleNext_700Bold,
@@ -34,6 +34,7 @@ export default function RootLayout() {
   return (
     <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
       <ThemeProvider value={NAV_THEME}>
+        {/* oxlint-disable-next-line react/style-prop-object -- expo-status-bar's `style` is a string ("light"), not a style object. */}
         <StatusBar style="light" />
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(tabs)" />
@@ -53,4 +54,6 @@ export default function RootLayout() {
       </ThemeProvider>
     </ClerkProvider>
   );
-}
+};
+
+export default RootLayout;

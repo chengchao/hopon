@@ -6,8 +6,38 @@ import { Text } from "@/components/ui/text";
 import type { Game } from "@/lib/api";
 import { COLORS } from "@/lib/theme";
 
+const Pill = ({
+  label,
+  selected,
+  count,
+  onPress,
+  children,
+}: {
+  label: string;
+  selected?: boolean;
+  count?: number;
+  onPress: () => void;
+  children: ReactNode;
+}) => (
+  <Pressable
+    accessibilityRole="button"
+    accessibilityLabel={label}
+    accessibilityState={selected === undefined ? undefined : { selected }}
+    hitSlop={{ bottom: 6, top: 6 }}
+    onPress={onPress}
+    className="h-8 min-w-8 flex-row items-center justify-center gap-1 rounded-full border-[1.5px] border-primary-foreground/70 px-2 active:bg-primary-foreground/10"
+  >
+    {children}
+    {count !== undefined && (
+      <Text className="font-strong text-[13px] leading-4 text-primary-foreground">
+        {count}
+      </Text>
+    )}
+  </Pressable>
+);
+
 // Like, comment and save sit on the ticket, never over the game, so they can't steal the game's touches.
-export function TicketActions({
+export const TicketActions = ({
   game,
   onLike,
   onComments,
@@ -17,7 +47,7 @@ export function TicketActions({
   onLike: () => void;
   onComments: () => void;
   onSave: () => void;
-}) {
+}) => {
   const isLiked = !!game.liked;
   const isSaved = !!game.saved;
   const commentCount = game.comments ?? 0;
@@ -57,36 +87,4 @@ export function TicketActions({
       </Pill>
     </View>
   );
-}
-
-function Pill({
-  label,
-  selected,
-  count,
-  onPress,
-  children,
-}: {
-  label: string;
-  selected?: boolean;
-  count?: number;
-  onPress: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={selected === undefined ? undefined : { selected }}
-      hitSlop={{ bottom: 6, top: 6 }}
-      onPress={onPress}
-      className="h-8 min-w-8 flex-row items-center justify-center gap-1 rounded-full border-[1.5px] border-primary-foreground/70 px-2 active:bg-primary-foreground/10"
-    >
-      {children}
-      {count !== undefined && (
-        <Text className="font-strong text-[13px] leading-4 text-primary-foreground">
-          {count}
-        </Text>
-      )}
-    </Pressable>
-  );
-}
+};

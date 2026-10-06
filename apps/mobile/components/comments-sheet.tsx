@@ -20,7 +20,7 @@ import type { Comment, Game } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 // Covers the ticket and the lower part of the game; the game stays visible above so you keep your place.
-export function CommentsSheet({
+export const CommentsSheet = ({
   game,
   onClose,
   onCount,
@@ -29,7 +29,7 @@ export function CommentsSheet({
   onClose: () => void;
   /** A comment was posted (+1) or deleted (-1), so the feed's count can follow. */
   onCount: (id: number, delta: number) => void;
-}) {
+}) => {
   const insets = useSafeAreaInsets();
   const { isSignedIn, getToken } = useAuth();
   const { user, isLoaded } = useUser();
@@ -57,17 +57,17 @@ export function CommentsSheet({
         `/api/games/${gameId}/comments${before ? `?before=${before}` : ""}`,
         { token: await token.current() }
       );
-      if (open.current !== gameId) {
-        return;
-      }
-      setList((old) => (before ? [...old, ...data.comments] : data.comments));
-      setNext(data.next);
-    } catch (error) {
-      if (open.current === gameId) setError((error as Error).message);
-    } finally {
       if (open.current === gameId) {
-        setLoading(false);
+        setList((old) => (before ? [...old, ...data.comments] : data.comments));
+        setNext(data.next);
       }
+    } catch (loadError) {
+      if (open.current === gameId) {
+        setError((loadError as Error).message);
+      }
+    }
+    if (open.current === gameId) {
+      setLoading(false);
     }
   }, []);
 
@@ -86,30 +86,30 @@ export function CommentsSheet({
   useEffect(() => {
     open.current = id ?? null;
     if (id) {
-      void load(id);
+      load(id);
     }
   }, [id, load]);
 
   // Signed out, or signed in without a handle: the input leads there first, as Create does.
-  const gate = isSignedIn
-    ? isLoaded && !user?.username
-      ? "/handle"
-      : null
-    : "/sign-in";
+  const handleGate = isLoaded && !user?.username ? "/handle" : null;
+  const gate = isSignedIn ? handleGate : "/sign-in";
   const { length } = [...text.trim()];
   const sendable = length >= 1 && length <= 300 && !posting;
+  const emptyText = error
+    ? ""
+    : `No comments on ${game?.title} yet. Be the first.`;
 
   // iOS can't present a screen while this Modal is still sliding away, so it waits for onDismiss there.
-  function leave(to: "/sign-in" | "/handle") {
+  const leave = (to: "/sign-in" | "/handle") => {
     onClose();
     if (Platform.OS === "ios") {
       after.current = to;
     } else {
       router.push(to);
     }
-  }
+  };
 
-  async function post() {
+  const post = async () => {
     const body = text.trim();
     if (!game || !sendable) {
       return;
@@ -124,21 +124,21 @@ export function CommentsSheet({
         token: await getToken({ skipCache: true }),
       });
       onCount(gameId, 1);
-      if (open.current !== gameId) {
-        return;
-      }
-      setList((old) => [comment, ...old]);
-      setText("");
-    } catch (error) {
-      if (open.current === gameId) setError((error as Error).message);
-    } finally {
       if (open.current === gameId) {
-        setPosting(false);
+        setList((old) => [comment, ...old]);
+        setText("");
+      }
+    } catch (postError) {
+      if (open.current === gameId) {
+        setError((postError as Error).message);
       }
     }
-  }
+    if (open.current === gameId) {
+      setPosting(false);
+    }
+  };
 
-  function remove(comment: Comment) {
+  const remove = (comment: Comment) => {
     if (!game || !comment.canDelete) {
       return;
     }
@@ -149,21 +149,24 @@ export function CommentsSheet({
         onPress: async () => {
           try {
             await api(`/api/comments/${comment.id}`, {
-              token: await getToken(),
               method: "DELETE",
+              token: await getToken(),
             });
             onCount(gameId, -1);
-            if (open.current === gameId)
+            if (open.current === gameId) {
               setList((old) => old.filter((c) => c.id !== comment.id));
-          } catch (e) {
-            if (open.current === gameId) setError((e as Error).message);
+            }
+          } catch (deleteError) {
+            if (open.current === gameId) {
+              setError((deleteError as Error).message);
+            }
           }
         },
         style: "destructive",
         text: "Delete",
       },
     ]);
-  }
+  };
 
   return (
     <Modal
@@ -216,7 +219,7 @@ export function CommentsSheet({
               }
               setLoading(true);
               setError("");
-              void load(id, next);
+              load(id, next);
             }}
             renderItem={({ item }) => (
               <Pressable
@@ -241,11 +244,7 @@ export function CommentsSheet({
             )}
             ListEmptyComponent={
               <Text className="py-6 text-center text-muted-foreground">
-                {loading
-                  ? "Loading comments…"
-                  : error
-                    ? ""
-                    : `No comments on ${game?.title} yet. Be the first.`}
+                {loading ? "Loading comments…" : emptyText}
               </Text>
             }
           />
@@ -285,7 +284,7 @@ export function CommentsSheet({
                   !sendable && "bg-background opacity-100"
                 )}
                 disabled={!sendable}
-                onPress={() => void post()}
+                onPress={() => post()}
               >
                 <Text className={cn(!sendable && "text-muted-foreground")}>
                   {posting ? "Posting…" : "Post"}
@@ -297,4 +296,4 @@ export function CommentsSheet({
       </KeyboardAvoidingView>
     </Modal>
   );
-}
+};

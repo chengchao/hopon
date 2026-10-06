@@ -29,14 +29,14 @@ export const API_URL =
   process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8787";
 export const gameUrl = (id: number) => `${API_URL}/api/games/${id}/document`;
 
-export async function api<T>(
+export const api = async <T>(
   path: string,
   {
     token,
     body,
     method = body === undefined ? "GET" : "POST",
   }: { token?: string | null; body?: unknown; method?: string } = {}
-): Promise<T> {
+): Promise<T> => {
   const response = await fetch(API_URL + path, {
     body: body === undefined ? undefined : JSON.stringify(body),
     headers: {
@@ -50,4 +50,4 @@ export async function api<T>(
     throw new Error(data.error || "Could not connect. Please try again.");
   }
   return data;
-}
+};

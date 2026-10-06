@@ -5,7 +5,7 @@ export const fail = (status: number, message: string) =>
 export const GAME_CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts";
 
-export function parseGame(text: unknown) {
+export const parseGame = (text: unknown) => {
   if (typeof text !== "string") {
     throw fail(502, "AI did not return a game. Please try again.");
   }
@@ -13,10 +13,10 @@ export function parseGame(text: unknown) {
   try {
     game = JSON.parse(
       text
-        .replaceAll(/<think>[\s\S]*?<\/think>/g, "")
+        .replaceAll(/<think>[\s\S]*?<\/think>/gu, "")
         .trim()
-        .replace(/^```(?:json)?\s*/, "")
-        .replace(/\s*```$/, "")
+        .replace(/^```(?:json)?\s*/u, "")
+        .replace(/\s*```$/u, "")
     );
   } catch {
     throw fail(502, "AI returned an incomplete response. Please try again.");
@@ -30,8 +30,8 @@ export function parseGame(text: unknown) {
     game.description.length > 180 ||
     typeof game.html !== "string" ||
     game.html.length > 100_000 ||
-    !/<\/html>\s*$/i.test(game.html) ||
-    !/<script[\s>]/i.test(game.html)
+    !/<\/html>\s*$/iu.test(game.html) ||
+    !/<script[\s>]/iu.test(game.html)
   ) {
     throw fail(502, "The generated game is incomplete. Please try again.");
   }
@@ -40,4 +40,4 @@ export function parseGame(text: unknown) {
     html: game.html,
     title: game.title.trim(),
   };
-}
+};

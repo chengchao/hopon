@@ -3,10 +3,10 @@ import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessibilityInfo, FlatList, PanResponder, View } from "react-native";
 
-import { CommentsSheet } from "@/components/CommentsSheet";
-import { GameView } from "@/components/GameView";
-import { Byline, Ticket } from "@/components/Ticket";
-import { TicketActions } from "@/components/TicketActions";
+import { CommentsSheet } from "@/components/comments-sheet";
+import { GameView } from "@/components/game-view";
+import { Byline, Ticket } from "@/components/ticket";
+import { TicketActions } from "@/components/ticket-actions";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api, gameUrl } from "@/lib/api";
@@ -14,7 +14,7 @@ import type { Game } from "@/lib/api";
 import { snapTarget } from "@/lib/feed-motion";
 
 // The vertical, one-game-at-a-time feed over a paged endpoint (`?before=` cursor). `start` is the first page's cursor.
-export function Feed({
+export const Feed = ({
   path,
   start,
   empty,
@@ -22,7 +22,7 @@ export function Feed({
   path: string;
   start?: number;
   empty: string;
-}) {
+}) => {
   const [games, setGames] = useState<Game[]>([]);
   const [active, setActive] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -64,26 +64,28 @@ export function Feed({
         );
         setGames((old) => (more ? [...old, ...data.games] : data.games));
         setNext(data.next);
-      } catch (error) {
-        setError((error as Error).message);
-      } finally {
-        busy.current = false;
-        setLoading(false);
+      } catch (loadError) {
+        setError((loadError as Error).message);
       }
+      busy.current = false;
+      setLoading(false);
     },
     [path]
   );
 
   useEffect(() => {
-    void load(start, false);
+    load(start, false);
   }, [load, start]);
   useEffect(() => {
     if (next && active >= games.length - 2 && !error) {
-      void load(next, true);
+      load(next, true);
     }
   }, [active, next, games.length, load, error]);
   useEffect(() => {
-    void AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
+    const readReduceMotion = async () => {
+      setReduceMotion(await AccessibilityInfo.isReduceMotionEnabled());
+    };
+    readReduceMotion();
     const sub = AccessibilityInfo.addEventListener(
       "reduceMotionChanged",
       setReduceMotion
@@ -94,7 +96,7 @@ export function Feed({
   const patch = (id: number, fields: Partial<Game>) =>
     setGames((old) => old.map((g) => (g.id === id ? { ...g, ...fields } : g)));
   // Optimistic: flip the heart now, then settle on the server's count, or flip back if the request fails.
-  async function like(game: Game) {
+  const like = async (game: Game) => {
     if (!isSignedIn) {
       return router.push("/sign-in");
     }
@@ -111,9 +113,9 @@ export function Feed({
     } catch {
       patch(game.id, { liked: game.liked, likes: game.likes });
     }
-  }
+  };
   // Same for the save. An unsaved game stays in the feed (even the Saved one) until you leave it.
-  async function save(game: Game) {
+  const save = async (game: Game) => {
     if (!isSignedIn) {
       return router.push("/sign-in");
     }
@@ -130,7 +132,7 @@ export function Feed({
     } catch {
       patch(game.id, { saved: game.saved });
     }
-  }
+  };
 
   const go = useCallback(
     (index: number) => {
@@ -213,9 +215,9 @@ export function Feed({
                     if (action === "increment" || action === "decrement") {
                       go(active + (action === "increment" ? 1 : -1));
                     } else if (action === "like") {
-                      void like(item);
+                      like(item);
                     } else if (action === "save") {
-                      void save(item);
+                      save(item);
                     } else if (action === "comments") {
                       setCommentsFor(item);
                     }
@@ -227,9 +229,9 @@ export function Feed({
                   actions={
                     <TicketActions
                       game={item}
-                      onLike={() => void like(item)}
+                      onLike={() => like(item)}
                       onComments={() => setCommentsFor(item)}
-                      onSave={() => void save(item)}
+                      onSave={() => save(item)}
                     />
                   }
                 />
@@ -252,7 +254,7 @@ export function Feed({
               <Button
                 variant="outline"
                 className="rounded-full"
-                onPress={() => void load(start, false)}
+                onPress={() => load(start, false)}
               >
                 <Text>Try again</Text>
               </Button>
@@ -266,9 +268,7 @@ export function Feed({
               size="sm"
               variant="outline"
               className="rounded-full"
-              onPress={() =>
-                void (next ? load(next, true) : load(start, false))
-              }
+              onPress={() => (next ? load(next, true) : load(start, false))}
             >
               <Text>Try again</Text>
             </Button>
@@ -288,4 +288,4 @@ export function Feed({
       />
     </>
   );
-}
+};

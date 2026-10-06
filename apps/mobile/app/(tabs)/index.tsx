@@ -3,9 +3,9 @@ import { useLocalSearchParams } from "expo-router";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Feed } from "@/components/Feed";
+import { Feed } from "@/components/feed";
 
-export default function Discover() {
+const Discover = () => {
   const insets = useSafeAreaInsets();
   const { published } = useLocalSearchParams<{ published?: string }>();
   const { isSignedIn } = useAuth();
@@ -19,4 +19,6 @@ export default function Discover() {
       />
     </View>
   );
-}
+};
+
+export default Discover;

@@ -9,10 +9,10 @@ import { Text } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
 
 // Clerk usernames: at least 4 characters, not only digits. We keep them simple and lowercase.
-const HANDLE = /^(?=.*[a-z_])[a-z0-9_]{4,20}$/;
+const HANDLE = /^(?=.*[a-z_])[a-z0-9_]{4,20}$/u;
 
 // Shown once after the first sign-in (and before publishing): the @handle that appears on your games.
-export default function Handle() {
+const Handle = () => {
   // `auto`: opened right after sign-in, so skip straight on if a handle already exists.
   const { next, auto } = useLocalSearchParams<{
     next?: "create";
@@ -33,7 +33,7 @@ export default function Handle() {
     }
   }, [auto, user?.username, done]);
 
-  async function save() {
+  const save = async () => {
     if (!user || !HANDLE.test(name) || saving) {
       return;
     }
@@ -42,8 +42,8 @@ export default function Handle() {
     try {
       await user.update({ username: name });
       done();
-    } catch (error) {
-      const clerk = error as {
+    } catch (saveError) {
+      const clerk = saveError as {
         errors?: { longMessage?: string; message?: string }[];
         message?: string;
       };
@@ -53,10 +53,9 @@ export default function Handle() {
           clerk.message ??
           "Could not save that name."
       );
-    } finally {
-      setSaving(false);
     }
-  }
+    setSaving(false);
+  };
 
   return (
     <View className="flex-1 gap-5 bg-background px-6 pt-20">
@@ -68,7 +67,7 @@ export default function Handle() {
           Pick your name
         </Text>
         <Text className="text-base leading-[22px] text-muted-foreground">
-          It's shown on every game you publish. You can change it later.
+          It&apos;s shown on every game you publish. You can change it later.
         </Text>
       </View>
       <View className="h-14 flex-row items-center rounded-2xl bg-card px-4">
@@ -76,7 +75,7 @@ export default function Handle() {
         <Input
           value={name}
           onChangeText={(text) =>
-            setName(text.toLowerCase().replaceAll(/[^a-z0-9_]/g, ""))
+            setName(text.toLowerCase().replaceAll(/[^a-z0-9_]/gu, ""))
           }
           placeholder="maya_makes"
           accessibilityLabel="Your name"
@@ -85,7 +84,7 @@ export default function Handle() {
           autoFocus
           maxLength={20}
           returnKeyType="done"
-          onSubmitEditing={() => void save()}
+          onSubmitEditing={() => save()}
           className="h-14 flex-1 border-0 bg-transparent px-1 text-lg dark:bg-transparent"
         />
       </View>
@@ -104,7 +103,7 @@ export default function Handle() {
           !HANDLE.test(name) && "bg-card opacity-100"
         )}
         disabled={!HANDLE.test(name) || saving}
-        onPress={() => void save()}
+        onPress={() => save()}
       >
         <Text className={cn(!HANDLE.test(name) && "text-muted-foreground")}>
           {saving ? "Saving…" : "Continue"}
@@ -115,4 +114,6 @@ export default function Handle() {
       </Button>
     </View>
   );
-}
+};
+
+export default Handle;

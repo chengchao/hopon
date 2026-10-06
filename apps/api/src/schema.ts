@@ -12,17 +12,17 @@ import {
 export const games = sqliteTable(
   "games",
   {
-    id: integer("id").primaryKey({ autoIncrement: true }),
-    owner: text("owner").notNull(),
-    title: text("title").notNull(),
-    description: text("description").notNull(),
-    html: text("html").notNull(),
-    published: integer("published").notNull().default(0),
     // The creator's @handle when they published (Clerk username); null for drafts of users without one.
     author: text("author"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
+    description: text("description").notNull(),
+    html: text("html").notNull(),
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    owner: text("owner").notNull(),
+    published: integer("published").notNull().default(0),
+    title: text("title").notNull(),
   },
   (table) => [
     index("games_feed").on(table.published, sql`${table.id} DESC`),
@@ -41,14 +41,14 @@ export const generationLimits = sqliteTable("generation_limits", {
 export const likes = sqliteTable(
   "likes",
   {
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
     // No cascade: SQLite table rebuilds drop and recreate `games`, which would cascade-delete every like.
     gameId: integer("game_id")
       .notNull()
       .references(() => games.id),
     user: text("user").notNull(),
-    createdAt: text("created_at")
-      .notNull()
-      .default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [
     primaryKey({ columns: [table.gameId, table.user] }),
@@ -60,17 +60,17 @@ export const likes = sqliteTable(
 export const comments = sqliteTable(
   "comments",
   {
-    id: integer("id").primaryKey({ autoIncrement: true }),
-    // No cascade, for the same reason as `likes`.
-    gameId: integer("game_id")
-      .notNull()
-      .references(() => games.id),
-    user: text("user").notNull(),
     author: text("author").notNull(),
     body: text("body").notNull(),
     createdAt: text("created_at")
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
+    // No cascade, for the same reason as `likes`.
+    gameId: integer("game_id")
+      .notNull()
+      .references(() => games.id),
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    user: text("user").notNull(),
   },
   (table) => [
     index("comments_game").on(table.gameId, sql`${table.id} DESC`),
@@ -82,15 +82,15 @@ export const comments = sqliteTable(
 export const saves = sqliteTable(
   "saves",
   {
-    id: integer("id").primaryKey({ autoIncrement: true }),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
     // No cascade, for the same reason as `likes`.
     gameId: integer("game_id")
       .notNull()
       .references(() => games.id),
+    id: integer("id").primaryKey({ autoIncrement: true }),
     user: text("user").notNull(),
-    createdAt: text("created_at")
-      .notNull()
-      .default(sql`CURRENT_TIMESTAMP`),
   },
   // The unique index is ordered by game, so paging "my saves" by id needs its own.
   (table) => [

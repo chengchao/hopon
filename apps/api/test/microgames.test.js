@@ -6,28 +6,30 @@ import vm from "node:vm";
 // The originals live only in the seed migration; test exactly what gets deployed.
 const db = new DatabaseSync(":memory:");
 for (const f of readdirSync(new URL("../migrations", import.meta.url))
-  .filter((f) => f.endsWith(".sql"))
-  .sort()) {
-  db.exec(readFileSync(new URL(`../migrations/${f}`, import.meta.url), "utf8"));
+  .filter((name) => name.endsWith(".sql"))
+  .toSorted()) {
+  db.exec(
+    readFileSync(new URL(`../migrations/${f}`, import.meta.url), "utf-8")
+  );
 }
+const element = () => ({
+  addEventListener(type, fn) {
+    this[type] = fn;
+  },
+  append(child) {
+    this.children.push(child);
+  },
+  children: [],
+  classList: { add() {}, remove() {} },
+  replaceChildren() {
+    this.children = [];
+  },
+  setAttribute() {},
+});
 const html = (title) =>
   db.prepare("SELECT html FROM games WHERE title = ?").get(title).html;
-function game(title) {
+const game = (title) => {
   const nodes = new Map();
-  const element = () => ({
-    addEventListener(type, fn) {
-      this[type] = fn;
-    },
-    append(child) {
-      this.children.push(child);
-    },
-    children: [],
-    classList: { add() {}, remove() {} },
-    replaceChildren() {
-      this.children = [];
-    },
-    setAttribute() {},
-  });
   let now = 0;
   const context = vm.createContext({
     Math,
@@ -37,7 +39,9 @@ function game(title) {
       body: element(),
       createElement: element,
       querySelector(id) {
-        if (!nodes.has(id)) nodes.set(id, element());
+        if (!nodes.has(id)) {
+          nodes.set(id, element());
+        }
         return nodes.get(id);
       },
     },
@@ -45,7 +49,7 @@ function game(title) {
     setInterval() {},
   });
   vm.runInContext(
-    html(title).match(/<script>([\s\S]*?)<\/script>/)[1],
+    html(title).match(/<script>(?<code>[\s\S]*?)<\/script>/u).groups.code,
     context
   );
   return {
@@ -54,7 +58,7 @@ function game(title) {
       now = value;
     },
   };
-}
+};
 test("Toast Panic: early input, successful catch, timeout, and restart", () => {
   const g = game("Toast Panic");
   g.run("act();act()");

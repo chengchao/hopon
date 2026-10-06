@@ -1,6 +1,6 @@
 import { useAuth, useUser } from "@clerk/expo";
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -8,7 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
 
-export default function Me() {
+const Stat = ({ value, label }: { value: number | string; label: string }) => (
+  <View className="flex-1 rounded-2xl bg-card px-4 py-3">
+    <Text className="font-display text-[36px] leading-[40px]">{value}</Text>
+    <Text className="text-sm text-muted-foreground">{label}</Text>
+  </View>
+);
+
+const Me = () => {
   const insets = useSafeAreaInsets();
   const { isLoaded, isSignedIn, signOut, getToken } = useAuth();
   const { user } = useUser();
@@ -16,8 +23,13 @@ export default function Me() {
   const [liked, setLiked] = useState<number | null>(null);
   const [saved, setSaved] = useState<number | null>(null);
 
+  // Clerk's getToken isn't referentially stable, so the focus effect reads it through a ref instead of its deps.
+  const token = useRef(getToken);
+  useEffect(() => {
+    token.current = getToken;
+  });
+
   // Refetched whenever Me comes into view, so likes and saves made on Discover show up.
-  // getToken isn't stable, so it's left out of the deps; isSignedIn is what matters.
   useFocusEffect(
     useCallback(() => {
       if (!isSignedIn) {
@@ -25,35 +37,39 @@ export default function Me() {
       }
       const fetchCount = async (path: string, set: (count: number) => void) => {
         try {
-          set(
-            (await api<{ count: number }>(path, { token: await getToken() }))
-              .count
-          );
+          const { count } = await api<{ count: number }>(path, {
+            token: await token.current(),
+          });
+          set(count);
         } catch {
           // Keep the last count; the stat isn't worth an error banner.
         }
       };
-      void fetchCount("/api/likes/count", setLiked);
-      void fetchCount("/api/saves/count", setSaved);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+      fetchCount("/api/likes/count", setLiked);
+      fetchCount("/api/saves/count", setSaved);
     }, [isSignedIn])
   );
 
-  function deleteAccount() {
+  const deleteAccount = () => {
     Alert.alert(
       "Delete your account?",
       "You will be signed out and your account removed. Published games stay public.",
       [
         { style: "cancel", text: "Cancel" },
         {
-          onPress: () =>
-            void user?.delete().catch((e) => setError((e as Error).message)),
+          onPress: async () => {
+            try {
+              await user?.delete();
+            } catch (deleteError) {
+              setError((deleteError as Error).message);
+            }
+          },
           style: "destructive",
           text: "Delete",
         },
       ]
     );
-  }
+  };
 
   return (
     <ScrollView
@@ -67,8 +83,8 @@ export default function Me() {
       >
         Me
       </Text>
-      {isLoaded ? (
-        isSignedIn ? (
+      {isLoaded &&
+        (isSignedIn ? (
           <>
             <View className="gap-1">
               {user?.username ? (
@@ -106,7 +122,7 @@ export default function Me() {
               <Button
                 variant="outline"
                 className="rounded-full bg-transparent"
-                onPress={() => void signOut()}
+                onPress={() => signOut()}
               >
                 <Text>Sign out</Text>
               </Button>
@@ -131,17 +147,9 @@ export default function Me() {
               <Text>Sign in</Text>
             </Button>
           </View>
-        )
-      ) : null}
+        ))}
     </ScrollView>
   );
-}
+};
 
-function Stat({ value, label }: { value: number | string; label: string }) {
-  return (
-    <View className="flex-1 rounded-2xl bg-card px-4 py-3">
-      <Text className="font-display text-[36px] leading-[40px]">{value}</Text>
-      <Text className="text-sm text-muted-foreground">{label}</Text>
-    </View>
-  );
-}
+export default Me;

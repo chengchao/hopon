@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { GameView } from "@/components/GameView";
-import { Ticket } from "@/components/Ticket";
+import { GameView } from "@/components/game-view";
+import { Ticket } from "@/components/ticket";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Textarea } from "@/components/ui/textarea";
@@ -31,7 +31,7 @@ const examples = [
   },
 ];
 
-export default function Create() {
+const Create = () => {
   const insets = useSafeAreaInsets();
   const { isLoaded, isSignedIn, getToken } = useAuth();
   const { user } = useUser();
@@ -64,19 +64,17 @@ export default function Create() {
       return;
     }
     restored.current = true;
-    void (async () => {
+    const restore = async () => {
       try {
-        await showDraft(
-          (
-            await api<{ draft: Game | null }>("/api/drafts/latest", {
-              token: await getToken(),
-            })
-          ).draft
-        );
-      } catch (error) {
-        setError((error as Error).message);
+        const latest = await api<{ draft: Game | null }>("/api/drafts/latest", {
+          token: await getToken(),
+        });
+        await showDraft(latest.draft);
+      } catch (restoreError) {
+        setError((restoreError as Error).message);
       }
-    })();
+    };
+    restore();
   }, [isSignedIn, getToken, showDraft]);
 
   if (!isLoaded) {
@@ -90,7 +88,7 @@ export default function Create() {
     return <Redirect href="/sign-in?next=create" />;
   }
 
-  async function generate() {
+  const generate = async () => {
     if (busy) {
       return;
     }
@@ -103,14 +101,13 @@ export default function Create() {
           token: await getToken(),
         })
       );
-    } catch (error) {
-      setError((error as Error).message);
-    } finally {
-      setBusy(false);
+    } catch (generateError) {
+      setError((generateError as Error).message);
     }
-  }
+    setBusy(false);
+  };
 
-  async function publish() {
+  const publish = async () => {
     if (!draft || publishing) {
       return;
     }
@@ -129,15 +126,15 @@ export default function Create() {
         params: { published: String(draft.id) },
         pathname: "/",
       });
-    } catch (error) {
-      setError((error as Error).message);
-    } finally {
-      setPublishing(false);
+    } catch (publishError) {
+      setError((publishError as Error).message);
     }
-  }
+    setPublishing(false);
+  };
 
   const locked = busy || publishing;
   const canMake = !locked && prompt.trim().length >= 4;
+  const makeLabel = draft ? "Make it again" : "Make the game";
   return (
     <ScrollView
       className="flex-1 bg-background"
@@ -207,10 +204,10 @@ export default function Create() {
               !canMake && "bg-card opacity-100"
             )}
             disabled={!canMake}
-            onPress={() => void generate()}
+            onPress={() => generate()}
           >
             <Text className={cn(!canMake && "text-muted-foreground")}>
-              {busy ? "Making…" : draft ? "Make it again" : "Make the game"}
+              {busy ? "Making…" : makeLabel}
             </Text>
           </Button>
         </View>
@@ -266,14 +263,14 @@ export default function Create() {
                 variant="outline"
                 className="rounded-full border-primary-foreground/30 bg-transparent dark:border-primary-foreground/30 dark:bg-transparent"
                 disabled={busy}
-                onPress={() => void showDraft(draft)}
+                onPress={() => showDraft(draft)}
               >
                 <Text className="text-primary-foreground">Restart</Text>
               </Button>
               <Button
                 className="flex-1 rounded-full bg-primary-foreground"
                 disabled={locked}
-                onPress={() => void publish()}
+                onPress={() => publish()}
               >
                 <Text className="text-primary">
                   {publishing ? "Publishing…" : "Publish to the feed"}
@@ -285,4 +282,6 @@ export default function Create() {
       </View>
     </ScrollView>
   );
-}
+};
+
+export default Create;

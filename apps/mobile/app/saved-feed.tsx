@@ -2,10 +2,10 @@ import { useLocalSearchParams } from "expo-router";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Feed } from "@/components/Feed";
+import { Feed } from "@/components/feed";
 
 // Your saved games from the one you tapped (`from`, its save id) onward to older saves; the stack header goes back.
-export default function SavedFeed() {
+const SavedFeed = () => {
   const insets = useSafeAreaInsets();
   const { from } = useLocalSearchParams<{ from: string }>();
   return (
@@ -20,4 +20,6 @@ export default function SavedFeed() {
       />
     </View>
   );
-}
+};
+
+export default SavedFeed;

@@ -21,30 +21,40 @@ const keys = await crypto.subtle.generateKey(
 const CLERK_JWT_KEY = `-----BEGIN PUBLIC KEY-----\n${Buffer.from(await crypto.subtle.exportKey("spki", keys.publicKey)).toString("base64")}\n-----END PUBLIC KEY-----`;
 const b64 = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
 // `username` mirrors the Clerk session claim {{user.username}}: null until the user picks a handle.
-async function sign(
+const sign = async (
   sub,
   { exp = 60, key = keys.privateKey, username = null } = {}
-) {
+) => {
   const now = Math.floor(Date.now() / 1000);
   const body = `${b64({ alg: "RS256", kid: "ins_test", typ: "JWT" })}.${b64({ exp: now + exp, iat: now, nbf: now, sub, username })}`;
   return `${body}.${Buffer.from(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(body))).toString("base64url")}`;
-}
+};
+// Read a pending response's status or JSON body with one await.
+const status = async (pending) => {
+  const response = await pending;
+  return response.status;
+};
+const json = async (pending) => {
+  const response = await pending;
+  return response.json();
+};
 const generated = {
   description: "点击星星得分",
   html: '<!doctype html><html><body><button>星星</button><script>document.querySelector("button").onclick=e=>e.target.textContent="1"</script></body></html>',
   title: "星星小游戏",
 };
-const ORIGINALS = 2; // seeded by migrations/*_originals.sql
+// Seeded by migrations/*_originals.sql.
+const ORIGINALS = 2;
 const migrations = readdirSync(new URL("../migrations", import.meta.url))
   .filter((f) => f.endsWith(".sql"))
-  .sort()
+  .toSorted()
   .flatMap((f) =>
     unstable_splitSqlQuery(
       readFileSync(new URL(`../migrations/${f}`, import.meta.url), "utf-8")
     )
   );
 // A fresh, in-memory local D1 (workerd) per test, migrated like `wrangler d1 migrations apply`; only AI is faked.
-async function setup(t) {
+const setup = async (t) => {
   const proxy = await getPlatformProxy({
     envFiles: [],
     persist: false,
@@ -55,16 +65,21 @@ async function setup(t) {
   await DB.batch(migrations.map((sql) => DB.prepare(sql)));
   const env = {
     AI: {
-      run: async () => ({
-        choices: [{ message: { content: JSON.stringify(generated) } }],
-      }),
+      run: () =>
+        Promise.resolve({
+          choices: [{ message: { content: JSON.stringify(generated) } }],
+        }),
     },
     AI_MODEL: "@cf/moonshotai/kimi-k2.5",
     CLERK_JWT_KEY,
     DB,
   };
-  const count = async (table) =>
-    (await DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first()).n;
+  const count = async (table) => {
+    const { n } = await DB.prepare(
+      `SELECT COUNT(*) AS n FROM ${table}`
+    ).first();
+    return n;
+  };
   const owner = "user_owner";
   const call = async (
     path,
@@ -95,7 +110,7 @@ async function setup(t) {
       env
     );
   return { call, count, env, owner };
-}
+};
 test("AI JSON boundary rejects invalid and truncated output", () => {
   assert.deepEqual(
     parseGame(`\`\`\`json\n${JSON.stringify(generated)}\n\`\`\``),
@@ -114,12 +129,13 @@ test("AI JSON boundary rejects invalid and truncated output", () => {
 });
 test("generation, private preview, latest draft, owned publish, public discovery, sandbox", async (t) => {
   const { call } = await setup(t);
+  const { games } = await json(call("/api/games"));
   assert.deepEqual(
-    (await (await call("/api/games")).json()).games.map((g) => g.title),
+    games.map((g) => g.title),
     ["Odd Duck", "Toast Panic"]
   );
-  assert.equal((await call("/api/drafts/latest", { user: "" })).status, 401);
-  assert.deepEqual(await (await call("/api/drafts/latest")).json(), {
+  assert.equal(await status(call("/api/drafts/latest", { user: "" })), 401);
+  assert.deepEqual(await json(call("/api/drafts/latest")), {
     draft: null,
   });
   const response = await call("/api/games", {
@@ -128,35 +144,32 @@ test("generation, private preview, latest draft, owned publish, public discovery
   });
   assert.equal(response.status, 201);
   const draft = await response.json();
-  assert.equal(
-    (await (await call("/api/games")).json()).games.length,
-    ORIGINALS
-  );
+  const discovery = await json(call("/api/games"));
+  assert.equal(discovery.games.length, ORIGINALS);
+  const latest = await json(call("/api/drafts/latest"));
+  assert.deepEqual(latest.draft, draft);
   assert.deepEqual(
-    (await (await call("/api/drafts/latest")).json()).draft,
-    draft
-  );
-  assert.deepEqual(
-    await (await call("/api/drafts/latest", { user: "user_other" })).json(),
+    await json(call("/api/drafts/latest", { user: "user_other" })),
     { draft: null }
   );
   assert.equal(
-    (await call(`/api/games/${draft.id}/document`, { user: "user_other" }))
-      .status,
+    await status(
+      call(`/api/games/${draft.id}/document`, { user: "user_other" })
+    ),
     404
   );
   assert.equal(
-    (await call(`/api/games/${draft.id}/document`, { user: "" })).status,
+    await status(call(`/api/games/${draft.id}/document`, { user: "" })),
     404
   );
-  assert.equal((await call(`/api/games/${draft.id}/document`)).status, 200);
+  assert.equal(await status(call(`/api/games/${draft.id}/document`)), 200);
   assert.equal(
-    (
-      await call(`/api/games/${draft.id}/publish`, {
+    await status(
+      call(`/api/games/${draft.id}/publish`, {
         method: "POST",
         user: "user_other",
       })
-    ).status,
+    ),
     404
   );
   const nameless = await call(`/api/games/${draft.id}/publish`, {
@@ -168,11 +181,11 @@ test("generation, private preview, latest draft, owned publish, public discovery
     error: "Pick your name before publishing.",
   });
   assert.equal(
-    (await call(`/api/games/${draft.id}/publish`, { method: "POST" })).status,
+    await status(call(`/api/games/${draft.id}/publish`, { method: "POST" })),
     200
   );
   assert.equal(
-    (await call(`/api/games/${draft.id}/publish`, { method: "POST" })).status,
+    await status(call(`/api/games/${draft.id}/publish`, { method: "POST" })),
     200
   );
   const document = await call(`/api/games/${draft.id}/document`, { user: "" });
@@ -181,15 +194,16 @@ test("generation, private preview, latest draft, owned publish, public discovery
   assert.ok(!GAME_CSP.includes("allow-same-origin"));
   assert.ok(GAME_CSP.includes("connect-src 'none'"));
   assert.equal(await document.text(), generated.html);
-  assert.deepEqual(await (await call("/api/drafts/latest")).json(), {
+  assert.deepEqual(await json(call("/api/drafts/latest")), {
     draft: null,
   });
-  const list = await (await call("/api/games")).json();
+  const list = await json(call("/api/games"));
   assert.equal(list.games.length, ORIGINALS + 1);
   assert.equal(list.games[0].id, draft.id);
   assert.equal(list.games[0].html, undefined);
   assert.equal(list.games[0].owner, undefined);
-  assert.equal(list.games[0].author, "maya_makes"); // the handle from the publisher's token
+  // The handle from the publisher's token.
+  assert.equal(list.games[0].author, "maya_makes");
   assert.deepEqual(
     list.games.slice(1).map((g) => g.author),
     ["hopon", "hopon"]
@@ -201,21 +215,18 @@ test("generation, private preview, latest draft, owned publish, public discovery
 test("Clerk auth, request validation and atomic per-account quota", async (t) => {
   const { call } = await setup(t);
   const options = { body: { prompt: "造一个小游戏" }, method: "POST" };
+  assert.equal(await status(call("/api/games", { ...options, user: "" })), 401);
   assert.equal(
-    (await call("/api/games", { ...options, user: "" })).status,
+    await status(call("/api/games", { ...options, token: "not.a.jwt" })),
     401
   );
   assert.equal(
-    (await call("/api/games", { ...options, token: "not.a.jwt" })).status,
-    401
-  );
-  assert.equal(
-    (
-      await call("/api/games", {
+    await status(
+      call("/api/games", {
         ...options,
         token: await sign("user_owner", { exp: -120 }),
       })
-    ).status,
+    ),
     401
   );
   const forger = await crypto.subtle.generateKey(
@@ -229,70 +240,69 @@ test("Clerk auth, request validation and atomic per-account quota", async (t) =>
     ["sign", "verify"]
   );
   assert.equal(
-    (
-      await call("/api/games", {
+    await status(
+      call("/api/games", {
         ...options,
         token: await sign("user_owner", { key: forger.privateKey }),
       })
-    ).status,
+    ),
     401
   );
   assert.equal(
-    (await call("/api/games", { ...options, body: "null" })).status,
+    await status(call("/api/games", { ...options, body: "null" })),
     400
   );
   assert.equal(
-    (await call("/api/games", { ...options, body: "{" })).status,
+    await status(call("/api/games", { ...options, body: "{" })),
     400
   );
   assert.equal(
-    (await call("/api/games", { ...options, contentType: "text/plain" }))
-      .status,
+    await status(call("/api/games", { ...options, contentType: "text/plain" })),
     415
   );
   assert.equal(
-    (await call("/api/games", { ...options, body: "x".repeat(12_001) })).status,
+    await status(call("/api/games", { ...options, body: "x".repeat(12_001) })),
     413
   );
-  assert.equal((await call("/api/games?before=NaN")).status, 400);
+  assert.equal(await status(call("/api/games?before=NaN")), 400);
   const attempts = await Promise.all(
     Array.from({ length: 11 }, () => call("/api/games", options))
   );
   assert.equal(attempts.filter((r) => r.status === 201).length, 10);
   assert.equal(attempts.filter((r) => r.status === 429).length, 1);
   assert.equal(
-    (await call("/api/games", { ...options, user: "user_other" })).status,
+    await status(call("/api/games", { ...options, user: "user_other" })),
     201
   );
 });
 test("cursor pages have no duplicates; invalid AI never inserts a game", async (t) => {
   const { call, env, count, owner } = await setup(t);
-  for (let i = 0; i < 17; i++) {
-    await env.DB.prepare(
-      "INSERT INTO games(owner,title,description,html,published) VALUES (?,?,?,?,1)"
+  const insert = env.DB.prepare(
+    "INSERT INTO games(owner,title,description,html,published) VALUES (?,?,?,?,1)"
+  );
+  await env.DB.batch(
+    Array.from({ length: 17 }, (_, i) =>
+      insert.bind(owner, `game ${i}`, "", generated.html)
     )
-      .bind(owner, "game " + i, "", generated.html)
-      .run();
-  }
-  const first = await (await call("/api/games")).json();
-  const second = await (await call(`/api/games?before=${first.next}`)).json();
-  const third = await (await call(`/api/games?before=${second.next}`)).json();
+  );
+  const first = await json(call("/api/games"));
+  const second = await json(call(`/api/games?before=${first.next}`));
+  const third = await json(call(`/api/games?before=${second.next}`));
   assert.equal(
     new Set([...first.games, ...second.games, ...third.games].map((g) => g.id))
       .size,
     17 + ORIGINALS
   );
   assert.equal(third.next, null);
-  env.AI.run = async () => ({
-    choices: [{ message: { content: "bad json" } }],
-  });
+  env.AI.run = () =>
+    Promise.resolve({ choices: [{ message: { content: "bad json" } }] });
   assert.equal(
-    (
-      await call("/api/games", {
+    await status(
+      call("/api/games", {
         body: { prompt: "造一个小游戏" },
         method: "POST",
       })
-    ).status,
+    ),
     502
   );
   assert.equal(await count("games"), 17 + ORIGINALS);
@@ -305,12 +315,12 @@ test("offline mode never invokes AI or consumes quota", async (t) => {
     throw new Error("must not call AI");
   };
   assert.equal(
-    (
-      await call("/api/games", {
+    await status(
+      call("/api/games", {
         body: { prompt: "造一个小游戏" },
         method: "POST",
       })
-    ).status,
+    ),
     503
   );
   assert.equal(await count("generation_limits"), 0);
@@ -318,19 +328,21 @@ test("offline mode never invokes AI or consumes quota", async (t) => {
 
 test("generation uses Kimi non-thinking mode with a bounded output budget", async (t) => {
   const { call, env } = await setup(t);
-  env.AI.run = async (model, input) => {
+  env.AI.run = (model, input) => {
     assert.equal(model, "@cf/moonshotai/kimi-k2.5");
     assert.deepEqual(input.chat_template_kwargs, { thinking: false });
     assert.equal(input.max_completion_tokens, 6000);
-    return { choices: [{ message: { content: JSON.stringify(generated) } }] };
+    return Promise.resolve({
+      choices: [{ message: { content: JSON.stringify(generated) } }],
+    });
   };
   assert.equal(
-    (
-      await call("/api/games", {
+    await status(
+      call("/api/games", {
         body: { prompt: "A five-second button game" },
         method: "POST",
       })
-    ).status,
+    ),
     201
   );
 });
@@ -341,72 +353,79 @@ test("likes: published only, one per user, counted in the feed, removable", asyn
     env.DB.prepare(
       "INSERT INTO likes(game_id, user) VALUES (999999, 'x')"
     ).run(),
-    /FOREIGN KEY/
+    /FOREIGN KEY/u
   );
-  const [game] = (await (await call("/api/games")).json()).games;
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
   const like = (id, options) =>
     call(`/api/games/${id}/like`, { method: "PUT", ...options });
-  assert.equal((await like(game.id, { user: "" })).status, 401);
-  const draft = await (
-    await call("/api/games", {
+  assert.equal(await status(like(game.id, { user: "" })), 401);
+  const draft = await json(
+    call("/api/games", {
       body: { prompt: "点击星星的小游戏" },
       method: "POST",
     })
-  ).json();
-  assert.equal((await like(draft.id)).status, 404);
-  assert.deepEqual(await (await like(game.id)).json(), {
+  );
+  assert.equal(await status(like(draft.id)), 404);
+  assert.deepEqual(await json(like(game.id)), {
     liked: true,
     likes: 1,
   });
-  assert.deepEqual(await (await like(game.id)).json(), {
+  assert.deepEqual(await json(like(game.id)), {
     liked: true,
     likes: 1,
   });
-  assert.deepEqual(await (await like(game.id, { user: "user_other" })).json(), {
+  assert.deepEqual(await json(like(game.id, { user: "user_other" })), {
     liked: true,
     likes: 2,
   });
-  const feed = async (user) =>
-    (await (await call("/api/games", { user })).json()).games[0];
+  const feed = async (user) => {
+    const { games } = await json(call("/api/games", { user }));
+    return games[0];
+  };
   assert.deepEqual(await feed(), { ...game, liked: true, likes: 2 });
   assert.deepEqual(await feed(""), { ...game, liked: false, likes: 2 });
-  assert.deepEqual(await (await call("/api/likes/count")).json(), { count: 1 });
+  assert.deepEqual(await json(call("/api/likes/count")), { count: 1 });
   const unlike = await call(`/api/games/${game.id}/like`, { method: "DELETE" });
   assert.deepEqual(await unlike.json(), { liked: false, likes: 1 });
-  assert.deepEqual(await (await call("/api/likes/count")).json(), { count: 0 });
+  assert.deepEqual(await json(call("/api/likes/count")), { count: 0 });
   assert.deepEqual(
-    await (await call("/api/likes/count", { user: "user_other" })).json(),
+    await json(call("/api/likes/count", { user: "user_other" })),
     { count: 1 }
   );
-  assert.equal((await call("/api/likes/count", { user: "" })).status, 401);
+  assert.equal(await status(call("/api/likes/count", { user: "" })), 401);
 });
 test("comments: anyone reads, posting needs sign-in and a handle, published games only", async (t) => {
   const { call } = await setup(t);
-  const [game] = (await (await call("/api/games")).json()).games;
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
   const post = (id, body, options) =>
     call(`/api/games/${id}/comments`, {
       body: { body },
       method: "POST",
       ...options,
     });
-  const list = async (id, options) =>
-    (await call(`/api/games/${id}/comments`, options)).json();
+  const list = (id, options) =>
+    json(call(`/api/games/${id}/comments`, options));
   assert.deepEqual(await list(game.id, { user: "" }), {
     comments: [],
     next: null,
   });
-  assert.equal((await post(game.id, "nice", { user: "" })).status, 401);
+  assert.equal(await status(post(game.id, "nice", { user: "" })), 401);
   const noHandle = await post(game.id, "nice", { username: null });
   assert.equal(noHandle.status, 400);
-  assert.match((await noHandle.json()).error, /Pick your name/);
-  const draft = await (
-    await call("/api/games", {
+  const { error } = await noHandle.json();
+  assert.match(error, /Pick your name/u);
+  const draft = await json(
+    call("/api/games", {
       body: { prompt: "点击星星的小游戏" },
       method: "POST",
     })
-  ).json();
-  assert.equal((await post(draft.id, "nice")).status, 404);
-  assert.equal((await call(`/api/games/${draft.id}/comments`)).status, 404);
+  );
+  assert.equal(await status(post(draft.id, "nice")), 404);
+  assert.equal(await status(call(`/api/games/${draft.id}/comments`)), 404);
 
   const created = await post(game.id, "  beat 40!\nso good  ");
   assert.equal(created.status, 201);
@@ -421,43 +440,50 @@ test("comments: anyone reads, posting needs sign-in and a handle, published game
 });
 test("comments: 1–300 characters after trimming", async (t) => {
   const { call, env } = await setup(t);
-  const [game] = (await (await call("/api/games")).json()).games;
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
   const post = (body) =>
     call(`/api/games/${game.id}/comments`, { body: { body }, method: "POST" });
   // SQLite's length() stops at a NUL, so one would slip past the count.
-  for (const bad of [
+  const invalid = [
     "",
     "   \n ",
     "x".repeat(301),
     "hi\u0000there",
     42,
     undefined,
-  ]) {
-    assert.equal((await post(bad)).status, 400, String(bad));
-  }
-  assert.equal((await post("x".repeat(300))).status, 201);
+  ];
+  assert.deepEqual(
+    await Promise.all(invalid.map((body) => status(post(body)))),
+    invalid.map(() => 400)
+  );
+  assert.equal(await status(post("x".repeat(300))), 201);
   // Characters, not UTF-16 units: 300 emoji fit.
-  assert.equal((await post("🎮".repeat(300))).status, 201);
+  assert.equal(await status(post("🎮".repeat(300))), 201);
   await assert.rejects(
     env.DB.prepare(
       "INSERT INTO comments(game_id, user, author, body) VALUES (?, 'x', 'x', '')"
     )
       .bind(game.id)
       .run(),
-    /CHECK/
+    /CHECK/u
   );
 });
 test("comments: newest first, 30 per page, no duplicates", async (t) => {
   const { call } = await setup(t);
-  const [game] = (await (await call("/api/games")).json()).games;
-  for (let i = 1; i <= 31; i++) {
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
+  for (let i = 1; i <= 31; i += 1) {
+    // oxlint-disable-next-line no-await-in-loop -- posted in order so "newest first" has a known answer
     await call(`/api/games/${game.id}/comments`, {
-      method: "POST",
       body: { body: `comment ${i}` },
+      method: "POST",
     });
   }
-  const page = async (query = "") =>
-    (await call(`/api/games/${game.id}/comments${query}`)).json();
+  const page = (query = "") =>
+    json(call(`/api/games/${game.id}/comments${query}`));
   const first = await page();
   assert.equal(first.comments.length, 30);
   assert.equal(first.comments[0].body, "comment 31");
@@ -468,13 +494,15 @@ test("comments: newest first, 30 per page, no duplicates", async (t) => {
   );
   assert.equal(second.next, null);
   assert.equal(
-    (await call(`/api/games/${game.id}/comments?before=abc`)).status,
+    await status(call(`/api/games/${game.id}/comments?before=abc`)),
     400
   );
 });
 test("comments: atomic 100 per account per day, separate from the generation quota", async (t) => {
   const { call } = await setup(t);
-  const [game] = (await (await call("/api/games")).json()).games;
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
   const post = (user = "user_owner") =>
     call(`/api/games/${game.id}/comments`, {
       body: { body: "hi" },
@@ -484,79 +512,88 @@ test("comments: atomic 100 per account per day, separate from the generation quo
   const attempts = await Promise.all(Array.from({ length: 101 }, () => post()));
   assert.equal(attempts.filter((r) => r.status === 201).length, 100);
   assert.equal(attempts.filter((r) => r.status === 429).length, 1);
-  assert.equal((await post("user_other")).status, 201);
+  assert.equal(await status(post("user_other")), 201);
   assert.equal(
-    (
-      await call("/api/games", {
+    await status(
+      call("/api/games", {
         body: { prompt: "造一个小游戏" },
         method: "POST",
       })
-    ).status,
+    ),
     201
   );
 });
 test("comments: deleted by their author or the game's creator, hidden from everyone else", async (t) => {
   const { call } = await setup(t);
-  const draft = await (
-    await call("/api/games", {
+  const draft = await json(
+    call("/api/games", {
       body: { prompt: "点击星星的小游戏" },
       method: "POST",
     })
-  ).json();
+  );
   await call(`/api/games/${draft.id}/publish`, { method: "POST" });
-  const post = async (user, body) =>
-    (
-      await call(`/api/games/${draft.id}/comments`, {
+  const post = (user, body) =>
+    json(
+      call(`/api/games/${draft.id}/comments`, {
         body: { body },
         method: "POST",
         user,
         username: user,
       })
-    ).json();
+    );
   const first = await post("user_fan", "first");
   const second = await post("user_fan", "second");
-  const list = async (user) =>
-    (await (await call(`/api/games/${draft.id}/comments`, { user })).json())
-      .comments;
+  const list = async (user) => {
+    const { comments } = await json(
+      call(`/api/games/${draft.id}/comments`, { user })
+    );
+    return comments;
+  };
+  const forOwner = await list("user_owner");
   assert.deepEqual(
-    (await list("user_owner")).map((c) => [c.body, c.canDelete]),
+    forOwner.map((c) => [c.body, c.canDelete]),
     [
       ["second", true],
       ["first", true],
     ]
   );
+  const forStranger = await list("user_stranger");
   assert.deepEqual(
-    (await list("user_stranger")).map((c) => c.canDelete),
+    forStranger.map((c) => c.canDelete),
     [false, false]
   );
   const remove = (id, user) =>
     call(`/api/comments/${id}`, { method: "DELETE", user });
-  assert.equal((await remove(first.id, "")).status, 401);
-  assert.equal((await remove(first.id, "user_stranger")).status, 404);
-  assert.equal((await remove(first.id, "user_owner")).status, 204);
-  assert.equal((await remove(second.id, "user_fan")).status, 204);
-  assert.equal((await remove(second.id, "user_fan")).status, 404);
+  assert.equal(await status(remove(first.id, "")), 401);
+  assert.equal(await status(remove(first.id, "user_stranger")), 404);
+  assert.equal(await status(remove(first.id, "user_owner")), 204);
+  assert.equal(await status(remove(second.id, "user_fan")), 204);
+  assert.equal(await status(remove(second.id, "user_fan")), 404);
   assert.deepEqual(await list(""), []);
 });
 test("comments: counted in the feed", async (t) => {
   const { call } = await setup(t);
-  const feed = async () =>
-    (await (await call("/api/games", { user: "" })).json()).games[0];
+  const feed = async () => {
+    const { games } = await json(call("/api/games", { user: "" }));
+    return games[0];
+  };
   const game = await feed();
   assert.equal(game.comments, 0);
-  const posted = await (
-    await call(`/api/games/${game.id}/comments`, {
+  const posted = await json(
+    call(`/api/games/${game.id}/comments`, {
       body: { body: "nice" },
       method: "POST",
     })
-  ).json();
+  );
   await call(`/api/games/${game.id}/comments`, {
     body: { body: "again" },
     method: "POST",
   });
-  assert.equal((await feed()).comments, 2);
+  const afterPosts = await feed();
+  assert.equal(afterPosts.comments, 2);
   await call(`/api/comments/${posted.id}`, { method: "DELETE" });
-  assert.equal((await feed()).comments, 1);
+  const afterDelete = await feed();
+  assert.equal(afterDelete.comments, 1);
 });
 test("saves: sign-in, published only, one per user, flagged in the feed, removable", async (t) => {
   const { call, env, count } = await setup(t);
@@ -564,36 +601,41 @@ test("saves: sign-in, published only, one per user, flagged in the feed, removab
     env.DB.prepare(
       "INSERT INTO saves(game_id, user) VALUES (999999, 'x')"
     ).run(),
-    /FOREIGN KEY/
+    /FOREIGN KEY/u
   );
-  const [game] = (await (await call("/api/games")).json()).games;
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
   const save = (id, options) =>
     call(`/api/games/${id}/save`, { method: "PUT", ...options });
-  assert.equal((await save(game.id, { user: "" })).status, 401);
+  assert.equal(await status(save(game.id, { user: "" })), 401);
   assert.equal(
-    (await call(`/api/games/${game.id}/save`, { method: "DELETE", user: "" }))
-      .status,
+    await status(
+      call(`/api/games/${game.id}/save`, { method: "DELETE", user: "" })
+    ),
     401
   );
-  assert.equal((await call("/api/saves", { user: "" })).status, 401);
-  assert.equal((await call("/api/saves/count", { user: "" })).status, 401);
-  const draft = await (
-    await call("/api/games", {
+  assert.equal(await status(call("/api/saves", { user: "" })), 401);
+  assert.equal(await status(call("/api/saves/count", { user: "" })), 401);
+  const draft = await json(
+    call("/api/games", {
       body: { prompt: "点击星星的小游戏" },
       method: "POST",
     })
-  ).json();
-  assert.equal((await save(draft.id)).status, 404);
-  assert.equal((await save(999_999)).status, 404);
-  assert.deepEqual(await (await save(game.id)).json(), { saved: true });
-  assert.deepEqual(await (await save(game.id)).json(), { saved: true });
+  );
+  assert.equal(await status(save(draft.id)), 404);
+  assert.equal(await status(save(999_999)), 404);
+  assert.deepEqual(await json(save(game.id)), { saved: true });
+  assert.deepEqual(await json(save(game.id)), { saved: true });
   assert.equal(await count("saves"), 1);
-  const feed = async (user) =>
-    (await (await call("/api/games", { user })).json()).games[0];
+  const feed = async (user) => {
+    const { games } = await json(call("/api/games", { user }));
+    return games[0];
+  };
   assert.deepEqual(await feed(), { ...game, saved: true });
   assert.deepEqual(await feed(""), { ...game, saved: false });
-  assert.deepEqual(await (await call("/api/saves/count")).json(), { count: 1 });
-  const { games, next } = await (await call("/api/saves")).json();
+  assert.deepEqual(await json(call("/api/saves/count")), { count: 1 });
+  const { games, next } = await json(call("/api/saves"));
   assert.equal(next, null);
   assert.equal(games.length, 1);
   assert.equal(typeof games[0].saveId, "number");
@@ -601,55 +643,62 @@ test("saves: sign-in, published only, one per user, flagged in the feed, removab
   const unsave = await call(`/api/games/${game.id}/save`, { method: "DELETE" });
   assert.deepEqual(await unsave.json(), { saved: false });
   assert.equal(await count("saves"), 0);
-  assert.deepEqual(await (await call("/api/saves/count")).json(), { count: 0 });
-  assert.deepEqual(await (await call("/api/saves")).json(), {
+  assert.deepEqual(await json(call("/api/saves/count")), { count: 0 });
+  assert.deepEqual(await json(call("/api/saves")), {
     games: [],
     next: null,
   });
 });
 test("saves: private to the person who saved", async (t) => {
   const { call } = await setup(t);
-  const [game] = (await (await call("/api/games")).json()).games;
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
   await call(`/api/games/${game.id}/save`, { method: "PUT", user: "user_a" });
-  assert.deepEqual(
-    await (await call("/api/saves", { user: "user_b" })).json(),
-    { games: [], next: null }
-  );
-  assert.deepEqual(
-    await (await call("/api/saves/count", { user: "user_b" })).json(),
-    { count: 0 }
-  );
-  const feed = async (user) =>
-    (await (await call("/api/games", { user })).json()).games[0];
-  assert.equal((await feed("user_b")).saved, false);
-  assert.equal((await feed("user_a")).saved, true);
+  assert.deepEqual(await json(call("/api/saves", { user: "user_b" })), {
+    games: [],
+    next: null,
+  });
+  assert.deepEqual(await json(call("/api/saves/count", { user: "user_b" })), {
+    count: 0,
+  });
+  const feed = async (user) => {
+    const { games } = await json(call("/api/games", { user }));
+    return games[0];
+  };
+  const forB = await feed("user_b");
+  assert.equal(forB.saved, false);
+  const forA = await feed("user_a");
+  assert.equal(forA.saved, true);
   // Unsaving someone else's save only touches your own (absent) row.
   await call(`/api/games/${game.id}/save`, {
     method: "DELETE",
     user: "user_b",
   });
-  assert.deepEqual(
-    await (await call("/api/saves/count", { user: "user_a" })).json(),
-    { count: 1 }
-  );
+  assert.deepEqual(await json(call("/api/saves/count", { user: "user_a" })), {
+    count: 1,
+  });
 });
 test("saves: newest save first, 8 per page, no duplicates", async (t) => {
   const { call, env, owner } = await setup(t);
-  for (let i = 0; i < 17; i++) {
-    await env.DB.prepare(
-      "INSERT INTO games(owner,title,description,html,published) VALUES (?,?,?,?,1)"
+  const insert = env.DB.prepare(
+    "INSERT INTO games(owner,title,description,html,published) VALUES (?,?,?,?,1)"
+  );
+  await env.DB.batch(
+    Array.from({ length: 17 }, (_, i) =>
+      insert.bind(owner, `game ${i}`, "", generated.html)
     )
-      .bind(owner, "game " + i, "", generated.html)
-      .run();
-  }
+  );
   // Save newest game first, then the older ones: save order, not game order, decides the list.
-  const ids = (
-    await env.DB.prepare("SELECT id FROM games ORDER BY id DESC").all()
-  ).results.map((r) => r.id);
+  const { results } = await env.DB.prepare(
+    "SELECT id FROM games ORDER BY id DESC"
+  ).all();
+  const ids = results.map((r) => r.id);
   for (const id of ids) {
+    // oxlint-disable-next-line no-await-in-loop -- save order is what the list is sorted by
     await call(`/api/games/${id}/save`, { method: "PUT" });
   }
-  const page = async (query = "") => (await call(`/api/saves${query}`)).json();
+  const page = (query = "") => json(call(`/api/saves${query}`));
   const first = await page();
   const second = await page(`?before=${first.next}`);
   const third = await page(`?before=${second.next}`);
@@ -657,16 +706,14 @@ test("saves: newest save first, 8 per page, no duplicates", async (t) => {
   const listed = [...first.games, ...second.games, ...third.games];
   assert.deepEqual(
     listed.map((g) => g.id),
-    [...ids].reverse()
+    ids.toReversed()
   );
   assert.equal(first.games.length, 8);
   assert.ok(listed.every((g) => g.saved));
   assert.equal(first.next, first.games[7].saveId);
-  assert.equal((await call("/api/saves?before=abc")).status, 400);
+  assert.equal(await status(call("/api/saves?before=abc")), 400);
   // The saved feed opens at a tapped game with before = its saveId + 1.
-  const tapped = second.games[2];
-  assert.equal(
-    (await page(`?before=${tapped.saveId + 1}`)).games[0].id,
-    tapped.id
-  );
+  const tapped = second.games.at(2);
+  const reopened = await page(`?before=${tapped.saveId + 1}`);
+  assert.equal(reopened.games[0].id, tapped.id);
 });

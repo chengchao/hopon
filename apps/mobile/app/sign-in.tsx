@@ -19,7 +19,7 @@ const notFound = (e: ClerkFailure) =>
 const describe = (e: ClerkFailure) => e.longMessage ?? e.message;
 
 // One screen for both: an email code signs in an existing user, or signs up a new one.
-export default function SignIn() {
+const SignIn = () => {
   const { next } = useLocalSearchParams<{ next?: "create" | "me" }>();
   const { signIn, fetchStatus } = useSignIn();
   const { signUp } = useSignUp();
@@ -28,27 +28,31 @@ export default function SignIn() {
   const [flow, setFlow] = useState<"email" | "signIn" | "signUp">("email");
   const [error, setError] = useState("");
   const fetching = fetchStatus === "fetching";
+  const busyLabel = flow === "email" ? "Sending…" : "Checking…";
+  const idleLabel = flow === "email" ? "Email me a code" : "Sign in";
 
-  async function run(step: () => Promise<ClerkFailure | null | void>) {
+  const run = async (step: () => Promise<ClerkFailure | null | undefined>) => {
     setError("");
     try {
       const failure = await step();
       if (failure) {
         setError(describe(failure));
       }
-    } catch (error) {
+    } catch (stepError) {
       setError(
-        (error as Error).message || "Something went wrong. Please try again."
+        (stepError as Error).message ||
+          "Something went wrong. Please try again."
       );
     }
-  }
+  };
 
   const sendCode = () =>
     run(async () => {
       const emailAddress = email.trim();
       const sent = await signIn.emailCode.sendCode({ emailAddress });
       if (!sent.error) {
-        return setFlow("signIn");
+        setFlow("signIn");
+        return;
       }
       if (!notFound(sent.error)) {
         return sent.error;
@@ -67,12 +71,12 @@ export default function SignIn() {
   const verify = () =>
     run(async () => {
       const resource = flow === "signIn" ? signIn : signUp;
-      const { error } =
+      const { error: verifyError } =
         flow === "signIn"
           ? await signIn.emailCode.verifyCode({ code })
           : await signUp.verifications.verifyEmailCode({ code });
-      if (error) {
-        return error;
+      if (verifyError) {
+        return verifyError;
       }
       if (resource.status !== "complete") {
         return { message: "Could not finish signing in. Please try again." };
@@ -112,7 +116,7 @@ export default function SignIn() {
           autoCapitalize="none"
           autoFocus
           returnKeyType="send"
-          onSubmitEditing={() => void sendCode()}
+          onSubmitEditing={() => sendCode()}
         />
       ) : (
         <Input
@@ -127,7 +131,7 @@ export default function SignIn() {
           textContentType="oneTimeCode"
           autoFocus
           returnKeyType="send"
-          onSubmitEditing={() => void verify()}
+          onSubmitEditing={() => verify()}
         />
       )}
       {!!error && (
@@ -141,17 +145,9 @@ export default function SignIn() {
           fetching ||
           (flow === "email" ? !email.includes("@") : code.trim().length < 6)
         }
-        onPress={() => void (flow === "email" ? sendCode() : verify())}
+        onPress={() => (flow === "email" ? sendCode() : verify())}
       >
-        <Text>
-          {flow === "email"
-            ? fetching
-              ? "Sending…"
-              : "Email me a code"
-            : fetching
-              ? "Checking…"
-              : "Sign in"}
-        </Text>
+        <Text>{fetching ? busyLabel : idleLabel}</Text>
       </Button>
       {flow !== "email" && (
         <Button
@@ -170,4 +166,6 @@ export default function SignIn() {
       </Button>
     </View>
   );
-}
+};
+
+export default SignIn;

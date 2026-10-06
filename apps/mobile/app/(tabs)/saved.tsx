@@ -4,13 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FlatList, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Byline, Ticket } from "@/components/Ticket";
+import { Byline, Ticket } from "@/components/ticket";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
 import type { Game } from "@/lib/api";
 
-export default function Saved() {
+const Saved = () => {
   const insets = useSafeAreaInsets();
   const { isLoaded, isSignedIn, getToken } = useAuth();
   const [games, setGames] = useState<Game[]>([]);
@@ -31,7 +31,10 @@ export default function Saved() {
     if (before && busy.current) {
       return;
     }
-    const current = before ? generation.current : ++generation.current;
+    if (!before) {
+      generation.current += 1;
+    }
+    const { current } = generation;
     busy.current = true;
     setLoading(true);
     setError("");
@@ -42,18 +45,18 @@ export default function Saved() {
           token: await token.current(),
         }
       );
-      if (current !== generation.current) {
-        return;
-      }
-      setGames((old) => (before ? [...old, ...data.games] : data.games));
-      setNext(data.next);
-    } catch (error) {
-      if (current === generation.current) setError((error as Error).message);
-    } finally {
       if (current === generation.current) {
-        busy.current = false;
-        setLoading(false);
+        setGames((old) => (before ? [...old, ...data.games] : data.games));
+        setNext(data.next);
       }
+    } catch (loadError) {
+      if (current === generation.current) {
+        setError((loadError as Error).message);
+      }
+    }
+    if (current === generation.current) {
+      busy.current = false;
+      setLoading(false);
     }
   }, []);
 
@@ -61,9 +64,9 @@ export default function Saved() {
   useFocusEffect(
     useCallback(() => {
       if (isSignedIn) {
-        void load();
+        load();
       } else {
-        generation.current++;
+        generation.current += 1;
         setGames([]);
         setNext(null);
       }
@@ -109,7 +112,7 @@ export default function Saved() {
         ListHeaderComponent={header}
         onEndReached={() => {
           if (next && !error) {
-            void load(next);
+            load(next);
           }
         }}
         renderItem={({ item }) => (
@@ -133,7 +136,7 @@ export default function Saved() {
         ListEmptyComponent={
           loading || error ? null : (
             <Text className="px-2 pt-2 text-base leading-[22px] text-muted-foreground">
-              Tap the bookmark on a game's ticket to keep it here.
+              Tap the bookmark on a game&apos;s ticket to keep it here.
             </Text>
           )
         }
@@ -145,7 +148,7 @@ export default function Saved() {
                 variant="outline"
                 className="rounded-full"
                 onPress={() =>
-                  void load(games.length ? (next ?? undefined) : undefined)
+                  load(games.length ? (next ?? undefined) : undefined)
                 }
               >
                 <Text>Try again</Text>
@@ -156,4 +159,6 @@ export default function Saved() {
       />
     </View>
   );
-}
+};
+
+export default Saved;

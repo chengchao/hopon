@@ -17,21 +17,8 @@ const TABS: { name: string; label: string; Icon: LucideIcon }[] = [
   { Icon: User, label: "Me", name: "me" },
 ];
 
-export default function TabsLayout() {
-  return (
-    <Tabs
-      screenOptions={{ headerShown: false }}
-      tabBar={(props) => <TabBar {...props} />}
-    >
-      <Tabs.Screen name="index" />
-      <Tabs.Screen name="saved" />
-      <Tabs.Screen name="me" />
-    </Tabs>
-  );
-}
-
 // Make sits in the middle like TikTok's +, but opens the Create sheet instead of switching tabs.
-function TabBar({ state, navigation }: BottomTabBarProps) {
+const TabBar = ({ state, navigation }: BottomTabBarProps) => {
   const insets = useSafeAreaInsets();
   const current = state.routes[state.index]?.name;
   const tab = ({ name, label, Icon }: (typeof TABS)[number]) => {
@@ -93,4 +80,16 @@ function TabBar({ state, navigation }: BottomTabBarProps) {
       {tab(TABS[2])}
     </View>
   );
-}
+};
+
+const renderTabBar = (props: BottomTabBarProps) => <TabBar {...props} />;
+
+const TabsLayout = () => (
+  <Tabs screenOptions={{ headerShown: false }} tabBar={renderTabBar}>
+    <Tabs.Screen name="index" />
+    <Tabs.Screen name="saved" />
+    <Tabs.Screen name="me" />
+  </Tabs>
+);
+
+export default TabsLayout;
