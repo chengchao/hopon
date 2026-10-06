@@ -36,6 +36,10 @@ export default function RootLayout() {
           <Stack.Screen name="create" options={{ presentation: 'modal' }} />
           <Stack.Screen name="sign-in" options={{ presentation: 'modal' }} />
           <Stack.Screen name="handle" options={{ presentation: 'modal' }} />
+          <Stack.Screen
+            name="saved-feed"
+            options={{ headerShown: true, title: 'Saved', headerBackButtonDisplayMode: 'minimal' }}
+          />
         </Stack>
         <PortalHost />
       </ThemeProvider>

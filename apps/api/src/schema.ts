@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const games = sqliteTable(
   'games',
@@ -64,5 +64,26 @@ export const comments = sqliteTable(
   (table) => [
     index('comments_game').on(table.gameId, sql`${table.id} DESC`),
     check('comments_body', sql`length(${table.body}) BETWEEN 1 AND 300`),
+  ],
+);
+
+// One row per (Clerk user, published game), private to that user. `id` is the paging cursor for "newest save first".
+export const saves = sqliteTable(
+  'saves',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    // No cascade, for the same reason as `likes`.
+    gameId: integer('game_id')
+      .notNull()
+      .references(() => games.id),
+    user: text('user').notNull(),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  // The unique index is ordered by game, so paging "my saves" by id needs its own.
+  (table) => [
+    uniqueIndex('saves_user_game').on(table.user, table.gameId),
+    index('saves_user').on(table.user, sql`${table.id} DESC`),
   ],
 );

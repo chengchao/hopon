@@ -1,6 +1,5 @@
 import { Text } from '@/components/ui/text';
 import type { Game } from '@/lib/api';
-import { toggleSave, usePrototype } from '@/lib/prototype';
 import { COLORS } from '@/lib/theme';
 import { Bookmark, Heart, MessageCircle } from 'lucide-react-native';
 import type { ReactNode } from 'react';
@@ -11,14 +10,15 @@ export function TicketActions({
   game,
   onLike,
   onComments,
+  onSave,
 }: {
   game: Game;
   onLike: () => void;
   onComments: () => void;
+  onSave: () => void;
 }) {
-  const { saved } = usePrototype();
   const isLiked = !!game.liked;
-  const isSaved = saved.some((g) => g.id === game.id);
+  const isSaved = !!game.saved;
   const commentCount = game.comments ?? 0;
   return (
     <View className="flex-row items-center gap-1.5">
@@ -33,7 +33,7 @@ export function TicketActions({
       <Pill label={`Comments, ${commentCount}`} onPress={onComments} count={commentCount}>
         <MessageCircle size={18} strokeWidth={2.25} color={COLORS.ink} />
       </Pill>
-      <Pill label={isSaved ? 'Remove from saved' : 'Save'} selected={isSaved} onPress={() => toggleSave(game)}>
+      <Pill label={isSaved ? 'Remove from saved' : 'Save'} selected={isSaved} onPress={onSave}>
         <Bookmark size={18} strokeWidth={2.25} color={COLORS.ink} fill={isSaved ? COLORS.ink : 'none'} />
       </Pill>
     </View>

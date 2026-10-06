@@ -1,6 +1,5 @@
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
-import { usePrototype } from '@/lib/prototype';
 import { api } from '@/lib/api';
 import { useAuth, useUser } from '@clerk/expo';
 import { router, useFocusEffect } from 'expo-router';
@@ -12,22 +11,24 @@ export default function Me() {
   const insets = useSafeAreaInsets();
   const { isLoaded, isSignedIn, signOut, getToken } = useAuth();
   const { user } = useUser();
-  const { saved } = usePrototype();
   const [error, setError] = useState('');
   const [liked, setLiked] = useState<number | null>(null);
+  const [saved, setSaved] = useState<number | null>(null);
 
-  // Refetched whenever Me comes into view, so likes made on Discover show up.
+  // Refetched whenever Me comes into view, so likes and saves made on Discover show up.
   // getToken isn't stable, so it's left out of the deps; isSignedIn is what matters.
   useFocusEffect(
     useCallback(() => {
       if (!isSignedIn) return;
-      void (async () => {
+      const fetchCount = async (path: string, set: (count: number) => void) => {
         try {
-          setLiked((await api<{ count: number }>('/api/likes/count', { token: await getToken() })).count);
+          set((await api<{ count: number }>(path, { token: await getToken() })).count);
         } catch {
           // Keep the last count; the stat isn't worth an error banner.
         }
-      })();
+      };
+      void fetchCount('/api/likes/count', setLiked);
+      void fetchCount('/api/saves/count', setSaved);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isSignedIn]),
   );
@@ -76,7 +77,7 @@ export default function Me() {
           </View>
           <View className="flex-row gap-3">
             <Stat value={liked ?? '–'} label="Liked" />
-            <Stat value={saved.length} label="Saved" />
+            <Stat value={saved ?? '–'} label="Saved" />
           </View>
           {!!error && (
             <Text accessibilityRole="alert" className="text-destructive">

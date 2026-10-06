@@ -8,6 +8,10 @@ export type Game = {
   liked?: boolean;
   /** Feed only: total comments. */
   comments?: number;
+  /** Feed only: whether the signed-in user saved it. Saves are private, so there's no count. */
+  saved?: boolean;
+  /** Saved list only: the save's id, which is the list's paging cursor. */
+  saveId?: number;
 };
 
 export type Comment = {
