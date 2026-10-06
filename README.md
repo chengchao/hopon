@@ -43,7 +43,7 @@ pnpm run ios           # 终端 2：Expo Go + iOS 模拟器（或 pnpm run andro
 表结构在 `apps/api/src/schema.ts`。修改后生成迁移并应用：
 
 ```sh
-pnpm run db:generate   # drizzle-kit 写入 apps/api/migrations/（与 wrangler 的 migrations_dir 相同）
+pnpm run db:generate --name <feature>   # drizzle-kit 写入 apps/api/migrations/（与 wrangler 的 migrations_dir 相同），文件名后缀为功能名，如 _comments
 pnpm run db:local
 ```
 
