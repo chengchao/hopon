@@ -25,7 +25,7 @@ export function CommentsSheet({
   const { user, isLoaded } = useUser();
   const [list, setList] = useState<Comment[]>([]);
   const [next, setNext] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(!!game);
   const [error, setError] = useState('');
   const [text, setText] = useState('');
   const [posting, setPosting] = useState(false);
@@ -40,9 +40,8 @@ export function CommentsSheet({
   const after = useRef<'/sign-in' | '/handle' | null>(null);
   const id = game?.id;
 
+  // Callers set `loading` first: the reset below for a newly opened game, onEndReached for the next page.
   const load = useCallback(async (gameId: number, before?: number) => {
-    setLoading(true);
-    setError('');
     try {
       const data = await api<{ comments: Comment[]; next: number | null }>(
         `/api/games/${gameId}/comments${before ? `?before=${before}` : ''}`,
@@ -58,13 +57,20 @@ export function CommentsSheet({
     }
   }, []);
 
-  useEffect(() => {
-    open.current = id;
+  // A different game starts from an empty sheet; reset during render so the old list never paints.
+  const [shown, setShown] = useState(id);
+  if (shown !== id) {
+    setShown(id);
     setList([]);
     setNext(null);
     setText('');
     setError('');
     setPosting(false);
+    setLoading(!!id);
+  }
+
+  useEffect(() => {
+    open.current = id;
     if (id) void load(id);
   }, [id, load]);
 
@@ -153,7 +159,10 @@ export function CommentsSheet({
             data={list}
             keyExtractor={(comment) => String(comment.id)}
             onEndReached={() => {
-              if (id && next && !loading) void load(id, next);
+              if (!id || !next || loading) return;
+              setLoading(true);
+              setError('');
+              void load(id, next);
             }}
             renderItem={({ item }) => (
               <Pressable
