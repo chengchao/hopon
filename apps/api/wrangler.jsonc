@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "hopon",
-  "main": "worker/index.ts",
+  "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "d1_databases": [
     {

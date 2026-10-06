@@ -1,3 +1,5 @@
+packages:
+  - apps/*
 minimumReleaseAgeExclude:
   - '@types/node@22.20.2'
 overrides:

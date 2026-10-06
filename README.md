@@ -3,8 +3,8 @@
 一句话创造小游戏，上下滑动发现并试玩。iOS / Android 应用，产品界面、示例和默认生成内容均为英语。只有发现和创造两个页面，没有评论、点赞、关注或消息功能。
 
 ```
-app/ components/ lib/   Expo 应用（Expo Router、React Native Reusables/shadcn + NativeWind、Clerk 邮箱验证码登录）
-worker/ migrations/     Cloudflare Worker API（D1 + Drizzle、Workers AI、Clerk JWT 校验）
+apps/mobile/   Expo 应用（Expo Router、React Native Reusables/shadcn + NativeWind、Clerk 邮箱验证码登录）
+apps/api/      Cloudflare Worker API（D1 + Drizzle、Workers AI、Clerk JWT 校验）
 ```
 
 技术栈：Expo SDK 57、Cloudflare Workers、D1、Drizzle ORM、Workers AI、Clerk。无外部生成服务或游戏引擎。
@@ -14,17 +14,17 @@ worker/ migrations/     Cloudflare Worker API（D1 + Drizzle、Workers AI、Cler
 需要 Node.js 24+、pnpm 12（`package.json` 固定为 12.9.1，已安装的 pnpm 会自动切换）、Xcode（iOS 模拟器）或 Android Studio（模拟器）。
 
 1. 在 [Clerk 控制台](https://dashboard.clerk.com) 创建应用：开启 Email address + Email verification code，开启 Native API。若需应用内删除账户，确认允许用户删除账户。
-2. 应用环境变量写入 `.env`（已被 git 忽略）：
+2. 应用环境变量写入 `apps/mobile/.env`（已被 git 忽略）：
 
    ```sh
    EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
    EXPO_PUBLIC_API_URL=http://localhost:8787   # Android 模拟器用 http://10.0.2.2:8787，真机用电脑局域网 IP
    ```
 
-3. Worker 用 Clerk 公钥离线校验登录（控制台 API keys → Show JWT public key → PEM Public Key），本地写入 `.dev.vars`：
+3. Worker 用 Clerk 公钥离线校验登录（控制台 API keys → Show JWT public key → PEM Public Key），本地写入 `apps/api/.dev.vars`：
 
    ```sh
-   printf 'CLERK_JWT_KEY="%s"\n' "$(cat clerk-public-key.pem)" >> .dev.vars
+   printf 'CLERK_JWT_KEY="%s"\n' "$(cat clerk-public-key.pem)" >> apps/api/.dev.vars
    ```
 
 ## 本地运行
@@ -36,14 +36,14 @@ pnpm run api:offline   # 终端 1：本地 API，不连接 Workers AI
 pnpm run ios           # 终端 2：Expo Go + iOS 模拟器（或 pnpm run android）
 ```
 
-离线模式可以浏览和试玩两个原创游戏、登录、检查布局；生成会提示需要连接 Workers AI。要真实生成，先 `pnpm exec wrangler login`，再用 `pnpm run api` 代替 `api:offline`。D1 仍是本地 SQLite；只有 AI 推理访问 Cloudflare，会消耗该账号 Workers AI 额度。模型配置在 `wrangler.jsonc` 的 `AI_MODEL`，当前为 `@cf/moonshotai/kimi-k2.5`（`thinking: false`，最多 6000 tokens），输出经 JSON 与完整 HTML 校验后保存为私有草稿。
+离线模式可以浏览和试玩两个原创游戏、登录、检查布局；生成会提示需要连接 Workers AI。要真实生成，先 `pnpm -F api exec wrangler login`，再用 `pnpm run api` 代替 `api:offline`。D1 仍是本地 SQLite；只有 AI 推理访问 Cloudflare，会消耗该账号 Workers AI 额度。模型配置在 `apps/api/wrangler.jsonc` 的 `AI_MODEL`，当前为 `@cf/moonshotai/kimi-k2.5`（`thinking: false`，最多 6000 tokens），输出经 JSON 与完整 HTML 校验后保存为私有草稿。
 
 ## 数据库（Drizzle）
 
-表结构在 `worker/schema.ts`。修改后生成迁移并应用：
+表结构在 `apps/api/src/schema.ts`。修改后生成迁移并应用：
 
 ```sh
-pnpm run db:generate   # drizzle-kit 写入 migrations/（与 wrangler 的 migrations_dir 相同）
+pnpm run db:generate   # drizzle-kit 写入 apps/api/migrations/（与 wrangler 的 migrations_dir 相同）
 pnpm run db:local
 ```
 
@@ -51,10 +51,10 @@ pnpm run db:local
 
 ## 部署
 
-已配置用户选择的 Chengchao60827@gmail.com 账号及专用 hopon D1 数据库（迁移到其他账号时才需要 `wrangler d1 create hopon` 并更新 `wrangler.jsonc`）。
+已配置用户选择的 Chengchao60827@gmail.com 账号及专用 hopon D1 数据库（迁移到其他账号时才需要 `wrangler d1 create hopon` 并更新 `apps/api/wrangler.jsonc`）。
 
 ```sh
-pnpm exec wrangler secret put CLERK_JWT_KEY < clerk-public-key.pem
+pnpm -F api exec wrangler secret put CLERK_JWT_KEY < clerk-public-key.pem
 pnpm run db:remote
 pnpm run deploy
 ```

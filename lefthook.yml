@@ -5,8 +5,8 @@ pre-commit:
   exclude:
     - '.agents/**'
     - '.claude/**'
-    - 'migrations/**'
-    - 'worker/worker-configuration.d.ts'
+    - '**/migrations/**'
+    - '**/worker-configuration.d.ts'
     - 'skills-lock.json'
   commands:
     lint:
