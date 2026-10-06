@@ -16,10 +16,10 @@ export function TicketActions({
   onLike: () => void;
   onComments: () => void;
 }) {
-  const { saved, comments } = usePrototype();
+  const { saved } = usePrototype();
   const isLiked = !!game.liked;
   const isSaved = saved.some((g) => g.id === game.id);
-  const commentCount = comments[game.id]?.length ?? 0;
+  const commentCount = game.comments ?? 0;
   return (
     <View className="flex-row items-center gap-1.5">
       <Pill label={isLiked ? 'Unlike' : 'Like'} selected={isLiked} onPress={onLike} count={game.likes ?? 0}>

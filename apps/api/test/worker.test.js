@@ -202,3 +202,112 @@ test('likes: published only, one per user, counted in the feed, removable', asyn
   assert.deepEqual(await (await call('/api/likes/count', { user: 'user_other' })).json(), { count: 1 });
   assert.equal((await call('/api/likes/count', { user: '' })).status, 401);
 });
+test('comments: anyone reads, posting needs sign-in and a handle, published games only', async (t) => {
+  const { call } = await setup(t);
+  const [game] = (await (await call('/api/games')).json()).games;
+  const post = (id, body, options) => call(`/api/games/${id}/comments`, { method: 'POST', body: { body }, ...options });
+  const list = async (id, options) => (await call(`/api/games/${id}/comments`, options)).json();
+  assert.deepEqual(await list(game.id, { user: '' }), { comments: [], next: null });
+  assert.equal((await post(game.id, 'nice', { user: '' })).status, 401);
+  const noHandle = await post(game.id, 'nice', { username: null });
+  assert.equal(noHandle.status, 400);
+  assert.match((await noHandle.json()).error, /Pick your name/);
+  const draft = await (await call('/api/games', { method: 'POST', body: { prompt: '点击星星的小游戏' } })).json();
+  assert.equal((await post(draft.id, 'nice')).status, 404);
+  assert.equal((await call(`/api/games/${draft.id}/comments`)).status, 404);
+
+  const created = await post(game.id, '  beat 40!\nso good  ');
+  assert.equal(created.status, 201);
+  const comment = await created.json();
+  assert.equal(comment.author, 'maya_makes');
+  assert.equal(comment.body, 'beat 40!\nso good');
+  assert.equal(comment.mine, true);
+  assert.equal(comment.canDelete, true);
+  assert.equal(typeof comment.id, 'number');
+  assert.equal(typeof comment.createdAt, 'string');
+  const { comments } = await list(game.id, { user: '' });
+  assert.deepEqual(comments, [{ ...comment, mine: false, canDelete: false }]);
+});
+test('comments: 1–300 characters after trimming', async (t) => {
+  const { call, env } = await setup(t);
+  const [game] = (await (await call('/api/games')).json()).games;
+  const post = (body) => call(`/api/games/${game.id}/comments`, { method: 'POST', body: { body } });
+  for (const bad of ['', '   \n ', 'x'.repeat(301), 42, undefined])
+    assert.equal((await post(bad)).status, 400, String(bad));
+  assert.equal((await post('x'.repeat(300))).status, 201);
+  // Characters, not UTF-16 units: 300 emoji fit.
+  assert.equal((await post('🎮'.repeat(300))).status, 201);
+  await assert.rejects(
+    env.DB.prepare("INSERT INTO comments(game_id, user, author, body) VALUES (?, 'x', 'x', '')").bind(game.id).run(),
+    /CHECK/,
+  );
+});
+test('comments: newest first, 30 per page, no duplicates', async (t) => {
+  const { call } = await setup(t);
+  const [game] = (await (await call('/api/games')).json()).games;
+  for (let i = 1; i <= 31; i++)
+    await call(`/api/games/${game.id}/comments`, { method: 'POST', body: { body: `comment ${i}` } });
+  const page = async (query = '') => (await call(`/api/games/${game.id}/comments${query}`)).json();
+  const first = await page();
+  assert.equal(first.comments.length, 30);
+  assert.equal(first.comments[0].body, 'comment 31');
+  const second = await page(`?before=${first.next}`);
+  assert.deepEqual(
+    second.comments.map((c) => c.body),
+    ['comment 1'],
+  );
+  assert.equal(second.next, null);
+  assert.equal((await call(`/api/games/${game.id}/comments?before=abc`)).status, 400);
+});
+test('comments: atomic 100 per account per day, separate from the generation quota', async (t) => {
+  const { call } = await setup(t);
+  const [game] = (await (await call('/api/games')).json()).games;
+  const post = (user = 'user_owner') =>
+    call(`/api/games/${game.id}/comments`, { method: 'POST', body: { body: 'hi' }, user });
+  const attempts = await Promise.all(Array.from({ length: 101 }, () => post()));
+  assert.equal(attempts.filter((r) => r.status === 201).length, 100);
+  assert.equal(attempts.filter((r) => r.status === 429).length, 1);
+  assert.equal((await post('user_other')).status, 201);
+  assert.equal((await call('/api/games', { method: 'POST', body: { prompt: '造一个小游戏' } })).status, 201);
+});
+test("comments: deleted by their author or the game's creator, hidden from everyone else", async (t) => {
+  const { call } = await setup(t);
+  const draft = await (await call('/api/games', { method: 'POST', body: { prompt: '点击星星的小游戏' } })).json();
+  await call(`/api/games/${draft.id}/publish`, { method: 'POST' });
+  const post = async (user, body) =>
+    (await call(`/api/games/${draft.id}/comments`, { method: 'POST', body: { body }, user, username: user })).json();
+  const first = await post('user_fan', 'first');
+  const second = await post('user_fan', 'second');
+  const list = async (user) => (await (await call(`/api/games/${draft.id}/comments`, { user })).json()).comments;
+  assert.deepEqual(
+    (await list('user_owner')).map((c) => [c.body, c.mine, c.canDelete]),
+    [
+      ['second', false, true],
+      ['first', false, true],
+    ],
+  );
+  assert.deepEqual(
+    (await list('user_stranger')).map((c) => c.canDelete),
+    [false, false],
+  );
+  const remove = (id, user) => call(`/api/comments/${id}`, { method: 'DELETE', user });
+  assert.equal((await remove(first.id, '')).status, 401);
+  assert.equal((await remove(first.id, 'user_stranger')).status, 404);
+  assert.equal((await remove(first.id, 'user_owner')).status, 204);
+  assert.equal((await remove(second.id, 'user_fan')).status, 204);
+  assert.equal((await remove(second.id, 'user_fan')).status, 404);
+  assert.deepEqual(await list(''), []);
+});
+test('comments: counted in the feed', async (t) => {
+  const { call } = await setup(t);
+  const feed = async () => (await (await call('/api/games', { user: '' })).json()).games[0];
+  const game = await feed();
+  assert.equal(game.comments, 0);
+  const posted = await (
+    await call(`/api/games/${game.id}/comments`, { method: 'POST', body: { body: 'nice' } })
+  ).json();
+  await call(`/api/games/${game.id}/comments`, { method: 'POST', body: { body: 'again' } });
+  assert.equal((await feed()).comments, 2);
+  await call(`/api/comments/${posted.id}`, { method: 'DELETE' });
+  assert.equal((await feed()).comments, 1);
+});
