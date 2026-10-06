@@ -9,7 +9,7 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
-    "types": ["./src/worker-configuration.d.ts"]
+    "types": ["./worker-configuration.d.ts"]
   },
   "include": ["src"]
 }

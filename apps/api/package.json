@@ -10,7 +10,8 @@
     "db:remote": "wrangler d1 migrations apply DB --remote",
     "deploy": "wrangler deploy",
     "test": "node --test",
-    "typecheck": "tsc --noEmit"
+    "types": "wrangler types",
+    "typecheck": "wrangler types --check && tsc --noEmit"
   },
   "dependencies": {
     "@clerk/backend": "^3.22.0",
