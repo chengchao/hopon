@@ -22,8 +22,8 @@ import type * as z from "zod/mini";
 import { fail, GAME_CSP, parseGame } from "./game.ts";
 import { comments, games, generationLimits, likes, saves } from "./schema.ts";
 
-// Secrets/vars outside wrangler.jsonc, so `wrangler types` can't see them.
-type HoponEnv = Env & { CLERK_JWT_KEY?: string; HOPON_OFFLINE?: string };
+// Set only by `pnpm api:offline` (`--var`), so it isn't in wrangler.jsonc or the generated `Env`.
+type HoponEnv = Env & { HOPON_OFFLINE?: string };
 
 // Clerk session JWT from `Authorization: Bearer`, verified offline with the dashboard's PEM key (CLERK_JWT_KEY).
 // `username` is a custom session claim ({{user.username}}) set on the Clerk instance; null until the user picks one.
