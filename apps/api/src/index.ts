@@ -203,7 +203,6 @@ async function route(request: Request, env: HoponEnv) {
         author: comment.author,
         body: comment.body,
         createdAt: comment.createdAt,
-        mine: user === owner,
         canDelete: user === owner || game.owner === owner,
       });
       if (request.method === 'GET') {
@@ -219,7 +218,8 @@ async function route(request: Request, env: HoponEnv) {
       const text = typeof body === 'string' ? body.trim() : '';
       // Count characters like SQLite's length(), not UTF-16 units.
       const length = [...text].length;
-      if (length < 1 || length > 300) throw fail(400, 'Write a comment of 1–300 characters.');
+      // A NUL would cut SQLite's length() short of the real text.
+      if (length < 1 || length > 300 || text.includes('\0')) throw fail(400, 'Write a comment of 1–300 characters.');
       if (!(await spend(db, `comment:${owner}`, 100)))
         throw fail(429, 'Daily limit reached: 100 comments per account. Try again tomorrow.');
       const row = await db

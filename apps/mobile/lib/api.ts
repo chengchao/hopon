@@ -16,7 +16,6 @@ export type Comment = {
   author: string;
   body: string;
   createdAt: string;
-  mine: boolean;
   /** True for the commenter and for the game's creator. */
   canDelete: boolean;
 };

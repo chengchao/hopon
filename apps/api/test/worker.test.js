@@ -221,18 +221,18 @@ test('comments: anyone reads, posting needs sign-in and a handle, published game
   const comment = await created.json();
   assert.equal(comment.author, 'maya_makes');
   assert.equal(comment.body, 'beat 40!\nso good');
-  assert.equal(comment.mine, true);
   assert.equal(comment.canDelete, true);
   assert.equal(typeof comment.id, 'number');
   assert.equal(typeof comment.createdAt, 'string');
   const { comments } = await list(game.id, { user: '' });
-  assert.deepEqual(comments, [{ ...comment, mine: false, canDelete: false }]);
+  assert.deepEqual(comments, [{ ...comment, canDelete: false }]);
 });
 test('comments: 1–300 characters after trimming', async (t) => {
   const { call, env } = await setup(t);
   const [game] = (await (await call('/api/games')).json()).games;
   const post = (body) => call(`/api/games/${game.id}/comments`, { method: 'POST', body: { body } });
-  for (const bad of ['', '   \n ', 'x'.repeat(301), 42, undefined])
+  // SQLite's length() stops at a NUL, so one would slip past the count.
+  for (const bad of ['', '   \n ', 'x'.repeat(301), 'hi\u0000there', 42, undefined])
     assert.equal((await post(bad)).status, 400, String(bad));
   assert.equal((await post('x'.repeat(300))).status, 201);
   // Characters, not UTF-16 units: 300 emoji fit.
@@ -280,10 +280,10 @@ test("comments: deleted by their author or the game's creator, hidden from every
   const second = await post('user_fan', 'second');
   const list = async (user) => (await (await call(`/api/games/${draft.id}/comments`, { user })).json()).comments;
   assert.deepEqual(
-    (await list('user_owner')).map((c) => [c.body, c.mine, c.canDelete]),
+    (await list('user_owner')).map((c) => [c.body, c.canDelete]),
     [
-      ['second', false, true],
-      ['first', false, true],
+      ['second', true],
+      ['first', true],
     ],
   );
   assert.deepEqual(
