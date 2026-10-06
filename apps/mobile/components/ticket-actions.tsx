@@ -1,9 +1,9 @@
+import type { FeedGame } from "@hopon/schemas";
 import { Bookmark, Heart, MessageCircle } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
-import type { Game } from "@/lib/api";
 import { COLORS } from "@/lib/theme";
 
 const Pill = ({
@@ -43,21 +43,21 @@ export const TicketActions = ({
   onComments,
   onSave,
 }: {
-  game: Game;
+  game: FeedGame;
   onLike: () => void;
   onComments: () => void;
   onSave: () => void;
 }) => {
-  const isLiked = !!game.liked;
-  const isSaved = !!game.saved;
-  const commentCount = game.comments ?? 0;
+  const isLiked = game.liked;
+  const isSaved = game.saved;
+  const commentCount = game.comments;
   return (
     <View className="flex-row items-center gap-1.5">
       <Pill
         label={isLiked ? "Unlike" : "Like"}
         selected={isLiked}
         onPress={onLike}
-        count={game.likes ?? 0}
+        count={game.likes}
       >
         <Heart
           size={18}

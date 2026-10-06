@@ -1,4 +1,5 @@
 import { useAuth } from "@clerk/expo";
+import type { GamePage, SavedGame } from "@hopon/schemas";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FlatList, Pressable, View } from "react-native";
@@ -8,12 +9,11 @@ import { Byline, Ticket } from "@/components/ticket";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
-import type { Game } from "@/lib/api";
 
 const Saved = () => {
   const insets = useSafeAreaInsets();
   const { isLoaded, isSignedIn, getToken } = useAuth();
-  const [games, setGames] = useState<Game[]>([]);
+  const [games, setGames] = useState<SavedGame[]>([]);
   const [next, setNext] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -39,7 +39,7 @@ const Saved = () => {
     setLoading(true);
     setError("");
     try {
-      const data = await api<{ games: Game[]; next: number | null }>(
+      const data = await api<GamePage<SavedGame>>(
         `/api/saves${before ? `?before=${before}` : ""}`,
         {
           token: await token.current(),

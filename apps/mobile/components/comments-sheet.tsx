@@ -1,5 +1,6 @@
 import { useAuth, useUser } from "@clerk/expo";
 import { characters, COMMENT_MAX, newComment } from "@hopon/schemas";
+import type { Comment, CommentPage, GameSummary } from "@hopon/schemas";
 import { router } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -17,7 +18,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
-import type { Comment, Game } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 // Covers the ticket and the lower part of the game; the game stays visible above so you keep your place.
@@ -26,7 +26,7 @@ export const CommentsSheet = ({
   onClose,
   onCount,
 }: {
-  game: Game | null;
+  game: GameSummary | null;
   onClose: () => void;
   /** A comment was posted (+1) or deleted (-1), so the feed's count can follow. */
   onCount: (id: number, delta: number) => void;
@@ -54,7 +54,7 @@ export const CommentsSheet = ({
   // Callers set `loading` first: the reset below for a newly opened game, onEndReached for the next page.
   const load = useCallback(async (gameId: number, before?: number) => {
     try {
-      const data = await api<{ comments: Comment[]; next: number | null }>(
+      const data = await api<CommentPage>(
         `/api/games/${gameId}/comments${before ? `?before=${before}` : ""}`,
         { token: await token.current() }
       );
