@@ -9,7 +9,7 @@ import type {
   GameSummary,
   SavedGame,
 } from "@hopon/schemas";
-import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, notInArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { Context, Effect } from "effect";
@@ -318,8 +318,21 @@ app.get("/api/saves/count", (c) =>
     c,
     Effect.gen(function* () {
       const owner = yield* signedIn("Sign in to see your saved games.");
+      // Matches the Saved list, which leaves out games the viewer has reported.
       const count = yield* query((db) =>
-        db.$count(saves, eq(saves.user, owner))
+        db.$count(
+          saves,
+          and(
+            eq(saves.user, owner),
+            notInArray(
+              saves.gameId,
+              db
+                .select({ id: reports.gameId })
+                .from(reports)
+                .where(eq(reports.reporter, owner))
+            )
+          )
+        )
       );
       return c.json({ count });
     })

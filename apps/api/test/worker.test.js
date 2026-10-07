@@ -806,7 +806,7 @@ test("reports: one open snapshot per person and game, which outlives the game", 
   ]);
   assert.equal(await count("reports"), 1);
 });
-test("reports: the game disappears for the reporter only, from the feed, Saved and the saved feed", async (t) => {
+test("reports: the game disappears for the reporter only, from the feed, Saved, its count and the saved feed", async (t) => {
   const { call } = await setup(t);
   const {
     games: [game],
@@ -836,6 +836,11 @@ test("reports: the game disappears for the reporter only, from the feed, Saved a
   assert.equal(await shows("/api/games", "user_other"), true);
   assert.equal(await shows("/api/games", ""), true);
   assert.equal(await shows("/api/saves", "user_other"), true);
+  assert.deepEqual(await json(call("/api/saves/count")), { count: 0 });
+  assert.deepEqual(
+    await json(call("/api/saves/count", { user: "user_other" })),
+    { count: 1 }
+  );
 });
 test("reports: each new report POSTs the reason and snapshot to the Operator; a failed send keeps the report", async (t) => {
   const { call, count, env, settled } = await setup(t);
