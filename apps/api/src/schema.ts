@@ -106,6 +106,11 @@ export const reports = sqliteTable(
   "reports",
   {
     body: text("body"),
+    // When and how a closed report closed; null while open.
+    closedAt: text("closed_at"),
+    closedHow: text("closed_how", {
+      enum: ["deleted", "dismissed", "banned", "creator_deleted"],
+    }),
     commentId: integer("comment_id"),
     createdAt: text("created_at")
       .notNull()
@@ -117,8 +122,10 @@ export const reports = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     reason: text("reason").notNull(),
     reporter: text("reporter").notNull(),
-    // `open` until the Operator closes it.
-    status: text("status").notNull().default("open"),
+    // `open` until the Operator acts on it or its content is Deleted. Closed reports are kept as the audit trail.
+    status: text("status", { enum: ["open", "closed"] })
+      .notNull()
+      .default("open"),
     title: text("title"),
   },
   // One report per person and game, and per person and comment. These also serve the per-viewer filters on lists.

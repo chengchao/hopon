@@ -86,3 +86,29 @@ export interface CommentPage {
   comments: Comment[];
   next: number | null;
 }
+
+/** A game or comment in the Operator's queue: the snapshot from its oldest open report, and every open report's reason. */
+export interface ReportTarget {
+  kind: "game" | "comment";
+  /** The game's or the comment's id. */
+  id: number;
+  /** The game, or the game the comment is on. */
+  gameId: number;
+  /** The poster's @handle. */
+  handle: string | null;
+  /** A game's title and description; null on a comment. */
+  title: string | null;
+  description: string | null;
+  /** A comment's body; null on a game. */
+  body: string | null;
+  reasons: { reason: ReportReason; count: number }[];
+  /** When its oldest open report was filed, as SQLite's `YYYY-MM-DD HH:MM:SS` in UTC. */
+  reportedAt: string;
+  /** False once the content is gone ("content deleted"). */
+  live: boolean;
+}
+
+/** Open targets, oldest open report first. */
+export interface ReportQueue {
+  targets: ReportTarget[];
+}
