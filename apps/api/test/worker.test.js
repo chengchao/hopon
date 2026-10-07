@@ -22,12 +22,13 @@ const keys = await crypto.subtle.generateKey(
 const CLERK_JWT_KEY = `-----BEGIN PUBLIC KEY-----\n${Buffer.from(await crypto.subtle.exportKey("spki", keys.publicKey)).toString("base64")}\n-----END PUBLIC KEY-----`;
 const b64 = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
 // `username` mirrors the Clerk session claim {{user.username}}: null until the user picks a handle.
+// `role` mirrors {{user.public_metadata.role}}, "operator" for the Operator and absent for everyone else.
 const sign = async (
   sub,
-  { exp = 60, key = keys.privateKey, username = null } = {}
+  { exp = 60, key = keys.privateKey, role, username = null } = {}
 ) => {
   const now = Math.floor(Date.now() / 1000);
-  const body = `${b64({ alg: "RS256", kid: "ins_test", typ: "JWT" })}.${b64({ exp: now + exp, iat: now, nbf: now, sub, username })}`;
+  const body = `${b64({ alg: "RS256", kid: "ins_test", typ: "JWT" })}.${b64({ exp: now + exp, iat: now, nbf: now, role, sub, username })}`;
   return `${body}.${Buffer.from(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(body))).toString("base64url")}`;
 };
 // Read a pending response's status or JSON body with one await.
@@ -96,6 +97,7 @@ const setup = async (t) => {
       body,
       user = owner,
       username = "maya_makes",
+      role,
       token,
       contentType = "application/json",
     } = {}
@@ -106,7 +108,7 @@ const setup = async (t) => {
           "Content-Type": contentType,
           ...(user || token
             ? {
-                Authorization: `Bearer ${token ?? (await sign(user, { username }))}`,
+                Authorization: `Bearer ${token ?? (await sign(user, { role, username }))}`,
               }
             : {}),
         },
@@ -585,14 +587,118 @@ test("comments: deleted by their author or the game's creator, hidden from every
     forStranger.map((c) => c.canDelete),
     [false, false]
   );
-  const remove = (id, user) =>
-    call(`/api/comments/${id}`, { method: "DELETE", user });
+  const remove = (id, user, role) =>
+    call(`/api/comments/${id}`, { method: "DELETE", role, user });
+  assert.equal(await status(remove(first.id, "user_stranger", "admin")), 404);
   assert.equal(await status(remove(first.id, "")), 401);
   assert.equal(await status(remove(first.id, "user_stranger")), 404);
   assert.equal(await status(remove(first.id, "user_owner")), 204);
   assert.equal(await status(remove(second.id, "user_fan")), 204);
   assert.equal(await status(remove(second.id, "user_fan")), 404);
   assert.deepEqual(await list(""), []);
+});
+test("comments: the Operator sees every comment as deletable and deletes any", async (t) => {
+  const { call } = await setup(t);
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
+  const comment = await json(
+    call(`/api/games/${game.id}/comments`, {
+      body: { body: "rule-breaking" },
+      method: "POST",
+      user: "user_fan",
+    })
+  );
+  const { comments } = await json(
+    call(`/api/games/${game.id}/comments`, {
+      role: "operator",
+      user: "user_operator",
+    })
+  );
+  assert.deepEqual(
+    comments.map((c) => [c.canDelete, c.mine]),
+    [[true, false]]
+  );
+  assert.equal(
+    await status(
+      call(`/api/comments/${comment.id}`, {
+        method: "DELETE",
+        role: "operator",
+        user: "user_operator",
+      })
+    ),
+    204
+  );
+  const { comments: after } = await json(
+    call(`/api/games/${game.id}/comments`)
+  );
+  assert.deepEqual(after, []);
+});
+test("games: deleted by their creator or the Operator, with likes, comments and saves; reports stay", async (t) => {
+  const { call, count } = await setup(t);
+  const publish = async () => {
+    const draft = await json(
+      call("/api/games", {
+        body: { prompt: "点击星星的小游戏" },
+        method: "POST",
+      })
+    );
+    await call(`/api/games/${draft.id}/publish`, { method: "POST" });
+    await Promise.all([
+      ...["user_fan", "user_other"].flatMap((user) => [
+        call(`/api/games/${draft.id}/like`, { method: "PUT", user }),
+        call(`/api/games/${draft.id}/save`, { method: "PUT", user }),
+        call(`/api/games/${draft.id}/comments`, {
+          body: { body: "nice" },
+          method: "POST",
+          user,
+        }),
+      ]),
+      call(`/api/games/${draft.id}/report`, {
+        body: { reason: "spam" },
+        method: "POST",
+        user: "user_fan",
+      }),
+    ]);
+    return draft.id;
+  };
+  const remove = (id, user, role) =>
+    call(`/api/games/${id}`, { method: "DELETE", role, user });
+  const counts = () =>
+    Promise.all(["games", "likes", "comments", "saves", "reports"].map(count));
+  const mine = await publish();
+  const theirs = await publish();
+  const before = await counts();
+  assert.equal(await status(remove(mine, "")), 401);
+  assert.equal(await status(remove(mine, "user_fan")), 404);
+  assert.equal(await status(remove(mine, "user_fan", "admin")), 404);
+  assert.deepEqual(await counts(), before);
+  assert.equal(await status(remove(mine, "user_owner")), 204);
+  assert.equal(await status(remove(mine, "user_owner")), 404);
+  assert.equal(await status(remove(theirs, "user_operator", "operator")), 204);
+  assert.equal(await status(call(`/api/games/${theirs}/document`)), 404);
+  assert.deepEqual(await counts(), [ORIGINALS, 0, 0, 0, 2]);
+});
+test("games: a draft isn't Deleted, even by its creator or the Operator", async (t) => {
+  const { call } = await setup(t);
+  const draft = await json(
+    call("/api/games", { body: { prompt: "点击星星的小游戏" }, method: "POST" })
+  );
+  assert.equal(
+    await status(call(`/api/games/${draft.id}`, { method: "DELETE" })),
+    404
+  );
+  assert.equal(
+    await status(
+      call(`/api/games/${draft.id}`, {
+        method: "DELETE",
+        role: "operator",
+        user: "user_operator",
+      })
+    ),
+    404
+  );
+  assert.equal(await status(call(`/api/games/${draft.id}/document`)), 200);
 });
 test("comments: counted in the feed", async (t) => {
   const { call } = await setup(t);
