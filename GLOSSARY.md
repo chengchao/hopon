@@ -18,7 +18,9 @@ Make a small game from one sentence, then swipe a feed to discover and play othe
 
 **Delete**: Permanently take away a published **Game** or a **Comment**, so nobody can see it again. Deleting a **Game** also takes away its likes, **Comments** and **Saves**. The **Creator** or the **Operator** deletes a **Game**; there is no hiding it and bringing it back. _Avoid_: Remove, unpublish, take down
 
-**Operator**: The person who runs hopon, deletes **Games** and **Comments** that break its rules, and **Bans** the people who post them. _Avoid_: Admin, moderator
+**Operator**: The person who runs hopon, deletes **Games** and **Comments** that break its **Rules**, and **Bans** the people who post them. _Avoid_: Admin, moderator
+
+**Rules**: What everyone agrees to, with an explicit "I agree", before they can do anything signed in: zero tolerance for objectionable content and abusive people. Breaking them gets **Games** and **Comments** **Deleted** and can get a person **Banned**. If the Rules change, everyone agrees again. _Avoid_: Terms, community guidelines, ToS
 
 **Report**: A signed-in person's flag on someone else's published **Game** or **Comment**, giving a reason, for the **Operator** to review. The reported **Game** or **Comment** disappears for the reporter at once and stays up for everyone else until the **Operator** either **Deletes** it or dismisses the report, leaving it up. A report outlives the **Game** or **Comment** it points at. _Avoid_: Flag, complaint
 
@@ -28,4 +30,4 @@ Make a small game from one sentence, then swipe a feed to discover and play othe
 
 **Ban**: The **Operator**'s act of shutting a person out of hopon: they can no longer sign in, and all their published **Games** and **Comments** are **Deleted**. Only the **Operator** bans, never automatically, and can lift a ban, which lets the person sign in again but brings nothing back. _Avoid_: Eject, suspend, lock
 
-**Screening**: The automatic check that refuses text breaking hopon's rules before anyone else can see it: the sentence a **Game** is made from, a **Game**'s title and description when it is published, a **Comment**, and the **Handle** shown on them. Refused text is never kept; the person changes it and tries again. Unlike a **Report**, nobody reviews it. _Avoid_: Filter, moderation
+**Screening**: The automatic check that refuses text breaking hopon's **Rules** before anyone else can see it: the sentence a **Game** is made from, a **Game**'s title and description when it is published, a **Comment**, and the **Handle** shown on them. Refused text is never kept; the person changes it and tries again. Unlike a **Report**, nobody reviews it. _Avoid_: Filter, moderation
