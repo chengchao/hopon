@@ -591,7 +591,7 @@ const notifyOperator = async (
 };
 
 // Stores a report and tells the Operator. Reporting the same thing again changes nothing and still succeeds.
-const file = Effect.fn("file")(function* (
+const fileReport = Effect.fn("fileReport")(function* (
   c: HonoContext<AppEnv>,
   report: typeof reports.$inferInsert
 ) {
@@ -622,7 +622,7 @@ app.post(
         if (game.owner === reporter) {
           return yield* fail(400, "You can't report your own game.");
         }
-        yield* file(c, {
+        yield* fileReport(c, {
           creator: game.owner,
           description: game.description,
           gameId: id,
@@ -654,7 +654,7 @@ app.post(
         if (comment.user === reporter) {
           return yield* fail(400, "You can't report your own comment.");
         }
-        yield* file(c, {
+        yield* fileReport(c, {
           body: comment.body,
           commentId: id,
           creator: comment.user,

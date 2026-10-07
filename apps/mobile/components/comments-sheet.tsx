@@ -176,30 +176,47 @@ export const CommentsSheet = ({
   const report = (comment: Comment) =>
     isSignedIn ? setReportFor(comment.id) : leave("/sign-in");
 
-  // Long-press on someone else's comment: Delete (when allowed) and Report. On your own it stays a plain delete.
+  // What a comment offers, for both its long-press menu and VoiceOver: Delete when allowed, Report unless it's yours.
+  const actionsFor = (comment: Comment) => [
+    ...(comment.canDelete
+      ? [
+          {
+            label: "Delete comment",
+            name: "delete",
+            onPress: () => remove(comment),
+          },
+        ]
+      : []),
+    ...(comment.mine
+      ? []
+      : [
+          {
+            label: "Report comment",
+            name: "report",
+            onPress: () => report(comment),
+          },
+        ]),
+  ];
+
+  // Long-press on someone else's comment opens a menu. On your own it stays a plain delete.
   const options = (comment: Comment) => {
     if (comment.mine) {
       return remove(comment);
     }
-    const actions = [
-      ...(comment.canDelete
-        ? [{ onPress: () => remove(comment), text: "Delete comment" }]
-        : []),
-      { onPress: () => report(comment), text: "Report comment" },
-    ];
+    const actions = actionsFor(comment);
     if (Platform.OS === "ios") {
       return ActionSheetIOS.showActionSheetWithOptions(
         {
           cancelButtonIndex: actions.length,
           destructiveButtonIndex: comment.canDelete ? 0 : undefined,
-          options: [...actions.map((a) => a.text), "Cancel"],
+          options: [...actions.map((a) => a.label), "Cancel"],
         },
         (index) => actions[index]?.onPress()
       );
     }
     Alert.alert(`@${comment.author}`, comment.body, [
       { style: "cancel", text: "Cancel" },
-      ...actions,
+      ...actions.map(({ label, onPress }) => ({ onPress, text: label })),
     ]);
   };
 
@@ -264,18 +281,13 @@ export const CommentsSheet = ({
                 accessibilityHint={
                   item.mine ? "Long press to delete" : "Long press for options"
                 }
-                accessibilityActions={[
-                  ...(item.canDelete
-                    ? [{ label: "Delete comment", name: "delete" }]
-                    : []),
-                  ...(item.mine
-                    ? []
-                    : [{ label: "Report comment", name: "report" }]),
-                ]}
+                accessibilityActions={actionsFor(item).map(
+                  ({ label, name }) => ({ label, name })
+                )}
                 onAccessibilityAction={(e) =>
-                  e.nativeEvent.actionName === "report"
-                    ? report(item)
-                    : remove(item)
+                  actionsFor(item)
+                    .find((a) => a.name === e.nativeEvent.actionName)
+                    ?.onPress()
                 }
               >
                 <Text className="font-strong text-sm text-muted-foreground">
