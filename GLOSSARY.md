@@ -25,3 +25,5 @@ Make a small game from one sentence, then swipe a feed to discover and play othe
 **Block**: A signed-in person's choice to stop seeing another person, made from one of that person's published **Games** or **Comments**. Afterwards neither of them sees the other's **Games** or **Comments**, and the blocked person can't **Comment** on the blocker's **Games**. Nobody is told. Nothing is **Deleted**, and unblocking from the person's **Blocked accounts** list brings everything back. _Avoid_: Mute, ban
 
 **Blocked accounts**: The list of everyone a person has **Blocked**, each shown by the **Handle** they had when they were blocked.
+
+**Screening**: The automatic check that refuses text breaking hopon's rules before anyone else can see it: the sentence a **Game** is made from, a **Game**'s title and description when it is published, a **Comment**, and the **Handle** shown on them. Refused text is never kept; the person changes it and tries again. Unlike a **Report**, nobody reviews it. _Avoid_: Filter, moderation
