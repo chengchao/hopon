@@ -45,6 +45,7 @@ type HoponEnv = Env & { HOPON_OFFLINE?: string; OPERATOR_WEBHOOK_URL?: string };
 
 // Clerk session JWT from `Authorization: Bearer`, verified offline with the dashboard's PEM key (CLERK_JWT_KEY).
 // `username` is a custom session claim ({{user.username}}) set on the Clerk instance; null until the user picks one.
+// `role` is another ({{user.public_metadata.role}}): "operator" marks the Operator. This check is the only gate.
 const session = async (request: Request, env: HoponEnv) => {
   const token = /^Bearer (?<token>\S+)$/u.exec(
     request.headers.get("Authorization") || ""
@@ -55,6 +56,7 @@ const session = async (request: Request, env: HoponEnv) => {
   try {
     const claims = await verifyToken(token, { jwtKey: env.CLERK_JWT_KEY });
     return {
+      operator: claims.role === "operator",
       owner: claims.sub,
       username:
         typeof claims.username === "string" && claims.username
@@ -82,7 +84,7 @@ const systemPrompt = `You create polished, small, fully playable mobile browser 
 class Db extends Context.Service<Db, DrizzleD1Database>()("hopon/api/Db") {}
 class Viewer extends Context.Service<
   Viewer,
-  { owner?: string; username: string | null }
+  { operator: boolean; owner?: string; username: string | null }
 >()("hopon/api/Viewer") {}
 
 // One Drizzle query. A D1 failure is a defect, so the client sees a 500.
@@ -182,6 +184,7 @@ interface AppEnv {
   Bindings: HoponEnv;
   Variables: {
     db: DrizzleD1Database;
+    operator?: boolean;
     owner?: string;
     username?: string | null;
   };
@@ -196,6 +199,7 @@ const run = <A, E>(
     effect.pipe(
       Effect.provideService(Db, c.var.db),
       Effect.provideService(Viewer, {
+        operator: c.var.operator ?? false,
         owner: c.var.owner,
         username: c.var.username ?? null,
       })
@@ -220,11 +224,12 @@ app.use(async (c, next) => {
 
 app.use(async (c, next) => {
   // Bearer tokens are never sent automatically by browsers, so writes need no Origin/CSRF check.
-  const { owner, username } = await session(c.req.raw, c.env);
+  const { operator, owner, username } = await session(c.req.raw, c.env);
   if (c.req.path.startsWith("/api/") && c.req.method !== "GET" && !owner) {
     throw fail(401, "Sign in to continue.");
   }
   c.set("db", drizzle(c.env.DB));
+  c.set("operator", operator);
   c.set("owner", owner);
   c.set("username", username);
   return next();
@@ -430,23 +435,26 @@ app.delete(`/api/comments/${ID}`, (c) =>
     c,
     Effect.gen(function* () {
       const owner = yield* signedIn("Sign in to continue.");
-      // The commenter or the game's creator; anyone else gets the same 404 as a missing comment.
+      const { operator } = yield* Viewer;
+      // The commenter, the game's creator or the Operator; anyone else gets the same 404 as a missing comment.
       const deleted = yield* query((db) =>
         db
           .delete(comments)
           .where(
             and(
               eq(comments.id, Number(c.req.param("id"))),
-              or(
-                eq(comments.user, owner),
-                inArray(
-                  comments.gameId,
-                  db
-                    .select({ id: games.id })
-                    .from(games)
-                    .where(eq(games.owner, owner))
-                )
-              )
+              operator
+                ? undefined
+                : or(
+                    eq(comments.user, owner),
+                    inArray(
+                      comments.gameId,
+                      db
+                        .select({ id: games.id })
+                        .from(games)
+                        .where(eq(games.owner, owner))
+                    )
+                  )
             )
           )
           .returning({ id: comments.id })
@@ -483,25 +491,55 @@ const publishedGame = Effect.fn("publishedGame")(function* (id: number) {
   return game;
 });
 
-// The commenter, or the game's creator, may delete a comment.
+// The Creator or the Operator deletes a published game, with its likes, comments and saves in one batch
+// (no FK cascade, see schema.ts). Reports outlive it. Anyone else gets the same 404 as a missing game.
+app.delete(`/api/games/${ID}`, (c) =>
+  run(
+    c,
+    Effect.gen(function* () {
+      const owner = yield* signedIn("Sign in to continue.");
+      const { operator } = yield* Viewer;
+      const id = Number(c.req.param("id"));
+      const game = yield* publishedGame(id);
+      if (!operator && game.owner !== owner) {
+        return yield* fail(
+          404,
+          "This game does not exist or is not published yet."
+        );
+      }
+      yield* query((db) =>
+        db.batch([
+          db.delete(likes).where(eq(likes.gameId, id)),
+          db.delete(comments).where(eq(comments.gameId, id)),
+          db.delete(saves).where(eq(saves.gameId, id)),
+          db.delete(games).where(eq(games.id, id)),
+        ])
+      );
+      return c.body(null, 204);
+    })
+  )
+);
+
+// The commenter, the game's creator or the Operator may delete a comment.
 const commentView = (
   { user, ...comment }: typeof comments.$inferSelect,
-  viewer: string | undefined,
+  { operator, owner }: Context.Service.Shape<typeof Viewer>,
   gameOwner: string
 ): Comment => ({
   author: comment.author,
   body: comment.body,
-  canDelete: user === viewer || gameOwner === viewer,
+  canDelete: operator || user === owner || gameOwner === owner,
   createdAt: comment.createdAt,
   id: comment.id,
-  mine: user === viewer,
+  mine: user === owner,
 });
 
 app.get(`/api/games/${ID}/comments`, (c) =>
   run(
     c,
     Effect.gen(function* () {
-      const { owner } = yield* Viewer;
+      const viewer = yield* Viewer;
+      const { owner } = viewer;
       const id = Number(c.req.param("id"));
       const game = yield* publishedGame(id);
       const before = yield* cursor(c.req.query("before"));
@@ -522,7 +560,7 @@ app.get(`/api/games/${ID}/comments`, (c) =>
       return c.json({
         comments: rows
           .slice(0, 30)
-          .map((row) => commentView(row, owner, game.owner)),
+          .map((row) => commentView(row, viewer, game.owner)),
         next: rows.length > 30 ? rows[29].id : null,
       } satisfies CommentPage);
     })
@@ -537,7 +575,8 @@ app.post(
       c,
       Effect.gen(function* () {
         const owner = yield* signedIn("Sign in to continue.");
-        const { username } = yield* Viewer;
+        const viewer = yield* Viewer;
+        const { username } = viewer;
         const id = Number(c.req.param("id"));
         // Comments show who wrote them, so a handle is required, as for publishing.
         if (!username) {
@@ -558,7 +597,7 @@ app.post(
             .returning()
             .get()
         );
-        return c.json(commentView(row, owner, game.owner), 201);
+        return c.json(commentView(row, viewer, game.owner), 201);
       })
     )
 );
