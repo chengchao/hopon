@@ -1,6 +1,6 @@
 import { useAuth } from "@clerk/expo";
 import { REPORT_REASONS } from "@hopon/schemas";
-import type { GameSummary, ReportReason } from "@hopon/schemas";
+import type { ReportReason } from "@hopon/schemas";
 import { useEffect, useRef, useState } from "react";
 import { Modal, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -10,13 +10,13 @@ import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-// Report someone else's game: pick a reason, then Report. `onReported` runs once the server has the report.
+// Report someone else's game or comment: pick a reason, then Report. `onReported` runs once the server has the report.
 export const ReportSheet = ({
-  game,
+  target,
   onClose,
   onReported,
 }: {
-  game: GameSummary | null;
+  target: { kind: "game" | "comment"; id: number } | null;
   onClose: () => void;
   onReported: (id: number) => void;
 }) => {
@@ -25,14 +25,14 @@ export const ReportSheet = ({
   const [reason, setReason] = useState<ReportReason | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  // The open game, so a reply that lands after the sheet moved on doesn't touch another game's sheet.
+  // The open target, so a reply that lands after the sheet moved on doesn't touch another target's sheet.
   const open = useRef<number | null>(null);
-  const id = game?.id;
+  const id = target?.id;
   useEffect(() => {
     open.current = id ?? null;
   }, [id]);
 
-  // A different game starts from a blank sheet; reset during render so the old choice never paints.
+  // A different target starts from a blank sheet; reset during render so the old choice never paints.
   const [shown, setShown] = useState(id);
   if (shown !== id) {
     setShown(id);
@@ -42,20 +42,20 @@ export const ReportSheet = ({
   }
 
   const report = async () => {
-    if (!game || !reason) {
+    if (!target || !reason) {
       return;
     }
-    const gameId = game.id;
+    const { kind, id: targetId } = target;
     setSending(true);
     setError("");
     try {
-      await api(`/api/games/${gameId}/report`, {
+      await api(`/api/${kind}s/${targetId}/report`, {
         body: { reason },
         token: await getToken(),
       });
-      onReported(gameId);
+      onReported(targetId);
     } catch (reportError) {
-      if (open.current === gameId) {
+      if (open.current === targetId) {
         setError((reportError as Error).message);
         setSending(false);
       }
@@ -64,7 +64,7 @@ export const ReportSheet = ({
 
   return (
     <Modal
-      visible={!!game}
+      visible={!!target}
       transparent
       animationType="slide"
       onRequestClose={onClose}
@@ -84,7 +84,7 @@ export const ReportSheet = ({
             accessibilityRole="header"
             className="font-display text-[32px] leading-[36px]"
           >
-            Report game
+            {target?.kind === "comment" ? "Report comment" : "Report game"}
           </Text>
           <View accessibilityRole="radiogroup" className="gap-2">
             {REPORT_REASONS.map(({ reason: key, label }) => (

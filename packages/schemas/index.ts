@@ -23,7 +23,7 @@ export const newComment = z.object({
   ),
 });
 
-// Why someone reports a game, in the order the app lists them.
+// Why someone reports a game or comment, in the order the app lists them.
 export const REPORT_REASONS = [
   { label: "Not suitable for ages 13+", reason: "age" },
   { label: "Hateful or harassing", reason: "hate" },
@@ -72,6 +72,8 @@ export interface Comment {
   createdAt: string;
   /** True for the commenter and for the game's creator. */
   canDelete: boolean;
+  /** True on the viewer's own comments, which they can't report. */
+  mine: boolean;
 }
 
 // Pages run newest first. `next` is the `?before=` cursor for the following page, or null after the last one.

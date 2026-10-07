@@ -324,7 +324,7 @@ export const Feed = ({
         )}
       </View>
       <ReportSheet
-        game={reportFor}
+        target={reportFor && { id: reportFor.id, kind: "game" }}
         onClose={() => setReportFor(null)}
         onReported={(id) => {
           // The next game takes the reported one's place; if it was the last, land on the one before.

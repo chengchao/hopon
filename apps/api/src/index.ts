@@ -9,7 +9,17 @@ import type {
   GameSummary,
   SavedGame,
 } from "@hopon/schemas";
-import { and, desc, eq, inArray, lt, notInArray, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { Context, Effect } from "effect";
@@ -162,9 +172,11 @@ const feedColumns = (viewer = "") => ({
   title: games.title,
 });
 
-// Leaves out games the viewer has reported. Counts stay global; only the viewer's lists change.
+// Leave out games and comments the viewer has reported. Counts stay global; only the viewer's lists change.
 const visibleTo = (viewer = "") =>
-  sql`NOT EXISTS(SELECT 1 FROM ${reports} WHERE ${reports}.game_id = ${games}.id AND ${reports}.reporter = ${viewer})`;
+  sql`NOT EXISTS(SELECT 1 FROM ${reports} WHERE ${reports}.game_id = ${games}.id AND ${reports}.reporter = ${viewer} AND ${reports}.comment_id IS NULL)`;
+const commentVisibleTo = (viewer = "") =>
+  sql`NOT EXISTS(SELECT 1 FROM ${reports} WHERE ${reports}.comment_id = ${comments}.id AND ${reports}.reporter = ${viewer})`;
 
 interface AppEnv {
   Bindings: HoponEnv;
@@ -329,7 +341,9 @@ app.get("/api/saves/count", (c) =>
               db
                 .select({ id: reports.gameId })
                 .from(reports)
-                .where(eq(reports.reporter, owner))
+                .where(
+                  and(eq(reports.reporter, owner), isNull(reports.commentId))
+                )
             )
           )
         )
@@ -480,6 +494,7 @@ const commentView = (
   canDelete: user === viewer || gameOwner === viewer,
   createdAt: comment.createdAt,
   id: comment.id,
+  mine: user === viewer,
 });
 
 app.get(`/api/games/${ID}/comments`, (c) =>
@@ -494,7 +509,13 @@ app.get(`/api/games/${ID}/comments`, (c) =>
         db
           .select()
           .from(comments)
-          .where(and(eq(comments.gameId, id), lt(comments.id, before)))
+          .where(
+            and(
+              eq(comments.gameId, id),
+              lt(comments.id, before),
+              commentVisibleTo(owner)
+            )
+          )
           .orderBy(desc(comments.id))
           .limit(31)
       );
@@ -550,8 +571,9 @@ const notifyOperator = async (
   const reason = REPORT_REASONS.find((r) => r.reason === report.reason);
   const text = [
     `New report: ${reason?.label}`,
-    `Game ${report.gameId}: ${report.title}`,
-    report.description,
+    ...(report.commentId
+      ? [`Comment ${report.commentId} on game ${report.gameId}`, report.body]
+      : [`Game ${report.gameId}: ${report.title}`, report.description]),
     `By @${report.handle ?? "?"} (${report.creator}), reported by ${report.reporter}`,
   ].join("\n");
   try {
@@ -568,6 +590,25 @@ const notifyOperator = async (
   }
 };
 
+// Stores a report and tells the Operator. Reporting the same thing again changes nothing and still succeeds.
+const file = Effect.fn("file")(function* (
+  c: HonoContext<AppEnv>,
+  report: typeof reports.$inferInsert
+) {
+  const created = yield* query((db) =>
+    db
+      .insert(reports)
+      .values(report)
+      .onConflictDoNothing()
+      .returning({ id: reports.id })
+      .get()
+  );
+  const url = c.env.OPERATOR_WEBHOOK_URL;
+  if (created && url) {
+    c.executionCtx.waitUntil(notifyOperator(url, report));
+  }
+});
+
 app.post(
   `/api/games/${ID}/report`,
   jsonBody(newReport, "Pick a reason for your report."),
@@ -581,7 +622,7 @@ app.post(
         if (game.owner === reporter) {
           return yield* fail(400, "You can't report your own game.");
         }
-        const report = {
+        yield* file(c, {
           creator: game.owner,
           description: game.description,
           gameId: id,
@@ -589,20 +630,39 @@ app.post(
           reason: c.req.valid("json").reason,
           reporter,
           title: game.title,
-        };
-        // Reporting again changes nothing and still succeeds.
-        const created = yield* query((db) =>
-          db
-            .insert(reports)
-            .values(report)
-            .onConflictDoNothing()
-            .returning({ id: reports.id })
-            .get()
+        });
+        return c.body(null, 204);
+      })
+    )
+);
+
+app.post(
+  `/api/comments/${ID}/report`,
+  jsonBody(newReport, "Pick a reason for your report."),
+  (c) =>
+    run(
+      c,
+      Effect.gen(function* () {
+        const reporter = yield* signedIn("Sign in to continue.");
+        const id = Number(c.req.param("id"));
+        const comment = yield* query((db) =>
+          db.select().from(comments).where(eq(comments.id, id)).get()
         );
-        const url = c.env.OPERATOR_WEBHOOK_URL;
-        if (created && url) {
-          c.executionCtx.waitUntil(notifyOperator(url, report));
+        if (!comment) {
+          return yield* fail(404, "Comment not found.");
         }
+        if (comment.user === reporter) {
+          return yield* fail(400, "You can't report your own comment.");
+        }
+        yield* file(c, {
+          body: comment.body,
+          commentId: id,
+          creator: comment.user,
+          gameId: comment.gameId,
+          handle: comment.author,
+          reason: c.req.valid("json").reason,
+          reporter,
+        });
         return c.body(null, 204);
       })
     )
