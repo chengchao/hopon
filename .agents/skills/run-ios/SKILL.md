@@ -33,3 +33,7 @@ First-time setup (`.env`, `.dev.vars`, Clerk keys) is in the README's 准备 sec
 ## Accounts
 
 The simulator is usually signed in to a Clerk test account (`…+clerk_test@example.com`). Signing in is the human's step: Clerk's development instance accepts its fixed test code for `+clerk_test` addresses, and the human enters it. So ask before signing out, and say the human will need to sign back in.
+
+## Other accounts' content
+
+Checking what the signed-in account sees on someone else's game or comment needs rows written as another account, which only SQL can do. Find the simulator account's id from what it has written (`SELECT owner FROM games` / `SELECT user FROM likes`), insert content as any other `user_…` id with `pnpm -F api exec wrangler d1 execute DB --local --command "INSERT …"`, and delete those rows before step 6.

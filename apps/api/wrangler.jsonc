@@ -22,5 +22,7 @@
     "AI_MODEL": "@cf/moonshotai/kimi-k2.5",
   },
   "compatibility_flags": ["nodejs_compat"],
+  // Repeated as CLOUDFLARE_ACCOUNT_ID in package.json's db:remote and deploy: on a login with several accounts, some
+  // wrangler commands ignore this field when run non-interactively.
   "account_id": "51a5a41f7bd8425703a6f1d92f867f4d",
 }
