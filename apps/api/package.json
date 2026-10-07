@@ -8,7 +8,7 @@
     "db:generate": "drizzle-kit generate",
     "db:local": "wrangler d1 migrations apply DB --local",
     "db:remote": "CLOUDFLARE_ACCOUNT_ID=51a5a41f7bd8425703a6f1d92f867f4d wrangler d1 migrations apply DB --remote",
-    "deploy": "CLOUDFLARE_ACCOUNT_ID=51a5a41f7bd8425703a6f1d92f867f4d wrangler deploy",
+    "deploy": "pnpm db:remote && CLOUDFLARE_ACCOUNT_ID=51a5a41f7bd8425703a6f1d92f867f4d wrangler deploy",
     "test": "node --test",
     "types": "wrangler types",
     "typecheck": "wrangler types --check && tsc --noEmit"
