@@ -1,4 +1,4 @@
-import { useAuth } from "@clerk/expo";
+import { useAuth, useUser } from "@clerk/expo";
 import type { FeedGame, GamePage } from "@hopon/schemas";
 import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -6,7 +6,16 @@ import { AccessibilityInfo, FlatList, PanResponder, View } from "react-native";
 
 import { CommentsSheet } from "@/components/comments-sheet";
 import { GameView } from "@/components/game-view";
-import { Byline, Ticket } from "@/components/ticket";
+import {
+  isHidden,
+  isListed,
+  isReported,
+  PrototypeByline,
+  PrototypeTicketPill,
+  usePrototype,
+  useReportBlock,
+} from "@/components/prototype-report-block";
+import { Ticket } from "@/components/ticket";
 import { TicketActions } from "@/components/ticket-actions";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
@@ -23,7 +32,12 @@ export const Feed = ({
   start?: number;
   empty: string;
 }) => {
-  const [games, setGames] = useState<FeedGame[]>([]);
+  const [all, setAll] = useState<FeedGame[]>([]);
+  // PROTOTYPE: reported and blocked games drop out of the feed.
+  const proto = usePrototype();
+  const { user } = useUser();
+  const reportBlock = useReportBlock();
+  const games = all.filter((g) => isListed(proto, { ...g, kind: "game" }));
   const [active, setActive] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -62,7 +76,7 @@ export const Feed = ({
             token: await token.current(),
           }
         );
-        setGames((old) => (more ? [...old, ...data.games] : data.games));
+        setAll((old) => (more ? [...old, ...data.games] : data.games));
         setNext(data.next);
       } catch (loadError) {
         setError((loadError as Error).message);
@@ -94,7 +108,7 @@ export const Feed = ({
   }, []);
 
   const patch = (id: number, fields: Partial<FeedGame>) =>
-    setGames((old) => old.map((g) => (g.id === id ? { ...g, ...fields } : g)));
+    setAll((old) => old.map((g) => (g.id === id ? { ...g, ...fields } : g)));
   // Optimistic: flip the heart now, then settle on the server's count, or flip back if the request fails.
   const like = async (game: FeedGame) => {
     if (!isSignedIn) {
@@ -189,57 +203,99 @@ export const Feed = ({
             initialNumToRender={3}
             windowSize={3}
             extraData={active}
-            renderItem={({ item, index }) => (
-              <View style={{ height }} className="px-3 pb-3 pt-2">
-                <View className="flex-1 overflow-hidden rounded-t-2xl bg-card">
-                  {Math.abs(index - active) <= 1 && (
-                    <GameView uri={gameUrl(item.id)} title={item.title} />
-                  )}
-                </View>
-                <Ticket
-                  {...pan.panHandlers}
-                  accessible
-                  accessibilityRole="adjustable"
-                  accessibilityLabel={`${item.title}. ${item.description}`}
-                  accessibilityHint="Swipe up or down here to change games"
-                  // The ticket is one VoiceOver element, so its buttons are offered as custom actions too.
-                  accessibilityActions={[
-                    { name: "increment" },
-                    { name: "decrement" },
-                    { label: item.liked ? "Unlike" : "Like", name: "like" },
-                    { label: "Comments", name: "comments" },
-                    {
-                      label: item.saved ? "Remove from saved" : "Save",
-                      name: "save",
-                    },
-                  ]}
-                  onAccessibilityAction={(e) => {
-                    const action = e.nativeEvent.actionName;
-                    if (action === "increment" || action === "decrement") {
-                      go(active + (action === "increment" ? 1 : -1));
-                    } else if (action === "like") {
-                      like(item);
-                    } else if (action === "save") {
-                      save(item);
-                    } else if (action === "comments") {
-                      setCommentsFor(item);
+            renderItem={({ item, index }) => {
+              const target = {
+                author: item.author ?? "player",
+                id: item.id,
+                kind: "game" as const,
+              };
+              const own = item.author === user?.username;
+              const gone = isHidden(proto, target);
+              const goneTitle = isReported(proto, target)
+                ? "Reported"
+                : `Blocked @${target.author}`;
+              return (
+                <View style={{ height }} className="px-3 pb-3 pt-2">
+                  <View className="flex-1 overflow-hidden rounded-t-2xl bg-card">
+                    {gone ? (
+                      <View className="flex-1 items-center justify-center px-8">
+                        <Text className="text-center text-muted-foreground">
+                          Hidden for you. Swipe the ticket for the next game.
+                        </Text>
+                      </View>
+                    ) : (
+                      Math.abs(index - active) <= 1 && (
+                        <GameView uri={gameUrl(item.id)} title={item.title} />
+                      )
+                    )}
+                  </View>
+                  <Ticket
+                    {...pan.panHandlers}
+                    accessible
+                    accessibilityRole="adjustable"
+                    accessibilityLabel={`${item.title}. ${item.description}`}
+                    accessibilityHint="Swipe up or down here to change games"
+                    // The ticket is one VoiceOver element, so its buttons are offered as custom actions too.
+                    accessibilityActions={[
+                      { name: "increment" },
+                      { name: "decrement" },
+                      { label: item.liked ? "Unlike" : "Like", name: "like" },
+                      { label: "Comments", name: "comments" },
+                      {
+                        label: item.saved ? "Remove from saved" : "Save",
+                        name: "save",
+                      },
+                    ]}
+                    onAccessibilityAction={(e) => {
+                      const action = e.nativeEvent.actionName;
+                      if (action === "increment" || action === "decrement") {
+                        go(active + (action === "increment" ? 1 : -1));
+                      } else if (action === "like") {
+                        like(item);
+                      } else if (action === "save") {
+                        save(item);
+                      } else if (action === "comments") {
+                        setCommentsFor(item);
+                      }
+                    }}
+                    compact
+                    byline={
+                      <PrototypeByline
+                        author={item.author}
+                        onPress={
+                          own || gone
+                            ? undefined
+                            : () => reportBlock.open(target)
+                        }
+                      />
                     }
-                  }}
-                  compact
-                  byline={<Byline author={item.author} />}
-                  title={item.title}
-                  description={item.description}
-                  actions={
-                    <TicketActions
-                      game={item}
-                      onLike={() => like(item)}
-                      onComments={() => setCommentsFor(item)}
-                      onSave={() => save(item)}
-                    />
-                  }
-                />
-              </View>
-            )}
+                    title={gone ? goneTitle : item.title}
+                    description={
+                      gone
+                        ? "We review reports within 24 hours."
+                        : item.description
+                    }
+                    actions={
+                      gone ? null : (
+                        <View className="flex-row items-center gap-1.5">
+                          <TicketActions
+                            game={item}
+                            onLike={() => like(item)}
+                            onComments={() => setCommentsFor(item)}
+                            onSave={() => save(item)}
+                          />
+                          {!own && (
+                            <PrototypeTicketPill
+                              onPress={() => reportBlock.open(target)}
+                            />
+                          )}
+                        </View>
+                      )
+                    }
+                  />
+                </View>
+              );
+            }}
           />
         )}
         {!games.length && (
@@ -278,11 +334,12 @@ export const Feed = ({
           </View>
         )}
       </View>
+      {reportBlock.element}
       <CommentsSheet
         game={commentsFor}
         onClose={() => setCommentsFor(null)}
         onCount={(id, delta) =>
-          setGames((old) =>
+          setAll((old) =>
             old.map((g) =>
               g.id === id ? { ...g, comments: g.comments + delta } : g
             )

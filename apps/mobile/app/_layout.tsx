@@ -12,6 +12,7 @@ import { Stack } from "expo-router";
 import { ThemeProvider } from "expo-router/react-navigation";
 import { StatusBar } from "expo-status-bar";
 
+import { PrototypeBar } from "@/components/prototype-report-block";
 import { NAV_THEME } from "@/lib/theme";
 
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
@@ -50,6 +51,7 @@ const RootLayout = () => {
             }}
           />
         </Stack>
+        <PrototypeBar />
         <PortalHost />
       </ThemeProvider>
     </ClerkProvider>

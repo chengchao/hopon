@@ -14,6 +14,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import {
+  isListed,
+  PrototypeComment,
+  usePrototype,
+  useReportBlock,
+} from "@/components/prototype-report-block";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
@@ -50,6 +56,9 @@ export const CommentsSheet = ({
   // Where to go once the sheet has closed; see `leave`.
   const after = useRef<"/sign-in" | "/handle" | null>(null);
   const id = game?.id;
+  // PROTOTYPE: Report and Block on comments.
+  const proto = usePrototype();
+  const reportBlock = useReportBlock();
 
   // Callers set `loading` first: the reset below for a newly opened game, onEndReached for the next page.
   const load = useCallback(async (gameId: number, before?: number) => {
@@ -212,7 +221,9 @@ export const CommentsSheet = ({
           <FlatList
             className="flex-1"
             contentContainerClassName="gap-3 py-3"
-            data={list}
+            data={list.filter((c) =>
+              isListed(proto, { ...c, kind: "comment" })
+            )}
             keyExtractor={(comment) => String(comment.id)}
             onEndReached={() => {
               if (!id || !next || loading) {
@@ -223,25 +234,19 @@ export const CommentsSheet = ({
               load(id, next);
             }}
             renderItem={({ item }) => (
-              <Pressable
-                className="gap-0.5"
-                onLongPress={item.canDelete ? () => remove(item) : undefined}
-                accessibilityLabel={`@${item.author}: ${item.body}`}
-                accessibilityHint={
-                  item.canDelete ? "Long press to delete" : undefined
+              <PrototypeComment
+                comment={item}
+                onDelete={() => remove(item)}
+                onMenu={
+                  item.author === user?.username
+                    ? undefined
+                    : (extra) =>
+                        reportBlock.open(
+                          { author: item.author, id: item.id, kind: "comment" },
+                          extra
+                        )
                 }
-                accessibilityActions={
-                  item.canDelete
-                    ? [{ label: "Delete comment", name: "delete" }]
-                    : undefined
-                }
-                onAccessibilityAction={() => remove(item)}
-              >
-                <Text className="font-strong text-sm text-muted-foreground">
-                  @{item.author}
-                </Text>
-                <Text className="text-base leading-[22px]">{item.body}</Text>
-              </Pressable>
+              />
             )}
             ListEmptyComponent={
               <Text className="py-6 text-center text-muted-foreground">
@@ -295,6 +300,7 @@ export const CommentsSheet = ({
           )}
         </View>
       </KeyboardAvoidingView>
+      {reportBlock.element}
     </Modal>
   );
 };

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { PrototypeBlockedAccounts } from "@/components/prototype-report-block";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
@@ -113,6 +114,7 @@ const Me = () => {
               <Stat value={liked ?? "–"} label="Liked" />
               <Stat value={saved ?? "–"} label="Saved" />
             </View>
+            <PrototypeBlockedAccounts />
             {!!error && (
               <Text accessibilityRole="alert" className="text-destructive">
                 {error}
