@@ -20,7 +20,7 @@ Make a small game from one sentence, then swipe a feed to discover and play othe
 
 **Operator**: The person who runs hopon, deletes **Games** and **Comments** that break its rules, and **Bans** the people who post them. _Avoid_: Admin, moderator
 
-**Report**: A signed-in person's flag on someone else's published **Game** or **Comment**, giving a reason, for the **Operator** to review. The reported **Game** or **Comment** disappears for the reporter at once and stays up for everyone else until the **Operator** **Deletes** it. A report outlives the **Game** or **Comment** it points at. _Avoid_: Flag, complaint
+**Report**: A signed-in person's flag on someone else's published **Game** or **Comment**, giving a reason, for the **Operator** to review. The reported **Game** or **Comment** disappears for the reporter at once and stays up for everyone else until the **Operator** either **Deletes** it or dismisses the report, leaving it up. A report outlives the **Game** or **Comment** it points at. _Avoid_: Flag, complaint
 
 **Block**: A signed-in person's choice to stop seeing another person, made from one of that person's published **Games** or **Comments**. Afterwards neither of them sees the other's **Games** or **Comments**, and the blocked person can't **Comment** on the blocker's **Games**. Nobody is told. Nothing is **Deleted**, and unblocking from the person's **Blocked accounts** list brings everything back. _Avoid_: Mute, ban
 
