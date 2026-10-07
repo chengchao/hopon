@@ -4,6 +4,7 @@ import type { Comment, CommentPage, GameSummary } from "@hopon/schemas";
 import { router } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActionSheetIOS,
   Alert,
   FlatList,
   KeyboardAvoidingView,
@@ -14,6 +15,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ReportSheet } from "@/components/report-sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
@@ -40,6 +42,7 @@ export const CommentsSheet = ({
   const [error, setError] = useState("");
   const [text, setText] = useState("");
   const [posting, setPosting] = useState(false);
+  const [reportFor, setReportFor] = useState<number | null>(null);
   // Clerk's getToken isn't referentially stable, so `load` reads it through a ref instead of its deps.
   const token = useRef(getToken);
   useEffect(() => {
@@ -81,6 +84,7 @@ export const CommentsSheet = ({
     setText("");
     setError("");
     setPosting(false);
+    setReportFor(null);
     setLoading(!!id);
   }
 
@@ -169,6 +173,53 @@ export const CommentsSheet = ({
     ]);
   };
 
+  const report = (comment: Comment) =>
+    isSignedIn ? setReportFor(comment.id) : leave("/sign-in");
+
+  // What a comment offers, for both its long-press menu and VoiceOver: Delete when allowed, Report unless it's yours.
+  const actionsFor = (comment: Comment) => [
+    ...(comment.canDelete
+      ? [
+          {
+            label: "Delete comment",
+            name: "delete",
+            onPress: () => remove(comment),
+          },
+        ]
+      : []),
+    ...(comment.mine
+      ? []
+      : [
+          {
+            label: "Report comment",
+            name: "report",
+            onPress: () => report(comment),
+          },
+        ]),
+  ];
+
+  // Long-press on someone else's comment opens a menu. On your own it stays a plain delete.
+  const options = (comment: Comment) => {
+    if (comment.mine) {
+      return remove(comment);
+    }
+    const actions = actionsFor(comment);
+    if (Platform.OS === "ios") {
+      return ActionSheetIOS.showActionSheetWithOptions(
+        {
+          cancelButtonIndex: actions.length,
+          destructiveButtonIndex: comment.canDelete ? 0 : undefined,
+          options: [...actions.map((a) => a.label), "Cancel"],
+        },
+        (index) => actions[index]?.onPress()
+      );
+    }
+    Alert.alert(`@${comment.author}`, comment.body, [
+      { style: "cancel", text: "Cancel" },
+      ...actions.map(({ label, onPress }) => ({ onPress, text: label })),
+    ]);
+  };
+
   return (
     <Modal
       visible={!!game}
@@ -225,17 +276,19 @@ export const CommentsSheet = ({
             renderItem={({ item }) => (
               <Pressable
                 className="gap-0.5"
-                onLongPress={item.canDelete ? () => remove(item) : undefined}
+                onLongPress={() => options(item)}
                 accessibilityLabel={`@${item.author}: ${item.body}`}
                 accessibilityHint={
-                  item.canDelete ? "Long press to delete" : undefined
+                  item.mine ? "Long press to delete" : "Long press for options"
                 }
-                accessibilityActions={
-                  item.canDelete
-                    ? [{ label: "Delete comment", name: "delete" }]
-                    : undefined
+                accessibilityActions={actionsFor(item).map(
+                  ({ label, name }) => ({ label, name })
+                )}
+                onAccessibilityAction={(e) =>
+                  actionsFor(item)
+                    .find((a) => a.name === e.nativeEvent.actionName)
+                    ?.onPress()
                 }
-                onAccessibilityAction={() => remove(item)}
               >
                 <Text className="font-strong text-sm text-muted-foreground">
                   @{item.author}
@@ -295,6 +348,16 @@ export const CommentsSheet = ({
           )}
         </View>
       </KeyboardAvoidingView>
+      {/* Inside this Modal: iOS can't present a second Modal from a sibling while this one is up. */}
+      <ReportSheet
+        target={reportFor ? { id: reportFor, kind: "comment" } : null}
+        onClose={() => setReportFor(null)}
+        onReported={(commentId) => {
+          // Gone with no placeholder; the feed's count stays global, so it doesn't change.
+          setList((old) => old.filter((c) => c.id !== commentId));
+          setReportFor((shownId) => (shownId === commentId ? null : shownId));
+        }}
+      />
     </Modal>
   );
 };

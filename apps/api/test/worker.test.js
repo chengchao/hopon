@@ -459,7 +459,7 @@ test("comments: anyone reads, posting needs sign-in and a handle, published game
   assert.equal(typeof comment.id, "number");
   assert.equal(typeof comment.createdAt, "string");
   const { comments } = await list(game.id, { user: "" });
-  assert.deepEqual(comments, [{ ...comment, canDelete: false }]);
+  assert.deepEqual(comments, [{ ...comment, canDelete: false, mine: false }]);
 });
 test("comments: 1–300 characters after trimming", async (t) => {
   const { call, env } = await setup(t);
@@ -788,6 +788,8 @@ test("reports: one open snapshot per person and game, which outlives the game", 
   assert.deepEqual(
     { ...results[0], created_at: undefined, id: undefined },
     {
+      body: null,
+      comment_id: null,
       created_at: undefined,
       creator: "hopon",
       description: game.description,
@@ -893,4 +895,143 @@ test("feed: `mine` marks the viewer's own games", async (t) => {
   assert.deepEqual(await mine("user_owner"), [true, false, false]);
   assert.deepEqual(await mine("user_other"), [false, false, false]);
   assert.deepEqual(await mine(""), [false, false, false]);
+});
+// A published game by user_owner with a comment from user_fan on it.
+const commented = async (call) => {
+  const draft = await json(
+    call("/api/games", { body: { prompt: "点击星星的小游戏" }, method: "POST" })
+  );
+  await call(`/api/games/${draft.id}/publish`, { method: "POST" });
+  const comment = await json(
+    call(`/api/games/${draft.id}/comments`, {
+      body: { body: "you stink" },
+      method: "POST",
+      user: "user_fan",
+      username: "fan",
+    })
+  );
+  const reportComment = (reason, options) =>
+    call(`/api/comments/${comment.id}/report`, {
+      body: { reason },
+      method: "POST",
+      ...options,
+    });
+  return { comment, gameId: draft.id, reportComment };
+};
+test("comment reports: someone else's comment, even on your own game; never your own", async (t) => {
+  const { call, count, env } = await setup(t);
+  const { comment, gameId, reportComment } = await commented(call);
+  assert.equal(await status(reportComment("spam", { user: "" })), 401);
+  assert.equal(await status(reportComment("boring")), 400);
+  assert.equal(
+    await status(
+      call("/api/comments/999999/report", {
+        body: { reason: "spam" },
+        method: "POST",
+      })
+    ),
+    404
+  );
+  const own = await reportComment("spam", { user: "user_fan" });
+  assert.equal(own.status, 400);
+  assert.deepEqual(await own.json(), {
+    error: "You can't report your own comment.",
+  });
+  assert.equal(await count("reports"), 0);
+  // user_owner made the game, and can report a comment left on it.
+  assert.equal(await status(reportComment("hate")), 204);
+  assert.equal(await status(reportComment("hate")), 204);
+  const { results } = await env.DB.prepare("SELECT * FROM reports").all();
+  assert.deepEqual(
+    results.map((r) => ({ ...r, created_at: undefined, id: undefined })),
+    [
+      {
+        body: "you stink",
+        comment_id: comment.id,
+        created_at: undefined,
+        creator: "user_fan",
+        description: null,
+        game_id: gameId,
+        handle: "fan",
+        id: undefined,
+        reason: "hate",
+        reporter: "user_owner",
+        status: "open",
+        title: null,
+      },
+    ]
+  );
+  // Reporting the game itself is a separate report.
+  assert.equal(
+    await status(
+      call(`/api/games/${gameId}/report`, {
+        body: { reason: "spam" },
+        method: "POST",
+        user: "user_fan",
+      })
+    ),
+    204
+  );
+  assert.equal(await count("reports"), 2);
+});
+test("comment reports: the comment disappears for the reporter only; its game stays", async (t) => {
+  const { call } = await setup(t);
+  const { comment, gameId, reportComment } = await commented(call);
+  await call(`/api/games/${gameId}/save`, { method: "PUT" });
+  await reportComment("hate");
+  const bodies = async (user) => {
+    const { comments } = await json(
+      call(`/api/games/${gameId}/comments`, { user })
+    );
+    return comments.map((c) => c.body);
+  };
+  assert.deepEqual(await bodies("user_owner"), []);
+  assert.deepEqual(await bodies("user_other"), [comment.body]);
+  assert.deepEqual(await bodies(""), [comment.body]);
+  const { games } = await json(call("/api/games"));
+  assert.equal(games.find((g) => g.id === gameId)?.comments, 1);
+  const saved = await json(call("/api/saves"));
+  assert.deepEqual(
+    saved.games.map((g) => g.id),
+    [gameId]
+  );
+  assert.deepEqual(await json(call("/api/saves/count")), { count: 1 });
+});
+test("comment reports: each new one POSTs the reason and snapshot to the Operator", async (t) => {
+  const { call, env, settled } = await setup(t);
+  env.OPERATOR_WEBHOOK_URL = "https://operator.test/hook";
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  t.mock.method(globalThis, "fetch", (url, init) => {
+    if (String(url) !== env.OPERATOR_WEBHOOK_URL) {
+      return realFetch(url, init);
+    }
+    sent.push(JSON.parse(init.body));
+    return Promise.resolve(new Response(null, { status: 200 }));
+  });
+  const { comment, gameId, reportComment } = await commented(call);
+  await reportComment("age");
+  await reportComment("age");
+  await settled();
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].text, /Not suitable for ages 13\+/u);
+  assert.match(
+    sent[0].text,
+    new RegExp(`Comment ${comment.id} on game ${gameId}`, "u")
+  );
+  assert.match(sent[0].text, /you stink/u);
+  assert.match(sent[0].text, /@fan \(user_fan\)/u);
+});
+test("comments: `mine` marks the viewer's own comments", async (t) => {
+  const { call } = await setup(t);
+  const { gameId } = await commented(call);
+  const mine = async (user) => {
+    const { comments } = await json(
+      call(`/api/games/${gameId}/comments`, { user })
+    );
+    return comments.map((c) => c.mine);
+  };
+  assert.deepEqual(await mine("user_fan"), [true]);
+  assert.deepEqual(await mine("user_owner"), [false]);
+  assert.deepEqual(await mine(""), [false]);
 });

@@ -99,16 +99,19 @@ export const saves = sqliteTable(
   ]
 );
 
-// A Report on a published game, for the Operator: a snapshot of what was reported (no HTML), so it outlives the game.
-// No FK to `games` for that reason. `creator` and `handle` are the creator's account id and @handle; `reporter` is an account id.
+// A Report on a published game or a comment, for the Operator: a snapshot of what was reported (no HTML), so it outlives it.
+// No FK to `games` or `comments` for that reason. `creator` and `handle` are the poster's account id and @handle; `reporter` is an account id.
+// A game report has the game's `title` and `description`; a comment report has `comment_id`, its `body`, and its game's `game_id`.
 export const reports = sqliteTable(
   "reports",
   {
+    body: text("body"),
+    commentId: integer("comment_id"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
     creator: text("creator").notNull(),
-    description: text("description").notNull(),
+    description: text("description"),
     gameId: integer("game_id").notNull(),
     handle: text("handle"),
     id: integer("id").primaryKey({ autoIncrement: true }),
@@ -116,10 +119,15 @@ export const reports = sqliteTable(
     reporter: text("reporter").notNull(),
     // `open` until the Operator closes it.
     status: text("status").notNull().default("open"),
-    title: text("title").notNull(),
+    title: text("title"),
   },
-  // Also serves the per-viewer filter on feeds.
+  // One report per person and game, and per person and comment. These also serve the per-viewer filters on lists.
   (table) => [
-    uniqueIndex("reports_reporter_game").on(table.reporter, table.gameId),
+    uniqueIndex("reports_reporter_game")
+      .on(table.reporter, table.gameId)
+      .where(sql`${table.commentId} IS NULL`),
+    uniqueIndex("reports_reporter_comment")
+      .on(table.reporter, table.commentId)
+      .where(sql`${table.commentId} IS NOT NULL`),
   ]
 );
