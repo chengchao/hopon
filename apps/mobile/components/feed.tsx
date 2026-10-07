@@ -2,10 +2,19 @@ import { useAuth } from "@clerk/expo";
 import type { FeedGame, GamePage } from "@hopon/schemas";
 import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AccessibilityInfo, FlatList, PanResponder, View } from "react-native";
+import {
+  AccessibilityInfo,
+  ActionSheetIOS,
+  Alert,
+  FlatList,
+  PanResponder,
+  Platform,
+  View,
+} from "react-native";
 
 import { CommentsSheet } from "@/components/comments-sheet";
 import { GameView } from "@/components/game-view";
+import { ReportSheet } from "@/components/report-sheet";
 import { Byline, Ticket } from "@/components/ticket";
 import { TicketActions } from "@/components/ticket-actions";
 import { Button } from "@/components/ui/button";
@@ -31,6 +40,7 @@ export const Feed = ({
   const [height, setHeight] = useState(0);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [commentsFor, setCommentsFor] = useState<FeedGame | null>(null);
+  const [reportFor, setReportFor] = useState<FeedGame | null>(null);
   const { isSignedIn, getToken } = useAuth();
   // Clerk's getToken isn't referentially stable, so `load` reads it through a ref instead of its deps.
   const token = useRef(getToken);
@@ -40,6 +50,11 @@ export const Feed = ({
   // State, not a ref, so the pan handlers built during render never read a ref.
   const [list, setList] = useState<FlatList<FeedGame> | null>(null);
   const busy = useRef(false);
+  // The feed as of the last render, for the report reply, which can land after another page was appended.
+  const latest = useRef(games);
+  useEffect(() => {
+    latest.current = games;
+  });
 
   const scrollTo = useCallback(
     (offset: number, animated: boolean) =>
@@ -137,6 +152,25 @@ export const Feed = ({
     }
   };
 
+  const report = (game: FeedGame) =>
+    isSignedIn ? setReportFor(game) : router.push("/sign-in");
+  // The "…" pill's menu. Block joins Report here later.
+  const more = (game: FeedGame) => {
+    if (!isSignedIn) {
+      return router.push("/sign-in");
+    }
+    if (Platform.OS === "ios") {
+      return ActionSheetIOS.showActionSheetWithOptions(
+        { cancelButtonIndex: 1, options: ["Report game", "Cancel"] },
+        (index) => index === 0 && setReportFor(game)
+      );
+    }
+    Alert.alert(game.title, undefined, [
+      { style: "cancel", text: "Cancel" },
+      { onPress: () => setReportFor(game), text: "Report game" },
+    ]);
+  };
+
   const go = useCallback(
     (index: number) => {
       const target = Math.max(0, Math.min(games.length - 1, index));
@@ -193,7 +227,12 @@ export const Feed = ({
               <View style={{ height }} className="px-3 pb-3 pt-2">
                 <View className="flex-1 overflow-hidden rounded-t-2xl bg-card">
                   {Math.abs(index - active) <= 1 && (
-                    <GameView uri={gameUrl(item.id)} title={item.title} />
+                    // Keyed by row: a WKWebView moved up a row (when a reported game leaves) paints blank, so it reloads.
+                    <GameView
+                      key={index}
+                      uri={gameUrl(item.id)}
+                      title={item.title}
+                    />
                   )}
                 </View>
                 <Ticket
@@ -212,6 +251,9 @@ export const Feed = ({
                       label: item.saved ? "Remove from saved" : "Save",
                       name: "save",
                     },
+                    ...(item.mine
+                      ? []
+                      : [{ label: "Report game", name: "report" }]),
                   ]}
                   onAccessibilityAction={(e) => {
                     const action = e.nativeEvent.actionName;
@@ -223,6 +265,8 @@ export const Feed = ({
                       save(item);
                     } else if (action === "comments") {
                       setCommentsFor(item);
+                    } else if (action === "report") {
+                      report(item);
                     }
                   }}
                   compact
@@ -235,6 +279,7 @@ export const Feed = ({
                       onLike={() => like(item)}
                       onComments={() => setCommentsFor(item)}
                       onSave={() => save(item)}
+                      onMore={item.mine ? undefined : () => more(item)}
                     />
                   }
                 />
@@ -278,6 +323,19 @@ export const Feed = ({
           </View>
         )}
       </View>
+      <ReportSheet
+        game={reportFor}
+        onClose={() => setReportFor(null)}
+        onReported={(id) => {
+          // The next game takes the reported one's place; if it was the last, land on the one before.
+          const rest = latest.current.filter((g) => g.id !== id);
+          setGames(rest);
+          setReportFor((open) => (open?.id === id ? null : open));
+          if (active >= rest.length) {
+            go(rest.length - 1);
+          }
+        }}
+      />
       <CommentsSheet
         game={commentsFor}
         onClose={() => setCommentsFor(null)}

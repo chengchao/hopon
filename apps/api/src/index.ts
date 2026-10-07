@@ -1,6 +1,6 @@
 import { verifyToken } from "@clerk/backend";
 import { zValidator } from "@hono/zod-validator";
-import { newComment, newGame } from "@hopon/schemas";
+import { newComment, newGame, newReport, REPORT_REASONS } from "@hopon/schemas";
 import type {
   Comment,
   CommentPage,
@@ -20,10 +20,18 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type * as z from "zod/mini";
 
 import { fail, GAME_CSP, parseGame } from "./game.ts";
-import { comments, games, generationLimits, likes, saves } from "./schema.ts";
+import {
+  comments,
+  games,
+  generationLimits,
+  likes,
+  reports,
+  saves,
+} from "./schema.ts";
 
 // Set only by `pnpm api:offline` (`--var`), so it isn't in wrangler.jsonc or the generated `Env`.
-type HoponEnv = Env & { HOPON_OFFLINE?: string };
+// OPERATOR_WEBHOOK_URL is an optional secret (`wrangler secret put`), so local dev runs without one.
+type HoponEnv = Env & { HOPON_OFFLINE?: string; OPERATOR_WEBHOOK_URL?: string };
 
 // Clerk session JWT from `Authorization: Bearer`, verified offline with the dashboard's PEM key (CLERK_JWT_KEY).
 // `username` is a custom session claim ({{user.username}}) set on the Clerk instance; null until the user picks one.
@@ -146,12 +154,17 @@ const feedColumns = (viewer = "") => ({
       Boolean
     ),
   likes: sql<number>`(SELECT COUNT(*) FROM ${likes} WHERE ${likes}.game_id = ${games}.id)`,
+  mine: sql`${games.owner} = ${viewer}`.mapWith(Boolean),
   saved:
     sql`EXISTS(SELECT 1 FROM ${saves} WHERE ${saves}.game_id = ${games}.id AND ${saves}.user = ${viewer})`.mapWith(
       Boolean
     ),
   title: games.title,
 });
+
+// Leaves out games the viewer has reported. Counts stay global; only the viewer's lists change.
+const visibleTo = (viewer = "") =>
+  sql`NOT EXISTS(SELECT 1 FROM ${reports} WHERE ${reports}.game_id = ${games}.id AND ${reports}.reporter = ${viewer})`;
 
 interface AppEnv {
   Bindings: HoponEnv;
@@ -243,7 +256,9 @@ app.get("/api/games", (c) =>
         db
           .select(feedColumns(owner))
           .from(games)
-          .where(and(eq(games.published, 1), lt(games.id, before)))
+          .where(
+            and(eq(games.published, 1), lt(games.id, before), visibleTo(owner))
+          )
           .orderBy(desc(games.id))
           .limit(9)
       );
@@ -283,7 +298,8 @@ app.get("/api/saves", (c) =>
             and(
               eq(saves.user, owner),
               eq(games.published, 1),
-              lt(saves.id, before)
+              lt(saves.id, before),
+              visibleTo(owner)
             )
           )
           .orderBy(desc(saves.id))
@@ -421,7 +437,12 @@ app.delete(`/api/comments/${ID}`, (c) =>
 const publishedGame = Effect.fn("publishedGame")(function* (id: number) {
   const game = yield* query((db) =>
     db
-      .select({ owner: games.owner })
+      .select({
+        author: games.author,
+        description: games.description,
+        owner: games.owner,
+        title: games.title,
+      })
       .from(games)
       .where(and(eq(games.id, id), eq(games.published, 1)))
       .get()
@@ -504,6 +525,72 @@ app.post(
             .get()
         );
         return c.json(commentView(row, owner, game.owner), 201);
+      })
+    )
+);
+
+// Tells the Operator about a new report. Best effort: the report is already stored, so a failed send is only logged.
+const notifyOperator = async (
+  url: string,
+  report: typeof reports.$inferInsert
+) => {
+  const reason = REPORT_REASONS.find((r) => r.reason === report.reason);
+  const text = [
+    `New report: ${reason?.label}`,
+    `Game ${report.gameId}: ${report.title}`,
+    report.description,
+    `By @${report.handle ?? "?"} (${report.creator}), reported by ${report.reporter}`,
+  ].join("\n");
+  try {
+    const response = await fetch(url, {
+      body: JSON.stringify({ text }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    if (!response.ok) {
+      console.error("Report webhook failed", response.status);
+    }
+  } catch (error) {
+    console.error("Report webhook failed", error);
+  }
+};
+
+app.post(
+  `/api/games/${ID}/report`,
+  jsonBody(newReport, "Pick a reason for your report."),
+  (c) =>
+    run(
+      c,
+      Effect.gen(function* () {
+        const reporter = yield* signedIn("Sign in to continue.");
+        const id = Number(c.req.param("id"));
+        const game = yield* publishedGame(id);
+        if (game.owner === reporter) {
+          return yield* fail(400, "You can't report your own game.");
+        }
+        const report = {
+          creator: game.owner,
+          description: game.description,
+          gameId: id,
+          handle: game.author,
+          reason: c.req.valid("json").reason,
+          reporter,
+          title: game.title,
+        };
+        // Reporting again changes nothing and still succeeds.
+        const created = yield* query((db) =>
+          db
+            .insert(reports)
+            .values(report)
+            .onConflictDoNothing()
+            .returning({ id: reports.id })
+            .get()
+        );
+        const url = c.env.OPERATOR_WEBHOOK_URL;
+        if (created && url) {
+          c.executionCtx.waitUntil(notifyOperator(url, report));
+        }
+        return c.body(null, 204);
       })
     )
 );
