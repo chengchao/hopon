@@ -55,11 +55,12 @@ pnpm run db:local
 
 ```sh
 pnpm -F api exec wrangler secret put CLERK_JWT_KEY < clerk-public-key.pem
-pnpm run db:remote
 pnpm run deploy
 ```
 
-远程命令报 `[code: 7403]` 时直接重跑：wrangler 的 OAuth 令牌过期后，刷新令牌的那一次请求会失败，下一次用新令牌即可成功。
+`deploy` 先应用远程迁移（`db:remote`，需确认）再部署 Worker：新代码可能写入新列，而迁移只追加，正在运行的旧 Worker 不受影响。
+
+远程命令报 `[code: 7403]` 时先重跑一次：wrangler 的 OAuth 令牌过期后，刷新令牌的那一次请求会失败。仍然失败就运行 `pnpm -F api exec wrangler whoami`，Token Permissions 里没有 `d1` 和 `workers` 时，令牌权限不足，用 `pnpm -F api exec wrangler login` 重新登录。
 
 Worker 只提供 `/api/*`，原网页前端已移除。应用商店构建与提交（EAS）尚未配置。
 
