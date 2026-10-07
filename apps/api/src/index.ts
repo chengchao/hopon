@@ -46,6 +46,7 @@ type HoponEnv = Env & { HOPON_OFFLINE?: string; OPERATOR_WEBHOOK_URL?: string };
 // Clerk session JWT from `Authorization: Bearer`, verified offline with the dashboard's PEM key (CLERK_JWT_KEY).
 // `username` is a custom session claim ({{user.username}}) set on the Clerk instance; null until the user picks one.
 // `role` is another ({{user.public_metadata.role}}): "operator" marks the Operator. This check is the only gate.
+// Both live in the Clerk instance's config, not this repo: `clerk config pull | jq .session.claims` shows them.
 const session = async (request: Request, env: HoponEnv) => {
   const token = /^Bearer (?<token>\S+)$/u.exec(
     request.headers.get("Authorization") || ""
