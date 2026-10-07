@@ -10,7 +10,13 @@ First-time setup (`.env`, `.dev.vars`, Clerk keys) is in the README's 准备 sec
 1. **Database.** `pnpm run db:local`. Done when it reports the migrations applied, or none to apply.
 2. **API.** Start `pnpm run api:offline` in the background with its output going to a log, which step 5 reads. Done when `curl -sf localhost:8787/api/games` returns JSON. Offline mode can't generate games; use `pnpm run api` (Workers AI, costs quota) only when the change is about creating.
 3. **Metro.** Open the simulator panel if your harness has one, then start `CI=1 pnpm run ios` in the background with its output going to a log. `CI=1` keeps Expo non-interactive, and it also turns off reloading: after editing app code, restart this command. Done when the log shows `iOS Bundled`.
-4. **Load the current bundle.** Open `exp://127.0.0.1:8081` in the simulator. Expo Go keeps running whatever bundle it last loaded, including one from an earlier Metro, until this URL reloads it. Done when the screen shows your change; the old bundle looks plausible, so check for something your diff added.
+4. **Load the current bundle.** Expo Go keeps running whatever bundle it last loaded, including one from an earlier Metro, and opening the URL again while it runs reloads nothing. Quit it first, then open the URL:
+
+   ```sh
+   xcrun simctl terminate booted host.exp.Exponent; xcrun simctl openurl booted exp://127.0.0.1:8081
+   ```
+
+   Done when the API log gains a new `GET /api/games` line, which the feed requests on load. The old bundle looks plausible on screen, so go by the log.
 5. **Drive it.** Screenshots trail one action behind: after a tap, take a second screenshot before reading the result. After a tap that changes screen (a tab, a push, a modal), wait for a screenshot showing the new screen before the next tap; a tap sent during the transition lands on the old screen. The dev-tools gear button floats over the bottom-left of the ticket, so tap around it.
 
    When a screenshot leaves it unclear whether an action reached the server, read the API log for its request line (`[wrangler:info] PUT /api/games/2/save 200 OK`), or query the local database with `pnpm -F api exec wrangler d1 execute DB --local --command "SELECT …"`.
