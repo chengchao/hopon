@@ -82,6 +82,13 @@ const setup = async (t) => {
     return n;
   };
   const owner = "user_owner";
+  // Work handed to `waitUntil`; `settled` waits for it, as the runtime would after the response.
+  const background = [];
+  const ctx = {
+    passThroughOnException: () => {},
+    waitUntil: (promise) => background.push(promise),
+  };
+  const settled = () => Promise.all(background);
   const call = async (
     path,
     {
@@ -108,9 +115,10 @@ const setup = async (t) => {
           ? {}
           : { body: typeof body === "string" ? body : JSON.stringify(body) }),
       }),
-      env
+      env,
+      ctx
     );
-  return { call, count, env, owner };
+  return { call, count, env, owner, settled };
 };
 test("AI JSON boundary rejects invalid and truncated output", async () => {
   assert.deepEqual(
@@ -731,4 +739,158 @@ test("saves: newest save first, 8 per page, no duplicates", async (t) => {
   const tapped = second.games.at(2);
   const reopened = await page(`?before=${tapped.saveId + 1}`);
   assert.equal(reopened.games[0].id, tapped.id);
+});
+test("reports: someone else's published game, a known reason, signed in", async (t) => {
+  const { call, count } = await setup(t);
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
+  const report = (id, reason, options) =>
+    call(`/api/games/${id}/report`, {
+      body: { reason },
+      method: "POST",
+      ...options,
+    });
+  assert.equal(await status(report(game.id, "spam", { user: "" })), 401);
+  assert.equal(await status(report(game.id, "boring")), 400);
+  assert.equal(await status(report(game.id)), 400);
+  assert.equal(await status(report(999_999, "spam")), 404);
+  const draft = await json(
+    call("/api/games", { body: { prompt: "点击星星的小游戏" }, method: "POST" })
+  );
+  assert.equal(
+    await status(report(draft.id, "spam", { user: "user_other" })),
+    404
+  );
+  await call(`/api/games/${draft.id}/publish`, { method: "POST" });
+  const own = await report(draft.id, "spam");
+  assert.equal(own.status, 400);
+  assert.deepEqual(await own.json(), {
+    error: "You can't report your own game.",
+  });
+  assert.equal(await count("reports"), 0);
+});
+test("reports: one open snapshot per person and game, which outlives the game", async (t) => {
+  const { call, count, env, settled } = await setup(t);
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
+  const report = () =>
+    call(`/api/games/${game.id}/report`, {
+      body: { reason: "hate" },
+      method: "POST",
+    });
+  assert.equal(await status(report()), 204);
+  assert.equal(await status(report()), 204);
+  await settled();
+  const { results } = await env.DB.prepare("SELECT * FROM reports").all();
+  assert.equal(results.length, 1);
+  assert.deepEqual(
+    { ...results[0], created_at: undefined, id: undefined },
+    {
+      created_at: undefined,
+      creator: "hopon",
+      description: game.description,
+      game_id: game.id,
+      handle: "hopon",
+      id: undefined,
+      reason: "hate",
+      reporter: "user_owner",
+      status: "open",
+      title: game.title,
+    }
+  );
+  // No FK, so deleting the game later leaves the report.
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM games WHERE id = ?").bind(game.id),
+  ]);
+  assert.equal(await count("reports"), 1);
+});
+test("reports: the game disappears for the reporter only, from the feed, Saved, its count and the saved feed", async (t) => {
+  const { call } = await setup(t);
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
+  for (const user of ["user_owner", "user_other"]) {
+    // oxlint-disable-next-line no-await-in-loop -- two users, order doesn't matter
+    await call(`/api/games/${game.id}/save`, { method: "PUT", user });
+  }
+  const {
+    games: [{ saveId }],
+  } = await json(call("/api/saves"));
+  await call(`/api/games/${game.id}/report`, {
+    body: { reason: "age" },
+    method: "POST",
+  });
+  const ids = async (path, user) => {
+    const { games } = await json(call(path, { user }));
+    return games.map((g) => g.id);
+  };
+  const shows = async (path, user) => {
+    const listed = await ids(path, user);
+    return listed.includes(game.id);
+  };
+  assert.equal(await shows("/api/games"), false);
+  assert.equal(await shows("/api/saves"), false);
+  assert.equal(await shows(`/api/saves?before=${saveId + 1}`), false);
+  assert.equal(await shows("/api/games", "user_other"), true);
+  assert.equal(await shows("/api/games", ""), true);
+  assert.equal(await shows("/api/saves", "user_other"), true);
+  assert.deepEqual(await json(call("/api/saves/count")), { count: 0 });
+  assert.deepEqual(
+    await json(call("/api/saves/count", { user: "user_other" })),
+    { count: 1 }
+  );
+});
+test("reports: each new report POSTs the reason and snapshot to the Operator; a failed send keeps the report", async (t) => {
+  const { call, count, env, settled } = await setup(t);
+  env.OPERATOR_WEBHOOK_URL = "https://operator.test/hook";
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  let down = false;
+  t.mock.method(globalThis, "fetch", (url, init) => {
+    if (String(url) !== env.OPERATOR_WEBHOOK_URL) {
+      return realFetch(url, init);
+    }
+    sent.push(JSON.parse(init.body));
+    return down
+      ? Promise.reject(new Error("webhook down"))
+      : Promise.resolve(new Response(null, { status: 200 }));
+  });
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
+  const report = (user) =>
+    call(`/api/games/${game.id}/report`, {
+      body: { reason: "spam" },
+      method: "POST",
+      user,
+    });
+  assert.equal(await status(report("user_a")), 204);
+  assert.equal(await status(report("user_a")), 204);
+  await settled();
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].text, /Spam or scam/u);
+  assert.match(sent[0].text, new RegExp(game.title, "u"));
+  assert.match(sent[0].text, /@hopon/u);
+  assert.match(sent[0].text, /user_a/u);
+  down = true;
+  assert.equal(await status(report("user_b")), 204);
+  await settled();
+  assert.equal(sent.length, 2);
+  assert.equal(await count("reports"), 2);
+});
+test("feed: `mine` marks the viewer's own games", async (t) => {
+  const { call } = await setup(t);
+  const draft = await json(
+    call("/api/games", { body: { prompt: "点击星星的小游戏" }, method: "POST" })
+  );
+  await call(`/api/games/${draft.id}/publish`, { method: "POST" });
+  const mine = async (user) => {
+    const { games } = await json(call("/api/games", { user }));
+    return games.map((g) => g.mine);
+  };
+  assert.deepEqual(await mine("user_owner"), [true, false, false]);
+  assert.deepEqual(await mine("user_other"), [false, false, false]);
+  assert.deepEqual(await mine(""), [false, false, false]);
 });

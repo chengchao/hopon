@@ -23,6 +23,19 @@ export const newComment = z.object({
   ),
 });
 
+// Why someone reports a game, in the order the app lists them.
+export const REPORT_REASONS = [
+  { label: "Not suitable for ages 13+", reason: "age" },
+  { label: "Hateful or harassing", reason: "hate" },
+  { label: "Spam or scam", reason: "spam" },
+  { label: "Something else", reason: "other" },
+] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number]["reason"];
+
+export const newReport = z.object({
+  reason: z.enum(REPORT_REASONS.map((r) => r.reason)),
+});
+
 // What the API sends back. The API checks each response with `satisfies`, so renaming a field breaks the build instead of a screen.
 
 /** A new game, or the signed-in user's latest draft. */
@@ -41,6 +54,8 @@ export interface FeedGame extends GameSummary {
   comments: number;
   /** Saves are private, so there's no count. */
   saved: boolean;
+  /** True on the viewer's own games, which they can't report. */
+  mine: boolean;
 }
 
 /** A game in the viewer's Saved list. */

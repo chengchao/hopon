@@ -98,3 +98,28 @@ export const saves = sqliteTable(
     index("saves_user").on(table.user, sql`${table.id} DESC`),
   ]
 );
+
+// A Report on a published game, for the Operator: a snapshot of what was reported (no HTML), so it outlives the game.
+// No FK to `games` for that reason. `creator` and `handle` are the creator's account id and @handle; `reporter` is an account id.
+export const reports = sqliteTable(
+  "reports",
+  {
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+    creator: text("creator").notNull(),
+    description: text("description").notNull(),
+    gameId: integer("game_id").notNull(),
+    handle: text("handle"),
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    reason: text("reason").notNull(),
+    reporter: text("reporter").notNull(),
+    // `open` until the Operator closes it.
+    status: text("status").notNull().default("open"),
+    title: text("title").notNull(),
+  },
+  // Also serves the per-viewer filter on feeds.
+  (table) => [
+    uniqueIndex("reports_reporter_game").on(table.reporter, table.gameId),
+  ]
+);
