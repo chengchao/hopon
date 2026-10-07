@@ -42,6 +42,14 @@ const RootLayout = () => {
           <Stack.Screen name="sign-in" options={{ presentation: "modal" }} />
           <Stack.Screen name="handle" options={{ presentation: "modal" }} />
           <Stack.Screen
+            name="reports"
+            options={{
+              headerBackButtonDisplayMode: "minimal",
+              headerShown: true,
+              title: "Reports",
+            }}
+          />
+          <Stack.Screen
             name="saved-feed"
             options={{
               headerBackButtonDisplayMode: "minimal",

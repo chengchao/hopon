@@ -7,19 +7,12 @@ import type {
   FeedGame,
   GamePage,
   GameSummary,
+  ReportQueue,
+  ReportTarget,
   SavedGame,
 } from "@hopon/schemas";
-import {
-  and,
-  desc,
-  eq,
-  inArray,
-  isNull,
-  lt,
-  notInArray,
-  or,
-  sql,
-} from "drizzle-orm";
+import { and, desc, eq, isNull, lt, notInArray, or, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { Context, Effect } from "effect";
@@ -100,6 +93,24 @@ const signedIn = Effect.fnUntraced(function* (message: string) {
   }
   return owner;
 });
+
+const operatorOnly = Effect.gen(function* () {
+  const { operator } = yield* Viewer;
+  if (!operator) {
+    return yield* fail(403, "Only the Operator can do this.");
+  }
+});
+
+// Closes the open reports `on` matches, recording how and when. Closed reports are kept as the audit trail.
+const closeReports = (
+  db: DrizzleD1Database,
+  how: NonNullable<typeof reports.$inferSelect.closedHow>,
+  on: SQL | undefined
+) =>
+  db
+    .update(reports)
+    .set({ closedAt: sql`CURRENT_TIMESTAMP`, closedHow: how, status: "closed" })
+    .where(and(eq(reports.status, "open"), on));
 
 // `?before=<id>` paging, newest first: rows with a smaller id than the cursor.
 const cursor = (raw: string | undefined) =>
@@ -437,33 +448,33 @@ app.delete(`/api/comments/${ID}`, (c) =>
     Effect.gen(function* () {
       const owner = yield* signedIn("Sign in to continue.");
       const { operator } = yield* Viewer;
-      // The commenter, the game's creator or the Operator; anyone else gets the same 404 as a missing comment.
-      const deleted = yield* query((db) =>
+      const id = Number(c.req.param("id"));
+      const comment = yield* query((db) =>
         db
-          .delete(comments)
-          .where(
-            and(
-              eq(comments.id, Number(c.req.param("id"))),
-              operator
-                ? undefined
-                : or(
-                    eq(comments.user, owner),
-                    inArray(
-                      comments.gameId,
-                      db
-                        .select({ id: games.id })
-                        .from(games)
-                        .where(eq(games.owner, owner))
-                    )
-                  )
-            )
-          )
-          .returning({ id: comments.id })
+          .select({ gameOwner: games.owner, user: comments.user })
+          .from(comments)
+          .innerJoin(games, eq(games.id, comments.gameId))
+          .where(eq(comments.id, id))
           .get()
       );
-      if (!deleted) {
+      // The commenter, the game's creator or the Operator; anyone else gets the same 404 as a missing comment.
+      const allowed =
+        operator || comment?.user === owner || comment?.gameOwner === owner;
+      if (!comment || !allowed) {
         return yield* fail(404, "Comment not found.");
       }
+      // Its reports close as `deleted` only when the Operator takes down someone else's comment. The commenter, or the
+      // game's Creator clearing a comment off their own game, closes them as `creator_deleted`: nobody else's decision.
+      yield* query((db) =>
+        db.batch([
+          db.delete(comments).where(eq(comments.id, id)),
+          closeReports(
+            db,
+            operator && comment.user !== owner ? "deleted" : "creator_deleted",
+            eq(reports.commentId, id)
+          ),
+        ])
+      );
       return c.body(null, 204);
     })
   )
@@ -493,7 +504,8 @@ const publishedGame = Effect.fn("publishedGame")(function* (id: number) {
 });
 
 // The Creator or the Operator deletes a published game, with its likes, comments and saves in one batch
-// (no FK cascade, see schema.ts). Reports outlive it. Anyone else gets the same 404 as a missing game.
+// (no FK cascade, see schema.ts). Anyone else gets the same 404 as a missing game. Reports outlive it, but the open
+// ones on it and its comments close: `creator_deleted` when its Creator deletes it, `deleted` when the Operator does.
 app.delete(`/api/games/${ID}`, (c) =>
   run(
     c,
@@ -514,6 +526,11 @@ app.delete(`/api/games/${ID}`, (c) =>
           db.delete(comments).where(eq(comments.gameId, id)),
           db.delete(saves).where(eq(saves.gameId, id)),
           db.delete(games).where(eq(games.id, id)),
+          closeReports(
+            db,
+            game.owner === owner ? "creator_deleted" : "deleted",
+            eq(reports.gameId, id)
+          ),
         ])
       );
       return c.body(null, 204);
@@ -706,6 +723,109 @@ app.post(
         return c.body(null, 204);
       })
     )
+);
+
+// The Operator's open count: how many games and comments have open reports.
+app.get("/api/reports/count", (c) =>
+  run(
+    c,
+    Effect.gen(function* () {
+      yield* operatorOnly;
+      const row = yield* query((db) => {
+        const open = db
+          .selectDistinct({
+            commentId: reports.commentId,
+            gameId: reports.gameId,
+          })
+          .from(reports)
+          .where(eq(reports.status, "open"))
+          .as("open");
+        return db
+          .select({ count: sql<number>`COUNT(*)` })
+          .from(open)
+          .get();
+      });
+      return c.json({ count: row?.count ?? 0 });
+    })
+  )
+);
+
+// The Operator's queue: open reports grouped by game or comment, oldest open report first.
+// ponytail: every open report in one response; page it if the open queue ever outgrows a screenful or two.
+app.get("/api/reports", (c) =>
+  run(
+    c,
+    Effect.gen(function* () {
+      yield* operatorOnly;
+      const rows = yield* query((db) =>
+        db
+          .select({
+            body: reports.body,
+            commentId: reports.commentId,
+            createdAt: reports.createdAt,
+            description: reports.description,
+            gameId: reports.gameId,
+            handle: reports.handle,
+            live: sql`CASE WHEN ${reports}.comment_id IS NULL
+              THEN EXISTS(SELECT 1 FROM ${games} WHERE ${games}.id = ${reports}.game_id)
+              ELSE EXISTS(SELECT 1 FROM ${comments} WHERE ${comments}.id = ${reports}.comment_id) END`.mapWith(
+              Boolean
+            ),
+            reason: reports.reason,
+            title: reports.title,
+          })
+          .from(reports)
+          .where(eq(reports.status, "open"))
+          .orderBy(reports.id)
+      );
+      // Groups keep the order of their first (oldest) report, whose snapshot the target shows.
+      const groups = Map.groupBy(
+        rows,
+        (row) => `${row.gameId}:${row.commentId}`
+      );
+      const targets = [...groups.values()].map((group): ReportTarget => {
+        const [oldest] = group;
+        return {
+          body: oldest.body,
+          description: oldest.description,
+          gameId: oldest.gameId,
+          handle: oldest.handle,
+          id: oldest.commentId ?? oldest.gameId,
+          kind: oldest.commentId === null ? "game" : "comment",
+          live: oldest.live,
+          reasons: REPORT_REASONS.flatMap(({ reason }) => {
+            const reported = group.filter((row) => row.reason === reason);
+            return reported.length ? [{ count: reported.length, reason }] : [];
+          }),
+          reportedAt: oldest.createdAt,
+          title: oldest.title,
+        };
+      });
+      return c.json({ targets } satisfies ReportQueue);
+    })
+  )
+);
+
+// Dismiss: the Operator closes every open report on a game (not its comments') or a comment, and leaves it up.
+// It stays hidden from its reporters, whose lists leave out what they reported, open or closed.
+app.post(`/api/:kind{games|comments}/${ID}/dismiss`, (c) =>
+  run(
+    c,
+    Effect.gen(function* () {
+      yield* operatorOnly;
+      const id = Number(c.req.param("id"));
+      yield* query((db) =>
+        closeReports(
+          db,
+          "dismissed",
+          c.req.param("kind") === "games"
+            ? and(eq(reports.gameId, id), isNull(reports.commentId))
+            : eq(reports.commentId, id)
+        )
+      );
+      return c.body(null, 204);
+    })
+  )
 );
 
 app.post(`/api/games/${ID}/publish`, (c) =>
