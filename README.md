@@ -51,13 +51,15 @@ pnpm run db:local
 
 ## 部署
 
-已配置用户选择的 Chengchao60827@gmail.com 账号及专用 hopon D1 数据库（迁移到其他账号时才需要 `wrangler d1 create hopon` 并更新 `apps/api/wrangler.jsonc`）。
+已配置用户选择的 Chengchao60827@gmail.com 账号及专用 hopon D1 数据库（迁移到其他账号时才需要 `wrangler d1 create hopon`，并同时更新 `apps/api/wrangler.jsonc` 的 `account_id` 和 `apps/api/package.json` 里 `db:remote`、`deploy` 的 `CLOUDFLARE_ACCOUNT_ID`）。
 
 ```sh
 pnpm -F api exec wrangler secret put CLERK_JWT_KEY < clerk-public-key.pem
 pnpm run db:remote
 pnpm run deploy
 ```
+
+远程命令报 `[code: 7403]` 时直接重跑：wrangler 的 OAuth 令牌过期后，刷新令牌的那一次请求会失败，下一次用新令牌即可成功。
 
 Worker 只提供 `/api/*`，原网页前端已移除。应用商店构建与提交（EAS）尚未配置。
 
