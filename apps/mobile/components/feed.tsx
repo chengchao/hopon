@@ -14,7 +14,8 @@ import {
 
 import { CommentsSheet } from "@/components/comments-sheet";
 import { GameView } from "@/components/game-view";
-import { ReportSheet } from "@/components/report-sheet";
+import { confirmBlock, ReportSheet, targetOf } from "@/components/report-sheet";
+import type { ReportTarget } from "@/components/report-sheet";
 import { Byline, Ticket } from "@/components/ticket";
 import { TicketActions } from "@/components/ticket-actions";
 import { Button } from "@/components/ui/button";
@@ -40,7 +41,7 @@ export const Feed = ({
   const [height, setHeight] = useState(0);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [commentsFor, setCommentsFor] = useState<FeedGame | null>(null);
-  const [reportFor, setReportFor] = useState<FeedGame | null>(null);
+  const [reportFor, setReportFor] = useState<ReportTarget | null>(null);
   const { isSignedIn, getToken } = useAuth();
   // Clerk's getToken isn't referentially stable, so `load` reads it through a ref instead of its deps.
   const token = useRef(getToken);
@@ -108,6 +109,15 @@ export const Feed = ({
     return () => sub.remove();
   }, []);
 
+  const go = useCallback(
+    (index: number) => {
+      const target = Math.max(0, Math.min(games.length - 1, index));
+      scrollTo(target * height, !reduceMotion);
+      setActive(target);
+    },
+    [games.length, height, reduceMotion, scrollTo]
+  );
+
   const patch = (id: number, fields: Partial<FeedGame>) =>
     setGames((old) => old.map((g) => (g.id === id ? { ...g, ...fields } : g)));
   // Optimistic: flip the heart now, then settle on the server's count, or flip back if the request fails.
@@ -152,33 +162,58 @@ export const Feed = ({
     }
   };
 
+  // Takes games out at once. The game after the one on screen takes its place; if none is left after it, the one before.
+  const drop = (gone: (game: FeedGame) => boolean) => {
+    const rest = latest.current.filter((g) => !gone(g));
+    const above = latest.current.slice(0, active).filter((g) => !gone(g));
+    setGames(rest);
+    go(Math.min(above.length, rest.length - 1));
+  };
+  // ponytail: matched by the handle on each game, so games published under an older handle stay until the feed reloads.
+  const hide = (handle: string | null) =>
+    drop((g) => !g.mine && handle !== null && g.author === handle);
+
   const report = (game: FeedGame) =>
-    isSignedIn ? setReportFor(game) : router.push("/sign-in");
-  // The "…" pill's menu. Block joins Report here later.
+    isSignedIn ? setReportFor(targetOf("game", game)) : router.push("/sign-in");
+  const block = (game: FeedGame) => {
+    if (!isSignedIn) {
+      return router.push("/sign-in");
+    }
+    confirmBlock({
+      getToken,
+      onBlocked: hide,
+      onReport: setReportFor,
+      target: targetOf("game", game),
+    });
+  };
+  // The "…" pill's menu.
   const more = (game: FeedGame) => {
     if (!isSignedIn) {
       return router.push("/sign-in");
     }
+    const blockLabel = `Block @${game.author}`;
     if (Platform.OS === "ios") {
       return ActionSheetIOS.showActionSheetWithOptions(
-        { cancelButtonIndex: 1, options: ["Report game", "Cancel"] },
-        (index) => index === 0 && setReportFor(game)
+        {
+          cancelButtonIndex: 2,
+          destructiveButtonIndex: 1,
+          options: ["Report game", blockLabel, "Cancel"],
+        },
+        (index) => {
+          if (index === 0) {
+            report(game);
+          } else if (index === 1) {
+            block(game);
+          }
+        }
       );
     }
     Alert.alert(game.title, undefined, [
       { style: "cancel", text: "Cancel" },
-      { onPress: () => setReportFor(game), text: "Report game" },
+      { onPress: () => report(game), text: "Report game" },
+      { onPress: () => block(game), style: "destructive", text: blockLabel },
     ]);
   };
-
-  const go = useCallback(
-    (index: number) => {
-      const target = Math.max(0, Math.min(games.length - 1, index));
-      scrollTo(target * height, !reduceMotion);
-      setActive(target);
-    },
-    [games.length, height, reduceMotion, scrollTo]
-  );
 
   // Only the name/description area pages the feed; the game keeps every touch. A drag moves at most one game.
   // `active` only changes when a drag settles, so `origin` holds for the whole gesture.
@@ -253,7 +288,10 @@ export const Feed = ({
                     },
                     ...(item.mine
                       ? []
-                      : [{ label: "Report game", name: "report" }]),
+                      : [
+                          { label: "Report game", name: "report" },
+                          { label: `Block @${item.author}`, name: "block" },
+                        ]),
                   ]}
                   onAccessibilityAction={(e) => {
                     const action = e.nativeEvent.actionName;
@@ -267,6 +305,8 @@ export const Feed = ({
                       setCommentsFor(item);
                     } else if (action === "report") {
                       report(item);
+                    } else if (action === "block") {
+                      block(item);
                     }
                   }}
                   compact
@@ -324,21 +364,21 @@ export const Feed = ({
         )}
       </View>
       <ReportSheet
-        target={reportFor && { id: reportFor.id, kind: "game" }}
+        target={reportFor}
         onClose={() => setReportFor(null)}
         onReported={(id) => {
-          // The next game takes the reported one's place; if it was the last, land on the one before.
-          const rest = latest.current.filter((g) => g.id !== id);
-          setGames(rest);
+          drop((g) => g.id === id);
           setReportFor((open) => (open?.id === id ? null : open));
-          if (active >= rest.length) {
-            go(rest.length - 1);
-          }
+        }}
+        onBlocked={(handle) => {
+          hide(handle);
+          setReportFor((open) => (open?.handle === handle ? null : open));
         }}
       />
       <CommentsSheet
         game={commentsFor}
         onClose={() => setCommentsFor(null)}
+        onBlocked={hide}
         onCount={(id, delta) =>
           setGames((old) =>
             old.map((g) =>

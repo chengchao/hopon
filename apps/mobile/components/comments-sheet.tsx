@@ -15,7 +15,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ReportSheet } from "@/components/report-sheet";
+import { confirmBlock, ReportSheet, targetOf } from "@/components/report-sheet";
+import type { ReportTarget } from "@/components/report-sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
@@ -27,11 +28,14 @@ export const CommentsSheet = ({
   game,
   onClose,
   onCount,
+  onBlocked,
 }: {
   game: GameSummary | null;
   onClose: () => void;
   /** A comment was posted (+1) or deleted (-1), so the feed's count can follow. */
   onCount: (id: number, delta: number) => void;
+  /** The viewer blocked @handle, so the feed can hide their games too. */
+  onBlocked: (handle: string) => void;
 }) => {
   const insets = useSafeAreaInsets();
   const { isSignedIn, getToken } = useAuth();
@@ -42,7 +46,7 @@ export const CommentsSheet = ({
   const [error, setError] = useState("");
   const [text, setText] = useState("");
   const [posting, setPosting] = useState(false);
-  const [reportFor, setReportFor] = useState<number | null>(null);
+  const [reportFor, setReportFor] = useState<ReportTarget | null>(null);
   // Clerk's getToken isn't referentially stable, so `load` reads it through a ref instead of its deps.
   const token = useRef(getToken);
   useEffect(() => {
@@ -174,9 +178,26 @@ export const CommentsSheet = ({
   };
 
   const report = (comment: Comment) =>
-    isSignedIn ? setReportFor(comment.id) : leave("/sign-in");
+    isSignedIn ? setReportFor(targetOf("comment", comment)) : leave("/sign-in");
 
-  // What a comment offers, for both its long-press menu and VoiceOver: Delete when allowed, Report unless it's yours.
+  // Their comments leave the list at once, and the feed hides their games. Counts stay global, so they don't change.
+  const hide = (handle: string) => {
+    setList((old) => old.filter((c) => c.author !== handle));
+    onBlocked(handle);
+  };
+  const block = (comment: Comment) => {
+    if (!isSignedIn) {
+      return leave("/sign-in");
+    }
+    confirmBlock({
+      getToken,
+      onBlocked: () => hide(comment.author),
+      onReport: setReportFor,
+      target: targetOf("comment", comment),
+    });
+  };
+
+  // What a comment offers, for both its long-press menu and VoiceOver: Delete when allowed, Report and Block unless it's yours.
   const actionsFor = (comment: Comment) => [
     ...(comment.canDelete
       ? [
@@ -195,6 +216,11 @@ export const CommentsSheet = ({
             name: "report",
             onPress: () => report(comment),
           },
+          {
+            label: `Block @${comment.author}`,
+            name: "block",
+            onPress: () => block(comment),
+          },
         ]),
   ];
 
@@ -208,7 +234,10 @@ export const CommentsSheet = ({
       return ActionSheetIOS.showActionSheetWithOptions(
         {
           cancelButtonIndex: actions.length,
-          destructiveButtonIndex: comment.canDelete ? 0 : undefined,
+          // Delete, when offered, and Block.
+          destructiveButtonIndex: comment.canDelete
+            ? [0, actions.length - 1]
+            : actions.length - 1,
           options: [...actions.map((a) => a.label), "Cancel"],
         },
         (index) => actions[index]?.onPress()
@@ -350,12 +379,20 @@ export const CommentsSheet = ({
       </KeyboardAvoidingView>
       {/* Inside this Modal: iOS can't present a second Modal from a sibling while this one is up. */}
       <ReportSheet
-        target={reportFor ? { id: reportFor, kind: "comment" } : null}
+        target={reportFor}
         onClose={() => setReportFor(null)}
         onReported={(commentId) => {
           // Gone with no placeholder; the feed's count stays global, so it doesn't change.
           setList((old) => old.filter((c) => c.id !== commentId));
-          setReportFor((shownId) => (shownId === commentId ? null : shownId));
+          setReportFor((current) =>
+            current?.id === commentId ? null : current
+          );
+        }}
+        onBlocked={(handle) => {
+          if (handle) {
+            hide(handle);
+          }
+          setReportFor(null);
         }}
       />
     </Modal>

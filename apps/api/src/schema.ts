@@ -138,3 +138,25 @@ export const reports = sqliteTable(
       .where(sql`${table.commentId} IS NOT NULL`),
   ]
 );
+
+// A Block between two accounts, keyed on account ids the app never sees. `handle` is the blocked person's @handle when
+// they were blocked, copied from the game or comment blocked from, so the blocker recognises them after a rename.
+// Either direction hides both people's games and comments from each other; nothing else changes.
+export const blocks = sqliteTable(
+  "blocks",
+  {
+    blocked: text("blocked").notNull(),
+    blocker: text("blocker").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+    handle: text("handle"),
+    // The opaque id the blocker unblocks with.
+    id: integer("id").primaryKey({ autoIncrement: true }),
+  },
+  // One block per pair; with the reverse index, both directions of the per-viewer filter are index lookups.
+  (table) => [
+    uniqueIndex("blocks_pair").on(table.blocker, table.blocked),
+    index("blocks_blocked").on(table.blocked, table.blocker),
+  ]
+);
