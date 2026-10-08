@@ -1,9 +1,72 @@
 {
-  "id": "428028cb-6ee6-4036-b714-88155db7a7a1",
-  "prevId": "c65c3261-78c8-4029-b291-4cc5e42efb04",
   "version": "6",
   "dialect": "sqlite",
+  "id": "c97b10aa-2452-4cb5-a3e3-d8655d95eb38",
+  "prevId": "c65c3261-78c8-4029-b291-4cc5e42efb04",
   "tables": {
+    "blocks": {
+      "name": "blocks",
+      "columns": {
+        "blocked": {
+          "name": "blocked",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "blocker": {
+          "name": "blocker",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "handle": {
+          "name": "handle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        }
+      },
+      "indexes": {
+        "blocks_pair": {
+          "name": "blocks_pair",
+          "columns": [
+            "blocker",
+            "blocked"
+          ],
+          "isUnique": true
+        },
+        "blocks_blocked": {
+          "name": "blocks_blocked",
+          "columns": [
+            "blocked",
+            "blocker"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "comments": {
       "name": "comments",
       "columns": {
@@ -65,15 +128,15 @@
         "comments_game_id_games_id_fk": {
           "name": "comments_game_id_games_id_fk",
           "tableFrom": "comments",
+          "tableTo": "games",
           "columnsFrom": [
             "game_id"
           ],
-          "tableTo": "games",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -238,15 +301,15 @@
         "likes_game_id_games_id_fk": {
           "name": "likes_game_id_games_id_fk",
           "tableFrom": "likes",
+          "tableTo": "games",
           "columnsFrom": [
             "game_id"
           ],
-          "tableTo": "games",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
@@ -372,8 +435,8 @@
             "reporter",
             "game_id"
           ],
-          "where": "\"reports\".\"comment_id\" IS NULL",
-          "isUnique": true
+          "isUnique": true,
+          "where": "\"reports\".\"comment_id\" IS NULL"
         },
         "reports_reporter_comment": {
           "name": "reports_reporter_comment",
@@ -381,8 +444,8 @@
             "reporter",
             "comment_id"
           ],
-          "where": "\"reports\".\"comment_id\" IS NOT NULL",
-          "isUnique": true
+          "isUnique": true,
+          "where": "\"reports\".\"comment_id\" IS NOT NULL"
         }
       },
       "foreignKeys": {},
@@ -445,15 +508,15 @@
         "saves_game_id_games_id_fk": {
           "name": "saves_game_id_games_id_fk",
           "tableFrom": "saves",
+          "tableTo": "games",
           "columnsFrom": [
             "game_id"
           ],
-          "tableTo": "games",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -464,9 +527,9 @@
   "views": {},
   "enums": {},
   "_meta": {
-    "columns": {},
     "schemas": {},
-    "tables": {}
+    "tables": {},
+    "columns": {}
   },
   "internal": {
     "indexes": {

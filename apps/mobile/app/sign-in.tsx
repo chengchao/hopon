@@ -82,9 +82,9 @@ const SignIn = () => {
         return { message: "Could not finish signing in. Please try again." };
       }
       await resource.finalize();
-      // Next: pick a handle (skipped automatically if you have one), then on into Create or back where you were.
+      // Next: agree to the Rules, pick a handle (each skipped if already done), then on into Create or back.
       router.replace(
-        next === "create" ? "/handle?next=create&auto=1" : "/handle?auto=1"
+        next === "create" ? "/rules?next=create" : "/rules?next=handle"
       );
     });
 

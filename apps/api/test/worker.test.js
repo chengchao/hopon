@@ -1411,3 +1411,185 @@ test("operator: Delete closes the content's open reports as deleted, its poster 
     [["game", third.gameId]]
   );
 });
+
+test("pages: /terms has the Rules and /support the contact address, signed out", async (t) => {
+  const { call } = await setup(t);
+  const terms = await call("/terms", { user: "" });
+  assert.equal(terms.status, 200);
+  assert.match(terms.headers.get("Content-Type"), /^text\/html/u);
+  const rules = await terms.text();
+  assert.match(rules, /<title>Terms of Use<\/title>/u);
+  assert.match(rules, /zero tolerance/iu);
+  assert.match(rules, /within 24 hours/u);
+  assert.match(rules, /mailto:support@hopon\.example/u);
+  const support = await call("/support", { user: "" });
+  assert.equal(support.status, 200);
+  const page = await support.text();
+  assert.match(page, /mailto:support@hopon\.example/u);
+  assert.match(page, /href="\/terms"/u);
+});
+// `commented`, plus a published game by user_fan that user_owner saved, and a comment from each of them on an Original.
+const feuding = async (call) => {
+  const posted = await commented(call);
+  const fan = { user: "user_fan", username: "fan" };
+  const draft = await json(
+    call("/api/games", {
+      body: { prompt: "点击月亮的小游戏" },
+      method: "POST",
+      ...fan,
+    })
+  );
+  await call(`/api/games/${draft.id}/publish`, { method: "POST", ...fan });
+  await call(`/api/games/${draft.id}/save`, { method: "PUT" });
+  await call(`/api/games/${posted.gameId}/save`, { method: "PUT", ...fan });
+  await call(`/api/games/${posted.gameId}/like`, { method: "PUT", ...fan });
+  const { games } = await json(call("/api/games", { user: "" }));
+  const original = games.find((g) => g.author === "hopon");
+  for (const who of [{}, fan]) {
+    // oxlint-disable-next-line no-await-in-loop -- two comments, newest first
+    await call(`/api/games/${original.id}/comments`, {
+      body: { body: `hi from ${who.username ?? "maya"}` },
+      method: "POST",
+      ...who,
+    });
+  }
+  return { ...posted, fan, fanGameId: draft.id, originalId: original.id };
+};
+test("blocks: from a game or a comment, one per pair keyed on the account, never yourself", async (t) => {
+  const { call, env } = await setup(t);
+  const { comment, fanGameId, gameId } = await feuding(call);
+  const block = (path, options) => call(path, { method: "POST", ...options });
+  assert.equal(
+    await status(block(`/api/games/${fanGameId}/block`, { user: "" })),
+    401
+  );
+  assert.equal(await status(block("/api/games/999999/block")), 404);
+  assert.equal(await status(block("/api/comments/999999/block")), 404);
+  const draft = await json(
+    call("/api/games", {
+      body: { prompt: "点击太阳的小游戏" },
+      method: "POST",
+      user: "user_fan",
+    })
+  );
+  assert.equal(await status(block(`/api/games/${draft.id}/block`)), 404);
+  for (const path of [
+    `/api/games/${gameId}/block`,
+    `/api/comments/${comment.id}/block`,
+  ]) {
+    // oxlint-disable-next-line no-await-in-loop -- one refusal each
+    const own = await block(path, {
+      user: path.includes("games") ? "user_owner" : "user_fan",
+    });
+    assert.equal(own.status, 400);
+    // oxlint-disable-next-line no-await-in-loop -- one refusal each
+    assert.deepEqual(await own.json(), { error: "You can't block yourself." });
+  }
+  assert.equal(await status(block(`/api/games/${fanGameId}/block`)), 204);
+  assert.equal(await status(block(`/api/games/${fanGameId}/block`)), 204);
+  assert.equal(await status(block(`/api/comments/${comment.id}/block`)), 204);
+  const { results } = await env.DB.prepare(
+    "SELECT blocker, blocked, handle FROM blocks"
+  ).all();
+  assert.deepEqual(
+    results.map((r) => ({ ...r })),
+    [{ blocked: "user_fan", blocker: "user_owner", handle: "fan" }]
+  );
+});
+test("blocks: neither person sees the other's games or comments; everyone else does, and nothing changes or goes away", async (t) => {
+  const { call, count } = await setup(t);
+  const { comment, fanGameId, gameId, originalId } = await feuding(call);
+  const before = {
+    comments: await count("comments"),
+    likes: await count("likes"),
+    saves: await count("saves"),
+  };
+  await call(`/api/comments/${comment.id}/block`, { method: "POST" });
+  const ids = async (path, user) => {
+    const { games } = await json(call(path, { user }));
+    return games.map((g) => g.id);
+  };
+  const shows = async (id, user) => {
+    const listed = await ids("/api/games", user);
+    return listed.includes(id);
+  };
+  const bodies = async (id, user) => {
+    const { comments } = await json(
+      call(`/api/games/${id}/comments`, { user })
+    );
+    return comments.map((c) => c.body);
+  };
+  // The blocker, user_owner, loses user_fan's game and comments.
+  assert.equal(await shows(fanGameId), false);
+  assert.deepEqual(await ids("/api/saves"), []);
+  assert.deepEqual(await ids(`/api/saves?before=${2 ** 40}`), []);
+  assert.deepEqual(await json(call("/api/saves/count")), { count: 0 });
+  assert.deepEqual(await bodies(gameId), []);
+  assert.deepEqual(await bodies(originalId), ["hi from maya"]);
+  // The blocked person, user_fan, loses user_owner's.
+  assert.equal(await shows(gameId, "user_fan"), false);
+  assert.deepEqual(await ids("/api/saves", "user_fan"), []);
+  assert.deepEqual(await json(call("/api/saves/count", { user: "user_fan" })), {
+    count: 0,
+  });
+  assert.deepEqual(await bodies(originalId, "user_fan"), ["hi from fan"]);
+  // Everyone else sees both, with the same counts.
+  for (const user of ["user_other", ""]) {
+    // oxlint-disable-next-line no-await-in-loop -- two viewers
+    const { games } = await json(call("/api/games", { user }));
+    assert.deepEqual(
+      games
+        .filter((g) => g.id === gameId || g.id === fanGameId)
+        .map(({ comments, id, likes }) => ({ comments, id, likes })),
+      [
+        { comments: 0, id: fanGameId, likes: 0 },
+        { comments: 1, id: gameId, likes: 1 },
+      ]
+    );
+    // oxlint-disable-next-line no-await-in-loop -- two viewers
+    assert.deepEqual(await bodies(originalId, user), [
+      "hi from fan",
+      "hi from maya",
+    ]);
+  }
+  assert.deepEqual(
+    {
+      comments: await count("comments"),
+      likes: await count("likes"),
+      saves: await count("saves"),
+    },
+    before
+  );
+});
+test("blocks: neither person can comment on the other's games, and isn't told why", async (t) => {
+  const { call } = await setup(t);
+  const { fan, fanGameId, gameId } = await feuding(call);
+  await call(`/api/games/${fanGameId}/block`, { method: "POST" });
+  const comment = (id, who) =>
+    call(`/api/games/${id}/comments`, {
+      body: { body: "hello?" },
+      method: "POST",
+      ...who,
+    });
+  // The same 404 and message as a game that doesn't exist, so a block can't be told apart.
+  const missing = await comment(999_999, fan);
+  assert.deepEqual(await missing.json(), {
+    error: "This game isn't available.",
+  });
+  for (const [id, who] of [
+    [gameId, fan],
+    [fanGameId, {}],
+  ]) {
+    // oxlint-disable-next-line no-await-in-loop -- one refusal each
+    const refused = await comment(id, who);
+    assert.equal(refused.status, missing.status);
+    // oxlint-disable-next-line no-await-in-loop -- one refusal each
+    assert.deepEqual(await refused.json(), {
+      error: "This game isn't available.",
+    });
+  }
+  assert.equal(
+    await status(comment(gameId, { user: "user_other", username: "other" })),
+    201
+  );
+});

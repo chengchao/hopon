@@ -53,7 +53,7 @@ export const TicketActions = ({
   onLike: () => void;
   onComments: () => void;
   onSave: () => void;
-  /** Opens the menu with Report game; left out on the viewer's own games. */
+  /** Opens the menu with Report game and Block; left out on the viewer's own games. */
   onMore?: () => void;
 }) => {
   const isLiked = game.liked;
