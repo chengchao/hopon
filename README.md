@@ -62,7 +62,7 @@ pnpm run deploy
 
 远程命令报 `[code: 7403]` 时先重跑一次：wrangler 的 OAuth 令牌过期后，刷新令牌的那一次请求会失败。仍然失败就运行 `pnpm -F api exec wrangler whoami`，Token Permissions 里没有 `d1` 和 `workers` 时，令牌权限不足，用 `pnpm -F api exec wrangler login` 重新登录。
 
-Worker 只提供 `/api/*`，原网页前端已移除。应用商店构建与提交（EAS）尚未配置。
+Worker 提供 `/api/*` 和两个静态页面：`/terms`（Rules，标题为 Terms of Use）与 `/support`（联系地址，即 App Store 的 Support URL）。原网页前端已移除。应用商店构建与提交（EAS）尚未配置。
 
 ## 检查
 
