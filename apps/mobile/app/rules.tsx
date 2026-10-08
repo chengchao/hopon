@@ -6,12 +6,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
-import { openRules, RULES_VERSION } from "@/lib/rules";
+import { agreedToRules, openRules, RULES_VERSION } from "@/lib/rules";
 
 const SUMMARY = [
   "Zero tolerance for objectionable games, comments or names, and for abusive people.",
   "Nothing unsuitable for ages 13+, hateful or harassing, spam or scams.",
-  "Report or Block anything or anyone that breaks the Rules. We review reports within 24 hours, delete what breaks them and ban whoever posted it.",
+  "Report or Block anything or anyone that breaks the Rules. We review reports within 24 hours, delete what breaks them and can ban whoever posted it.",
 ];
 
 // Right after sign-in (`next`: on to the handle step), or on open when the stored version isn't the current one.
@@ -22,7 +22,7 @@ const Rules = () => {
   const insets = useSafeAreaInsets();
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const agreed = user?.unsafeMetadata.rulesAgreed === RULES_VERSION;
+  const agreed = agreedToRules(user);
 
   const done = useCallback(() => {
     if (!next) {

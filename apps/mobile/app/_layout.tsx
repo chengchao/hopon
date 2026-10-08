@@ -13,7 +13,7 @@ import { ThemeProvider } from "expo-router/react-navigation";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 
-import { RULES_VERSION } from "@/lib/rules";
+import { agreedToRules } from "@/lib/rules";
 import { NAV_THEME } from "@/lib/theme";
 
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
@@ -28,7 +28,7 @@ export { ErrorBoundary } from "expo-router";
 const RulesGate = () => {
   const { user } = useUser();
   const pathname = usePathname();
-  const pending = !!user && user.unsafeMetadata.rulesAgreed !== RULES_VERSION;
+  const pending = !!user && !agreedToRules(user);
   useEffect(() => {
     if (pending && pathname !== "/rules" && pathname !== "/sign-in") {
       router.push("/rules");
