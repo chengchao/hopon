@@ -1,4 +1,5 @@
 import { useAuth, useUser } from "@clerk/expo";
+import type { BlockedAccounts } from "@hopon/schemas";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, View } from "react-native";
@@ -24,6 +25,7 @@ const Me = () => {
   const [liked, setLiked] = useState<number | null>(null);
   const [saved, setSaved] = useState<number | null>(null);
   const [reports, setReports] = useState<number | null>(null);
+  const [blocked, setBlocked] = useState<number | null>(null);
   // Only decides what to show; the API checks the session's `role` claim itself.
   const operator = user?.publicMetadata?.role === "operator";
 
@@ -33,24 +35,26 @@ const Me = () => {
     token.current = getToken;
   });
 
-  // Refetched whenever Me comes into view, so likes and saves made on Discover show up.
+  // Refetched whenever Me comes into view, so likes, saves and blocks made elsewhere show up.
   useFocusEffect(
     useCallback(() => {
       if (!isSignedIn) {
         return;
       }
-      const fetchCount = async (path: string, set: (count: number) => void) => {
+      const fetchInto = async <T,>(path: string, set: (data: T) => void) => {
         try {
-          const { count } = await api<{ count: number }>(path, {
-            token: await token.current(),
-          });
-          set(count);
+          set(await api<T>(path, { token: await token.current() }));
         } catch {
-          // Keep the last count; the stat isn't worth an error banner.
+          // Keep the last count; a count isn't worth an error banner.
         }
       };
+      const fetchCount = (path: string, set: (count: number) => void) =>
+        fetchInto<{ count: number }>(path, ({ count }) => set(count));
       fetchCount("/api/likes/count", setLiked);
       fetchCount("/api/saves/count", setSaved);
+      fetchInto<BlockedAccounts>("/api/blocks", ({ blocks }) =>
+        setBlocked(blocks.length)
+      );
       if (operator) {
         fetchCount("/api/reports/count", setReports);
       }
@@ -120,6 +124,15 @@ const Me = () => {
               <Stat value={liked ?? "–"} label="Liked" />
               <Stat value={saved ?? "–"} label="Saved" />
             </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityHint="Lists everyone you've blocked"
+              onPress={() => router.push("/blocked")}
+              className="h-14 flex-row items-center justify-between rounded-2xl bg-card px-4 active:opacity-80"
+            >
+              <Text className="text-base">Blocked accounts</Text>
+              <Text className="text-muted-foreground">{blocked ?? "–"}</Text>
+            </Pressable>
             {operator && (
               <Pressable
                 accessibilityRole="button"

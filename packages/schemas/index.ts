@@ -112,3 +112,16 @@ export interface ReportTarget {
 export interface ReportQueue {
   targets: ReportTarget[];
 }
+
+/** Someone the viewer has Blocked, as their Blocked accounts list shows them. */
+export interface BlockedAccount {
+  /** The opaque id to unblock with. */
+  id: number;
+  /** Their @handle when they were blocked, kept through a rename. */
+  handle: string | null;
+}
+
+/** The viewer's Blocked accounts, newest first. */
+export interface BlockedAccounts {
+  blocks: BlockedAccount[];
+}

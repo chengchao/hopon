@@ -1593,3 +1593,107 @@ test("blocks: neither person can comment on the other's games, and isn't told wh
     201
   );
 });
+test("blocked accounts: newest first by the handle at block time; only the blocker sees and unblocks them", async (t) => {
+  const { call } = await setup(t);
+  const { fan, fanGameId, originalId } = await feuding(call);
+  await call(`/api/games/${originalId}/comments`, {
+    body: { body: "hi from other" },
+    method: "POST",
+    user: "user_other",
+    username: "other",
+  });
+  const { comments } = await json(call(`/api/games/${originalId}/comments`));
+  const other = comments.find((c) => c.author === "other");
+  assert.equal(await status(call("/api/blocks", { user: "" })), 401);
+  assert.deepEqual(await json(call("/api/blocks")), { blocks: [] });
+  await call(`/api/games/${fanGameId}/block`, { method: "POST" });
+  await call(`/api/comments/${other.id}/block`, { method: "POST" });
+  // user_fan renames; the list keeps the handle they had when blocked.
+  await call(`/api/games/${originalId}/comments`, {
+    body: { body: "new name" },
+    method: "POST",
+    user: "user_fan",
+    username: "fan_renamed",
+  });
+  const { blocks } = await json(call("/api/blocks"));
+  assert.deepEqual(
+    blocks.map((b) => b.handle),
+    ["other", "fan"]
+  );
+  const fanBlock = blocks[1].id;
+  // The blocked person sees no list and can't lift the block.
+  assert.deepEqual(await json(call("/api/blocks", fan)), { blocks: [] });
+  const unblock = (id, who) =>
+    call(`/api/blocks/${id}`, { method: "DELETE", ...who });
+  const missing = await unblock(999_999);
+  assert.equal(missing.status, 404);
+  const notYours = await unblock(fanBlock, fan);
+  assert.equal(notYours.status, missing.status);
+  assert.deepEqual(await notYours.json(), await missing.json());
+  assert.equal(await status(unblock(fanBlock, { user: "" })), 401);
+  assert.equal(await status(unblock(fanBlock)), 204);
+  assert.equal(await status(unblock(fanBlock)), 404);
+  const after = await json(call("/api/blocks"));
+  assert.deepEqual(
+    after.blocks.map((b) => b.handle),
+    ["other"]
+  );
+});
+test("blocked accounts: Unblock brings back both people's games and comments, except ones the viewer reported", async (t) => {
+  const { call } = await setup(t);
+  const { comment, fan, fanGameId, gameId, originalId } = await feuding(call);
+  const { comments: before } = await json(
+    call(`/api/games/${originalId}/comments`)
+  );
+  const fanOnOriginal = before.find((c) => c.author === "fan");
+  await call(`/api/comments/${fanOnOriginal.id}/report`, {
+    body: { reason: "spam" },
+    method: "POST",
+  });
+  const reported = await json(
+    call("/api/games", {
+      body: { prompt: "点击太阳的小游戏" },
+      method: "POST",
+      ...fan,
+    })
+  );
+  await call(`/api/games/${reported.id}/publish`, { method: "POST", ...fan });
+  await call(`/api/games/${reported.id}/report`, {
+    body: { reason: "spam" },
+    method: "POST",
+  });
+  await call(`/api/comments/${comment.id}/block`, { method: "POST" });
+  const { blocks } = await json(call("/api/blocks"));
+  await call(`/api/blocks/${blocks[0].id}`, { method: "DELETE" });
+  const ids = async (path, who) => {
+    const { games } = await json(call(path, who));
+    return games.map((g) => g.id);
+  };
+  const shows = async (id, who) => {
+    const listed = await ids("/api/games", who);
+    return listed.includes(id);
+  };
+  const bodies = async (id, who) => {
+    const { comments } = await json(call(`/api/games/${id}/comments`, who));
+    return comments.map((c) => c.body);
+  };
+  // The blocker gets user_fan's game, save and comment back, but not the game and comment they reported.
+  assert.ok(await shows(fanGameId));
+  assert.equal(await shows(reported.id), false);
+  assert.deepEqual(await ids("/api/saves"), [fanGameId]);
+  assert.deepEqual(await bodies(gameId), [comment.body]);
+  assert.deepEqual(await bodies(originalId), ["hi from maya"]);
+  // user_fan gets user_owner's back, and can comment on their games again.
+  assert.ok(await shows(gameId, fan));
+  assert.deepEqual(await ids("/api/saves", fan), [gameId]);
+  assert.equal(
+    await status(
+      call(`/api/games/${gameId}/comments`, {
+        body: { body: "hello again" },
+        method: "POST",
+        ...fan,
+      })
+    ),
+    201
+  );
+});
