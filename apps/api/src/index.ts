@@ -489,6 +489,9 @@ app.delete(`/api/comments/${ID}`, (c) =>
   )
 );
 
+// A missing game, a draft, and a game across a Block all read the same, so none can be told apart.
+const GAME_UNAVAILABLE = "This game isn't available.";
+
 // The published game a route is about.
 const publishedGame = Effect.fn("publishedGame")(function* (id: number) {
   const game = yield* query((db) =>
@@ -504,10 +507,7 @@ const publishedGame = Effect.fn("publishedGame")(function* (id: number) {
       .get()
   );
   if (!game) {
-    return yield* fail(
-      404,
-      "This game does not exist or is not published yet."
-    );
+    return yield* fail(404, GAME_UNAVAILABLE);
   }
   return game;
 });
@@ -524,10 +524,7 @@ app.delete(`/api/games/${ID}`, (c) =>
       const id = Number(c.req.param("id"));
       const game = yield* publishedGame(id);
       if (!operator && game.owner !== owner) {
-        return yield* fail(
-          404,
-          "This game does not exist or is not published yet."
-        );
+        return yield* fail(404, GAME_UNAVAILABLE);
       }
       yield* query((db) =>
         db.batch([
@@ -616,7 +613,7 @@ app.post(
             db.$count(blocks, blockedBetween(owner, game.owner))
           )
         ) {
-          return yield* fail(404, "This game isn't available.");
+          return yield* fail(404, GAME_UNAVAILABLE);
         }
         const { body } = c.req.valid("json");
         if (!(yield* spend(`comment:${owner}`, 100))) {
@@ -969,10 +966,7 @@ app.get(`/api/games/${ID}/document`, (c) =>
           .get()
       );
       if (!game) {
-        return yield* fail(
-          404,
-          "This game does not exist or is not published yet."
-        );
+        return yield* fail(404, GAME_UNAVAILABLE);
       }
       return c.html(game.html, 200, {
         "Content-Security-Policy": GAME_CSP,
