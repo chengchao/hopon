@@ -11,7 +11,7 @@ import type {
   ReportTarget,
   SavedGame,
 } from "@hopon/schemas";
-import { and, desc, eq, isNull, lt, notInArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
@@ -25,6 +25,7 @@ import type * as z from "zod/mini";
 import { fail, GAME_CSP, parseGame } from "./game.ts";
 import { PAGE_CSP, SUPPORT, TERMS } from "./pages.ts";
 import {
+  blocks,
   comments,
   games,
   generationLimits,
@@ -187,11 +188,20 @@ const feedColumns = (viewer = "") => ({
   title: games.title,
 });
 
-// Leave out games and comments the viewer has reported. Counts stay global; only the viewer's lists change.
+// A Block between accounts `a` and `b`, in either direction. Each is an account id or a column, named by hand (see `comments` above).
+const blockedBetween = (a: SQL | string, b: SQL | string) =>
+  sql`(${blocks}.blocker = ${a} AND ${blocks}.blocked = ${b}) OR (${blocks}.blocker = ${b} AND ${blocks}.blocked = ${a})`;
+const creator = sql`${games}.owner`;
+const commenter = sql`${comments}.user`;
+
+// Leave out games and comments the viewer has reported, and those of anyone the viewer has blocked or been blocked by.
+// Counts stay global; only the viewer's lists change.
 const visibleTo = (viewer = "") =>
-  sql`NOT EXISTS(SELECT 1 FROM ${reports} WHERE ${reports}.game_id = ${games}.id AND ${reports}.reporter = ${viewer} AND ${reports}.comment_id IS NULL)`;
+  sql`NOT EXISTS(SELECT 1 FROM ${reports} WHERE ${reports}.game_id = ${games}.id AND ${reports}.reporter = ${viewer} AND ${reports}.comment_id IS NULL)
+    AND NOT EXISTS(SELECT 1 FROM ${blocks} WHERE ${blockedBetween(viewer, creator)})`;
 const commentVisibleTo = (viewer = "") =>
-  sql`NOT EXISTS(SELECT 1 FROM ${reports} WHERE ${reports}.comment_id = ${comments}.id AND ${reports}.reporter = ${viewer})`;
+  sql`NOT EXISTS(SELECT 1 FROM ${reports} WHERE ${reports}.comment_id = ${comments}.id AND ${reports}.reporter = ${viewer})
+    AND NOT EXISTS(SELECT 1 FROM ${blocks} WHERE ${blockedBetween(viewer, commenter)})`;
 
 interface AppEnv {
   Bindings: HoponEnv;
@@ -355,25 +365,16 @@ app.get("/api/saves/count", (c) =>
     c,
     Effect.gen(function* () {
       const owner = yield* signedIn("Sign in to see your saved games.");
-      // Matches the Saved list, which leaves out games the viewer has reported.
-      const count = yield* query((db) =>
-        db.$count(
-          saves,
-          and(
-            eq(saves.user, owner),
-            notInArray(
-              saves.gameId,
-              db
-                .select({ id: reports.gameId })
-                .from(reports)
-                .where(
-                  and(eq(reports.reporter, owner), isNull(reports.commentId))
-                )
-            )
-          )
-        )
+      // Matches the Saved list, which leaves out games the viewer can't see.
+      const row = yield* query((db) =>
+        db
+          .select({ count: sql<number>`COUNT(*)` })
+          .from(saves)
+          .innerJoin(games, eq(games.id, saves.gameId))
+          .where(and(eq(saves.user, owner), visibleTo(owner)))
+          .get()
       );
-      return c.json({ count });
+      return c.json({ count: row?.count ?? 0 });
     })
   )
 );
@@ -609,6 +610,14 @@ app.post(
           return yield* fail(400, "Pick your name before commenting.");
         }
         const game = yield* publishedGame(id);
+        // Neither side of a Block comments on the other's games, and neither is told why.
+        if (
+          yield* query((db) =>
+            db.$count(blocks, blockedBetween(owner, game.owner))
+          )
+        ) {
+          return yield* fail(404, "This game isn't available.");
+        }
         const { body } = c.req.valid("json");
         if (!(yield* spend(`comment:${owner}`, 100))) {
           return yield* fail(
@@ -731,6 +740,41 @@ app.post(
         return c.body(null, 204);
       })
     )
+);
+
+// Block the account behind a published game or a comment. The app only ever sends the content's id.
+// Blocking the same account again changes nothing, and still succeeds.
+app.post(`/api/:kind{games|comments}/${ID}/block`, (c) =>
+  run(
+    c,
+    Effect.gen(function* () {
+      const blocker = yield* signedIn("Sign in to continue.");
+      const id = Number(c.req.param("id"));
+      const poster =
+        c.req.param("kind") === "games"
+          ? yield* publishedGame(id)
+          : yield* query((db) =>
+              db
+                .select({ author: comments.author, owner: comments.user })
+                .from(comments)
+                .where(eq(comments.id, id))
+                .get()
+            );
+      if (!poster) {
+        return yield* fail(404, "Comment not found.");
+      }
+      if (poster.owner === blocker) {
+        return yield* fail(400, "You can't block yourself.");
+      }
+      yield* query((db) =>
+        db
+          .insert(blocks)
+          .values({ blocked: poster.owner, blocker, handle: poster.author })
+          .onConflictDoNothing()
+      );
+      return c.body(null, 204);
+    })
+  )
 );
 
 // The Operator's open count: how many games and comments have open reports.
