@@ -11,7 +11,7 @@ Judgement calls a reviewer checks in a diff. Anything a fixed pattern can catch 
 
 ## API (`apps/api`)
 
-- **Not found, not forbidden.** A request for someone else's private record (a draft, a comment you can't delete) gets the same `404` as a missing one.
+- **Not found, not forbidden.** A request for a record hidden from the viewer (someone else's draft, a comment you can't delete, a game across a Block) gets the same `404` and message as a missing one.
 
 ## Both
 

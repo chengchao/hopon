@@ -1571,13 +1571,18 @@ test("blocks: neither person can comment on the other's games, and isn't told wh
       method: "POST",
       ...who,
     });
+  // The same 404 and message as a game that doesn't exist, so a block can't be told apart.
+  const missing = await comment(999_999, fan);
+  assert.deepEqual(await missing.json(), {
+    error: "This game isn't available.",
+  });
   for (const [id, who] of [
     [gameId, fan],
     [fanGameId, {}],
   ]) {
     // oxlint-disable-next-line no-await-in-loop -- one refusal each
     const refused = await comment(id, who);
-    assert.equal(refused.status, 404);
+    assert.equal(refused.status, missing.status);
     // oxlint-disable-next-line no-await-in-loop -- one refusal each
     assert.deepEqual(await refused.json(), {
       error: "This game isn't available.",
