@@ -169,6 +169,56 @@ const generate = (env: HoponEnv, prompt: string) =>
     Effect.withSpan("generate")
   );
 
+// Llama Guard categories hopon's Rules allow: S6 specialized advice, S8 intellectual property, S13 elections.
+const ALLOWED_CATEGORIES = new Set(["S6", "S8", "S13"]);
+
+// Screening: refuses text that breaks the Rules before it's stored, without saying which category it hit.
+// Fails closed: no verdict, no post. Offline mode has no AI, so it skips Screening (and can't create games anyway).
+const screen = Effect.fn("screen")(function* (
+  env: HoponEnv,
+  owner: string,
+  what: "comment" | "prompt",
+  text: string
+) {
+  if (env.HOPON_OFFLINE === "1") {
+    return;
+  }
+  const unavailable = fail(
+    503,
+    "We couldn't check your text just now. Please try again."
+  );
+  const result = yield* Effect.tryPromise({
+    catch: () => unavailable,
+    try: () =>
+      env.AI.run("@cf/meta/llama-guard-3-8b", {
+        messages: [{ content: text, role: "user" }],
+        response_format: { type: "json_object" },
+      }),
+  }).pipe(
+    Effect.timeoutOrElse({
+      duration: "3 seconds",
+      orElse: () => Effect.fail(unavailable),
+    })
+  );
+  const response = result?.response;
+  if (typeof response !== "object" || typeof response?.safe !== "boolean") {
+    return yield* unavailable;
+  }
+  const categories = response.categories ?? [];
+  const allowed =
+    response.safe ||
+    (categories.length > 0 &&
+      categories.every((category) => ALLOWED_CATEGORIES.has(category)));
+  if (allowed) {
+    return;
+  }
+  yield* Effect.logWarning("Screening refused", { categories, owner, what });
+  return yield* fail(
+    422,
+    "This looks like it breaks hopon's rules. Please change it and try again."
+  );
+});
+
 // A feed card: the public fields, counts, and whether the viewer (the signed-in user, if any) liked or saved it.
 const feedColumns = (viewer = "") => ({
   author: games.author,
@@ -420,6 +470,8 @@ app.post(
             "Connect Cloudflare Workers AI to create a game."
           );
         }
+        // Before the quota, so a refused prompt doesn't cost a creation.
+        yield* screen(env, owner, "prompt", prompt);
         if (!(yield* spend(owner, 10))) {
           return yield* fail(
             429,
@@ -623,6 +675,8 @@ app.post(
             "Daily limit reached: 100 comments per account. Try again tomorrow."
           );
         }
+        // After the quota, so refused comments count toward the daily limit.
+        yield* screen(c.env, owner, "comment", body);
         const row = yield* query((db) =>
           db
             .insert(comments)

@@ -36,7 +36,7 @@ pnpm run api:offline   # 终端 1：本地 API，不连接 Workers AI
 pnpm run ios           # 终端 2：Expo Go + iOS 模拟器（或 pnpm run android）
 ```
 
-离线模式可以浏览和试玩两个原创游戏、登录、检查布局；生成会提示需要连接 Workers AI。要真实生成，先 `pnpm -F api exec wrangler login`，再用 `pnpm run api` 代替 `api:offline`。D1 仍是本地 SQLite；只有 AI 推理访问 Cloudflare，会消耗该账号 Workers AI 额度。模型配置在 `apps/api/wrangler.jsonc` 的 `AI_MODEL`，当前为 `@cf/moonshotai/kimi-k2.5`（`thinking: false`，最多 6000 tokens），输出经 JSON 与完整 HTML 校验后保存为私有草稿。
+离线模式可以浏览和试玩两个原创游戏、登录、检查布局；生成会提示需要连接 Workers AI，评论不经 Screening 直接发出。要真实生成，先 `pnpm -F api exec wrangler login`，再用 `pnpm run api` 代替 `api:offline`。D1 仍是本地 SQLite；只有 AI 推理访问 Cloudflare，会消耗该账号 Workers AI 额度。模型配置在 `apps/api/wrangler.jsonc` 的 `AI_MODEL`，当前为 `@cf/moonshotai/kimi-k2.5`（`thinking: false`，最多 6000 tokens），输出经 JSON 与完整 HTML 校验后保存为私有草稿。想法句子和评论先经 Llama Guard 3（`@cf/meta/llama-guard-3-8b`）Screening，3 秒内没有结论就拒绝。
 
 ## 数据库（Drizzle）
 

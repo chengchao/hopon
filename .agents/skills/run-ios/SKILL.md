@@ -8,7 +8,7 @@ First-time setup (`.env`, `.dev.vars`, Clerk keys) is in the README's 准备 sec
 ## Steps
 
 1. **Database.** `pnpm run db:local`. Done when it reports the migrations applied, or none to apply.
-2. **API.** Start `pnpm run api:offline` in the background with its output going to a log, which step 5 reads. Done when `curl -sf localhost:8787/api/games` returns JSON. Offline mode can't generate games; use `pnpm run api` (Workers AI, costs quota) only when the change is about creating.
+2. **API.** Start `pnpm run api:offline` in the background with its output going to a log, which step 5 reads. Done when `curl -sf localhost:8787/api/games` returns JSON. Offline mode can't generate games and skips Screening; use `pnpm run api` (Workers AI, costs quota) only when the change is about creating or Screening.
 3. **Metro.** Open the simulator panel if your harness has one, then start `CI=1 pnpm run ios` in the background with its output going to a log. `CI=1` keeps Expo non-interactive, and it also turns off reloading: after editing app code, restart this command. Done when the log shows `iOS Bundled`.
 4. **Load the current bundle.** Expo Go keeps running whatever bundle it last loaded, including one from an earlier Metro, and opening the URL again while it runs reloads nothing. Quit it first, then open the URL:
 

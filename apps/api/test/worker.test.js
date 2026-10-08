@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import { Effect } from "effect";
 import { getPlatformProxy, unstable_splitSqlQuery } from "wrangler";
@@ -65,12 +66,20 @@ const setup = async (t) => {
   t.after(() => proxy.dispose());
   const { DB } = proxy.env;
   await DB.batch(migrations.map((sql) => DB.prepare(sql)));
+  // Workers AI answers by model: Llama Guard's verdict for Screening, a game for generation. Tests swap either.
+  const ai = {
+    game: () =>
+      Promise.resolve({
+        choices: [{ message: { content: JSON.stringify(generated) } }],
+      }),
+    screen: () => Promise.resolve({ response: { categories: [], safe: true } }),
+  };
   const env = {
     AI: {
-      run: () =>
-        Promise.resolve({
-          choices: [{ message: { content: JSON.stringify(generated) } }],
-        }),
+      run: (model, input) =>
+        model === "@cf/meta/llama-guard-3-8b"
+          ? ai.screen(input)
+          : ai.game(model, input),
     },
     AI_MODEL: "@cf/moonshotai/kimi-k2.5",
     CLERK_JWT_KEY,
@@ -120,7 +129,7 @@ const setup = async (t) => {
       env,
       ctx
     );
-  return { call, count, env, owner, settled };
+  return { ai, call, count, env, owner, settled };
 };
 test("AI JSON boundary rejects invalid and truncated output", async () => {
   assert.deepEqual(
@@ -291,7 +300,7 @@ test("Clerk auth, request validation and atomic per-account quota", async (t) =>
   );
 });
 test("cursor pages have no duplicates; invalid AI never inserts a game", async (t) => {
-  const { call, env, count, owner } = await setup(t);
+  const { ai, call, env, count, owner } = await setup(t);
   const insert = env.DB.prepare(
     "INSERT INTO games(owner,title,description,html,published) VALUES (?,?,?,?,1)"
   );
@@ -309,7 +318,7 @@ test("cursor pages have no duplicates; invalid AI never inserts a game", async (
     17 + ORIGINALS
   );
   assert.equal(third.next, null);
-  env.AI.run = () =>
+  ai.game = () =>
     Promise.resolve({ choices: [{ message: { content: "bad json" } }] });
   assert.equal(
     await status(
@@ -320,7 +329,7 @@ test("cursor pages have no duplicates; invalid AI never inserts a game", async (
     ),
     502
   );
-  env.AI.run = () => Promise.reject(new Error("AI down"));
+  ai.game = () => Promise.reject(new Error("AI down"));
   assert.deepEqual(
     await json(
       call("/api/games", {
@@ -333,7 +342,7 @@ test("cursor pages have no duplicates; invalid AI never inserts a game", async (
   assert.equal(await count("games"), 17 + ORIGINALS);
 });
 
-test("offline mode never invokes AI or consumes quota", async (t) => {
+test("offline mode never invokes AI or consumes creation quota", async (t) => {
   const { call, env, count } = await setup(t);
   env.HOPON_OFFLINE = "1";
   env.AI.run = () => {
@@ -349,11 +358,24 @@ test("offline mode never invokes AI or consumes quota", async (t) => {
     503
   );
   assert.equal(await count("generation_limits"), 0);
+  // Comments still post, unscreened: offline mode is local dev only.
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
+  assert.equal(
+    await status(
+      call(`/api/games/${game.id}/comments`, {
+        body: { body: "hi" },
+        method: "POST",
+      })
+    ),
+    201
+  );
 });
 
 test("generation uses Kimi non-thinking mode with a bounded output budget", async (t) => {
-  const { call, env } = await setup(t);
-  env.AI.run = (model, input) => {
+  const { ai, call } = await setup(t);
+  ai.game = (model, input) => {
     assert.equal(model, "@cf/moonshotai/kimi-k2.5");
     assert.deepEqual(input.chat_template_kwargs, { thinking: false });
     assert.equal(input.max_completion_tokens, 6000);
@@ -370,6 +392,121 @@ test("generation uses Kimi non-thinking mode with a bounded output budget", asyn
     ),
     201
   );
+});
+
+const REFUSED = {
+  error:
+    "This looks like it breaks hopon's rules. Please change it and try again.",
+};
+const flag =
+  (...categories) =>
+  () =>
+    Promise.resolve({ response: { categories, safe: false } });
+
+test("screening: a flagged prompt is refused before generation, saves nothing and costs no creation", async (t) => {
+  const { ai, call, count } = await setup(t);
+  const screened = [];
+  ai.screen = (input) => {
+    screened.push(input);
+    return flag("S1")();
+  };
+  ai.game = () => {
+    throw new Error("must not generate");
+  };
+  const response = await call("/api/games", {
+    body: { prompt: "A game about hurting people" },
+    method: "POST",
+  });
+  assert.equal(response.status, 422);
+  assert.deepEqual(await response.json(), REFUSED);
+  assert.deepEqual(screened, [
+    {
+      messages: [{ content: "A game about hurting people", role: "user" }],
+      response_format: { type: "json_object" },
+    },
+  ]);
+  assert.equal(await count("games"), ORIGINALS);
+  assert.equal(await count("generation_limits"), 0);
+});
+
+test("screening: a flagged comment is refused, saves nothing and counts toward the daily limit", async (t) => {
+  const { ai, call, count, env } = await setup(t);
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
+  ai.screen = flag("S10");
+  const response = await call(`/api/games/${game.id}/comments`, {
+    body: { body: "a slur" },
+    method: "POST",
+  });
+  assert.equal(response.status, 422);
+  assert.deepEqual(await response.json(), REFUSED);
+  assert.equal(await count("comments"), 0);
+  const { spent } = await env.DB.prepare(
+    "SELECT count AS spent FROM generation_limits WHERE bucket LIKE 'comment:user_owner:%'"
+  ).first();
+  assert.equal(spent, 1);
+});
+
+test("screening: a flag only in S6, S8 or S13 is let through", async (t) => {
+  const { ai, call } = await setup(t);
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
+  const comment = (body) =>
+    status(
+      call(`/api/games/${game.id}/comments`, { body: { body }, method: "POST" })
+    );
+  ai.screen = flag("S6", "S8", "S13");
+  assert.equal(await comment("see a doctor about it"), 201);
+  ai.screen = flag("S13", "S1");
+  assert.equal(await comment("mixed"), 422);
+  ai.screen = flag();
+  assert.equal(await comment("no category"), 422);
+});
+
+test("screening: fails closed when it errors, answers oddly or takes over 3 s", async (t) => {
+  const { ai, call, count } = await setup(t);
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
+  const comment = (body = "hello") =>
+    json(
+      call(`/api/games/${game.id}/comments`, {
+        body: { body },
+        method: "POST",
+      })
+    );
+  const tryAgain = {
+    error: "We couldn't check your text just now. Please try again.",
+  };
+  ai.screen = () => Promise.reject(new Error("AI down"));
+  assert.deepEqual(await comment(), tryAgain);
+  assert.equal(
+    await status(
+      call("/api/games", { body: { prompt: "造一个小游戏" }, method: "POST" })
+    ),
+    503
+  );
+  // Odd answers, keyed by the comment that gets them.
+  const odd = {
+    "a null verdict": { response: null },
+    "a string": { response: "safe" },
+    nothing: undefined,
+  };
+  ai.screen = ({ messages: [{ content }] }) => Promise.resolve(odd[content]);
+  assert.deepEqual(
+    await Promise.all(Object.keys(odd).map((body) => comment(body))),
+    Object.keys(odd).map(() => tryAgain)
+  );
+  ai.screen = async () => {
+    await sleep(3500);
+    return { response: { safe: true } };
+  };
+  const started = Date.now();
+  assert.deepEqual(await comment(), tryAgain);
+  assert.ok(Date.now() - started < 3400);
+  assert.equal(await count("comments"), 0);
 });
 
 test("likes: published only, one per user, counted in the feed, removable", async (t) => {
