@@ -52,6 +52,7 @@ const RootLayout = () => {
       <ThemeProvider value={NAV_THEME}>
         {/* oxlint-disable-next-line react/style-prop-object -- expo-status-bar's `style` is a string ("light"), not a style object. */}
         <StatusBar style="light" />
+        {/* A new route fails `tsc` until Metro (`CI=1 pnpm run ios`) regenerates the gitignored .expo/types/router.d.ts. */}
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="create" options={{ presentation: "modal" }} />
