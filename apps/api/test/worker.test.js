@@ -1411,3 +1411,20 @@ test("operator: Delete closes the content's open reports as deleted, its poster 
     [["game", third.gameId]]
   );
 });
+
+test("pages: /terms has the Rules and /support the contact address, signed out", async (t) => {
+  const { call } = await setup(t);
+  const terms = await call("/terms", { user: "" });
+  assert.equal(terms.status, 200);
+  assert.match(terms.headers.get("Content-Type"), /^text\/html/u);
+  const rules = await terms.text();
+  assert.match(rules, /<title>Terms of Use<\/title>/u);
+  assert.match(rules, /zero tolerance/iu);
+  assert.match(rules, /within 24 hours/u);
+  assert.match(rules, /mailto:support@hopon\.example/u);
+  const support = await call("/support", { user: "" });
+  assert.equal(support.status, 200);
+  const page = await support.text();
+  assert.match(page, /mailto:support@hopon\.example/u);
+  assert.match(page, /href="\/terms"/u);
+});

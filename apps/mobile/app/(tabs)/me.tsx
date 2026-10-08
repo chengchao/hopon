@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
+import { contactUs, openRules } from "@/lib/rules";
 
 const Stat = ({ value, label }: { value: number | string; label: string }) => (
   <View className="flex-1 rounded-2xl bg-card px-4 py-3">
@@ -165,6 +166,19 @@ const Me = () => {
             </Button>
           </View>
         ))}
+      <View className="flex-row gap-4">
+        <Button variant="link" className="px-0" onPress={() => contactUs()}>
+          <Text className="text-muted-foreground">Contact us</Text>
+        </Button>
+        <Button
+          variant="link"
+          className="px-0"
+          accessibilityHint="Opens the Terms of Use"
+          onPress={() => openRules()}
+        >
+          <Text className="text-muted-foreground">Rules</Text>
+        </Button>
+      </View>
     </ScrollView>
   );
 };

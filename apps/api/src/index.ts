@@ -23,6 +23,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type * as z from "zod/mini";
 
 import { fail, GAME_CSP, parseGame } from "./game.ts";
+import { PAGE_CSP, SUPPORT, TERMS } from "./pages.ts";
 import {
   comments,
   games,
@@ -274,6 +275,13 @@ app.onError((error: Error & { status?: ContentfulStatusCode }, c) => {
 app.notFound((c) => c.json({ error: "Endpoint not found." }, 404));
 
 const ID = ":id{[1-9]\\d{0,14}}";
+
+app.get("/terms", (c) =>
+  c.html(TERMS, 200, { "Content-Security-Policy": PAGE_CSP })
+);
+app.get("/support", (c) =>
+  c.html(SUPPORT, 200, { "Content-Security-Policy": PAGE_CSP })
+);
 
 app.get("/api/games", (c) =>
   run(
