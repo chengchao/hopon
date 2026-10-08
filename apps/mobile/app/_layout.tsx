@@ -57,6 +57,7 @@ const RootLayout = () => {
           <Stack.Screen name="create" options={{ presentation: "modal" }} />
           <Stack.Screen name="sign-in" options={{ presentation: "modal" }} />
           <Stack.Screen name="handle" options={{ presentation: "modal" }} />
+          <Stack.Screen name="blocked" options={{ presentation: "modal" }} />
           <Stack.Screen
             name="rules"
             options={{ gestureEnabled: false, presentation: "modal" }}

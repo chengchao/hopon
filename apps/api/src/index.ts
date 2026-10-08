@@ -2,6 +2,7 @@ import { verifyToken } from "@clerk/backend";
 import { zValidator } from "@hono/zod-validator";
 import { newComment, newGame, newReport, REPORT_REASONS } from "@hopon/schemas";
 import type {
+  BlockedAccounts,
   Comment,
   CommentPage,
   FeedGame,
@@ -769,6 +770,52 @@ app.post(`/api/:kind{games|comments}/${ID}/block`, (c) =>
           .values({ blocked: poster.owner, blocker, handle: poster.author })
           .onConflictDoNothing()
       );
+      return c.body(null, 204);
+    })
+  )
+);
+
+// The viewer's Blocked accounts, newest first. Only the blocker lists or lifts a block; the blocked person never learns of it.
+app.get("/api/blocks", (c) =>
+  run(
+    c,
+    Effect.gen(function* () {
+      const blocker = yield* signedIn("Sign in to see who you've blocked.");
+      // ponytail: unpaged; page like /api/saves if anyone blocks hundreds.
+      const results = yield* query((db) =>
+        db
+          .select({ handle: blocks.handle, id: blocks.id })
+          .from(blocks)
+          .where(eq(blocks.blocker, blocker))
+          .orderBy(desc(blocks.id))
+      );
+      return c.json({ blocks: results } satisfies BlockedAccounts);
+    })
+  )
+);
+
+// Unblock. Whatever the viewer also reported stays hidden, by `visibleTo` and `commentVisibleTo`.
+// Someone else's block gets the same 404 as a missing one.
+app.delete(`/api/blocks/${ID}`, (c) =>
+  run(
+    c,
+    Effect.gen(function* () {
+      const blocker = yield* signedIn("Sign in to continue.");
+      const row = yield* query((db) =>
+        db
+          .delete(blocks)
+          .where(
+            and(
+              eq(blocks.id, Number(c.req.param("id"))),
+              eq(blocks.blocker, blocker)
+            )
+          )
+          .returning({ id: blocks.id })
+          .get()
+      );
+      if (!row) {
+        return yield* fail(404, "Block not found.");
+      }
       return c.body(null, 204);
     })
   )
