@@ -16,7 +16,7 @@ import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
-import { Context, Effect } from "effect";
+import { Context, Effect, Result } from "effect";
 import { Hono } from "hono";
 import type { Context as HonoContext } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -172,12 +172,22 @@ const generate = (env: HoponEnv, prompt: string) =>
 // Llama Guard categories hopon's Rules allow: S6 specialized advice, S8 intellectual property, S13 elections.
 const ALLOWED_CATEGORIES = new Set(["S6", "S8", "S13"]);
 
+// What a refusal says, by what was screened. A published game's title and description can't be edited, only remade.
+const REFUSED = {
+  comment:
+    "This looks like it breaks hopon's rules. Please change it and try again.",
+  game: "This game's title or description breaks hopon's rules. Try making a new one.",
+  handle: "Your name breaks hopon's rules. Pick a different one.",
+  prompt:
+    "This looks like it breaks hopon's rules. Please change it and try again.",
+};
+
 // Screening: refuses text that breaks the Rules before it's stored, without saying which category it hit.
 // Fails closed: no verdict, no post. Offline mode has no AI, so it skips Screening (and can't create games anyway).
 const screen = Effect.fn("screen")(function* (
   env: HoponEnv,
   owner: string,
-  what: "comment" | "prompt",
+  what: keyof typeof REFUSED,
   text: string
 ) {
   if (env.HOPON_OFFLINE === "1") {
@@ -215,8 +225,32 @@ const screen = Effect.fn("screen")(function* (
   yield* Effect.logWarning("Screening refused", { categories, owner, what });
   return yield* fail(
     422,
-    "This looks like it breaks hopon's rules. Please change it and try again."
+    REFUSED[what],
+    what === "handle" ? "handle_rejected" : undefined
   );
+});
+
+// Screens public text and the Handle stamped on it in parallel. Both run to the end so the failure is never a race:
+// a refusal beats "try again", so the person learns which failed, and the Handle's comes first, since the app sends
+// the person to fix it before they can post anything.
+const screenWithHandle = Effect.fn("screenWithHandle")(function* (
+  env: HoponEnv,
+  owner: string,
+  handle: string,
+  what: "comment" | "game",
+  text: string
+) {
+  const checks = yield* Effect.all(
+    [screen(env, owner, "handle", handle), screen(env, owner, what, text)],
+    { concurrency: 2, mode: "result" }
+  );
+  const failures = checks
+    .filter(Result.isFailure)
+    .map((check) => check.failure);
+  const failure = failures.find(({ status }) => status === 422) ?? failures[0];
+  if (failure) {
+    return yield* failure;
+  }
 });
 
 // A feed card: the public fields, counts, and whether the viewer (the signed-in user, if any) liked or saved it.
@@ -325,6 +359,7 @@ app.onError((error: Error & { status?: ContentfulStatusCode }, c) => {
   }
   return c.json(
     {
+      ...("code" in error && error.code ? { code: error.code } : {}),
       error: error.status
         ? error.message
         : "The service is temporarily unavailable. Please try again.",
@@ -676,7 +711,7 @@ app.post(
           );
         }
         // After the quota, so refused comments count toward the daily limit.
-        yield* screen(c.env, owner, "comment", body);
+        yield* screenWithHandle(c.env, owner, username, "comment", body);
         const row = yield* query((db) =>
           db
             .insert(comments)
@@ -988,20 +1023,40 @@ app.post(`/api/games/${ID}/publish`, (c) =>
       if (!username) {
         return yield* fail(400, "Pick your name before publishing.");
       }
+      const mine = and(
+        eq(games.id, Number(c.req.param("id"))),
+        eq(games.owner, owner)
+      );
       const game = yield* query((db) =>
         db
-          .update(games)
-          .set({ author: username, published: 1 })
-          .where(
-            and(eq(games.id, Number(c.req.param("id"))), eq(games.owner, owner))
-          )
-          .returning({ id: games.id })
+          .select({ description: games.description, title: games.title })
+          .from(games)
+          .where(mine)
           .get()
       );
       if (!game) {
         return yield* fail(404, "Draft not found.");
       }
-      return c.json({ id: game.id });
+      // Refused, it stays a private Draft.
+      yield* screenWithHandle(
+        c.env,
+        owner,
+        username,
+        "game",
+        `${game.title}\n${game.description}`
+      );
+      const row = yield* query((db) =>
+        db
+          .update(games)
+          .set({ author: username, published: 1 })
+          .where(mine)
+          .returning({ id: games.id })
+          .get()
+      );
+      if (!row) {
+        return yield* fail(404, "Draft not found.");
+      }
+      return c.json({ id: row.id });
     })
   )
 );

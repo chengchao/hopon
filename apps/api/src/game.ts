@@ -2,14 +2,19 @@ import { Effect, Schema } from "effect";
 
 // Kept out of index.ts: workerd treats every named export of the Worker entry as an entrypoint.
 
-// The status and message a client sees. Thrown from Hono code, yielded from Effect code; `app.onError` renders both.
+// The status and message a client sees, plus a `code` when the app acts on the error, not just shows it.
+// Thrown from Hono code, yielded from Effect code; `app.onError` renders both.
 export class HttpError extends Schema.TaggedError<HttpError>()("HttpError", {
+  code: Schema.optional(Schema.Literal("handle_rejected")),
   message: Schema.String,
   status: Schema.Number,
 }) {}
 
-export const fail = (status: number, message: string) =>
-  new HttpError({ message, status });
+export const fail = (
+  status: number,
+  message: string,
+  code?: HttpError["code"]
+) => new HttpError({ code, message, status });
 
 export const GAME_CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts";

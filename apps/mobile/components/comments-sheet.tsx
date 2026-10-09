@@ -20,8 +20,11 @@ import type { ReportTarget } from "@/components/report-sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
-import { api } from "@/lib/api";
+import { api, HANDLE_REJECTED, handleRejected } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+// Screens the sheet sends the person to: sign-in, or the handle screen (to pick one, or replace a refused one).
+type Destination = "/sign-in" | "/handle" | typeof HANDLE_REJECTED;
 
 // Covers the ticket and the lower part of the game; the game stays visible above so you keep your place.
 export const CommentsSheet = ({
@@ -55,7 +58,7 @@ export const CommentsSheet = ({
   // The open game, so a response that arrives after the sheet moved on doesn't land in another game's list.
   const open = useRef<number | null>(null);
   // Where to go once the sheet has closed; see `leave`.
-  const after = useRef<"/sign-in" | "/handle" | null>(null);
+  const after = useRef<Destination | null>(null);
   const id = game?.id;
 
   // Callers set `loading` first: the reset below for a newly opened game, onEndReached for the next page.
@@ -109,7 +112,7 @@ export const CommentsSheet = ({
     : `No comments on ${game?.title} yet. Be the first.`;
 
   // iOS can't present a screen while this Modal is still sliding away, so it waits for onDismiss there.
-  const leave = (to: "/sign-in" | "/handle") => {
+  const leave = (to: Destination) => {
     onClose();
     if (Platform.OS === "ios") {
       after.current = to;
@@ -139,7 +142,11 @@ export const CommentsSheet = ({
       }
     } catch (postError) {
       if (open.current === gameId) {
-        setError((postError as Error).message);
+        if (handleRejected(postError)) {
+          leave(HANDLE_REJECTED);
+        } else {
+          setError((postError as Error).message);
+        }
       }
     }
     if (open.current === gameId) {
