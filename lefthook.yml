@@ -13,6 +13,9 @@ pre-commit:
       glob: "*.{js,cjs,ts,tsx,json,jsonc,css,md,yml}"
       run: node_modules/.bin/ultracite fix {staged_files}
       stage_fixed: true
+    # A `// TEMP-SIM` line forces a result for a Simulator run (see run-ios); it never ships.
+    temp-sim:
+      run: "! git diff --cached -U0 -- apps packages | grep -E '^\\+.*TEMP-SIM'"
 
 commit-msg:
   commands:
