@@ -14,13 +14,17 @@ const HANDLE = /^(?=.*[a-z_])[a-z0-9_]{4,20}$/u;
 // Shown once after the first sign-in (and before publishing): the @handle that appears on your games.
 const Handle = () => {
   // `auto`: opened right after sign-in, so skip straight on if a handle already exists.
-  const { next, auto } = useLocalSearchParams<{
+  // `rejected`: Screening refused the current one.
+  const { next, auto, rejected } = useLocalSearchParams<{
     next?: "create";
     auto?: "1";
+    rejected?: "1";
   }>();
   const { user } = useUser();
   const [name, setName] = useState(user?.username ?? "");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(
+    rejected ? "Your name breaks hopon's rules. Pick a different one." : ""
+  );
   const [saving, setSaving] = useState(false);
 
   const done = useCallback(

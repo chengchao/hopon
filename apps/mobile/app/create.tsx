@@ -11,7 +11,7 @@ import { Ticket } from "@/components/ticket";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Textarea } from "@/components/ui/textarea";
-import { api, gameUrl } from "@/lib/api";
+import { api, gameUrl, HANDLE_REJECTED, handleRejected } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const examples = [
@@ -131,7 +131,11 @@ const Create = () => {
         pathname: "/",
       });
     } catch (publishError) {
-      setError((publishError as Error).message);
+      if (handleRejected(publishError)) {
+        router.push(HANDLE_REJECTED);
+      } else {
+        setError((publishError as Error).message);
+      }
     }
     setPublishing(false);
   };

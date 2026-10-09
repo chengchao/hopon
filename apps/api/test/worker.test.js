@@ -403,6 +403,15 @@ const flag =
   () =>
     Promise.resolve({ response: { categories, safe: false } });
 
+// Flags exactly the texts given, so a test picks which of a route's checks refuses.
+const flagOnly =
+  (...texts) =>
+  ({ messages: [{ content }] }) =>
+    Promise.resolve({
+      response: texts.includes(content)
+        ? { categories: ["S10"], safe: false }
+        : { categories: [], safe: true },
+    });
 test("screening: a flagged prompt is refused before generation, saves nothing and costs no creation", async (t) => {
   const { ai, call, count } = await setup(t);
   const screened = [];
@@ -434,7 +443,7 @@ test("screening: a flagged comment is refused, saves nothing and counts toward t
   const {
     games: [game],
   } = await json(call("/api/games"));
-  ai.screen = flag("S10");
+  ai.screen = flagOnly("a slur");
   const response = await call(`/api/games/${game.id}/comments`, {
     body: { body: "a slur" },
     method: "POST",
@@ -507,6 +516,92 @@ test("screening: fails closed when it errors, answers oddly or takes over 3 s", 
   assert.deepEqual(await comment(), tryAgain);
   assert.ok(Date.now() - started < 3400);
   assert.equal(await count("comments"), 0);
+});
+
+const HANDLE_REJECTED = {
+  code: "handle_rejected",
+  error: "Your name breaks hopon's rules. Pick a different one.",
+};
+
+test("screening: a Draft with a flagged title or description stays a private Draft", async (t) => {
+  const { ai, call } = await setup(t);
+  const draft = await json(
+    call("/api/games", { body: { prompt: "点击星星的小游戏" }, method: "POST" })
+  );
+  const screened = [];
+  ai.screen = (input) => {
+    screened.push(input.messages[0].content);
+    return flagOnly(`${generated.title}\n${generated.description}`)(input);
+  };
+  const response = await call(`/api/games/${draft.id}/publish`, {
+    method: "POST",
+  });
+  assert.equal(response.status, 422);
+  assert.deepEqual(await response.json(), {
+    error:
+      "This game's title or description breaks hopon's rules. Try making a new one.",
+  });
+  assert.deepEqual(screened.toSorted(), [
+    "maya_makes",
+    `${generated.title}\n${generated.description}`,
+  ]);
+  assert.deepEqual(await json(call("/api/drafts/latest")), { draft });
+  const { games } = await json(call("/api/games"));
+  assert.equal(games.length, ORIGINALS);
+});
+
+test("screening: a flagged Handle refuses publishing and commenting with handle_rejected", async (t) => {
+  const { ai, call, count } = await setup(t);
+  const draft = await json(
+    call("/api/games", { body: { prompt: "点击星星的小游戏" }, method: "POST" })
+  );
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
+  ai.screen = flagOnly("bad_name");
+  const publish = await call(`/api/games/${draft.id}/publish`, {
+    method: "POST",
+    username: "bad_name",
+  });
+  assert.equal(publish.status, 422);
+  assert.deepEqual(await publish.json(), HANDLE_REJECTED);
+  assert.deepEqual(await json(call("/api/drafts/latest")), { draft });
+  const comment = await call(`/api/games/${game.id}/comments`, {
+    body: { body: "nice" },
+    method: "POST",
+    username: "bad_name",
+  });
+  assert.equal(comment.status, 422);
+  assert.deepEqual(await comment.json(), HANDLE_REJECTED);
+  assert.equal(await count("comments"), 0);
+});
+
+test("screening: when the text and the Handle are both flagged, the response says the Handle", async (t) => {
+  const { ai, call, count } = await setup(t);
+  const draft = await json(
+    call("/api/games", { body: { prompt: "点击星星的小游戏" }, method: "POST" })
+  );
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
+  ai.screen = flagOnly(
+    "bad_name",
+    "a slur",
+    `${generated.title}\n${generated.description}`
+  );
+  const publish = await call(`/api/games/${draft.id}/publish`, {
+    method: "POST",
+    username: "bad_name",
+  });
+  assert.deepEqual(await publish.json(), HANDLE_REJECTED);
+  const comment = await call(`/api/games/${game.id}/comments`, {
+    body: { body: "a slur" },
+    method: "POST",
+    username: "bad_name",
+  });
+  assert.deepEqual(await comment.json(), HANDLE_REJECTED);
+  assert.equal(await count("comments"), 0);
+  assert.deepEqual(await json(call("/api/drafts/latest")), { draft });
 });
 
 test("likes: published only, one per user, counted in the feed, removable", async (t) => {
