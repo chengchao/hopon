@@ -398,10 +398,17 @@ const REFUSED = {
   error:
     "This looks like it breaks hopon's rules. Please change it and try again.",
 };
+// Flags every text but the default Handle, so the verdict lands on the prompt, comment or game text, not on
+// `handle_rejected`. `flagOnly` aims at named texts instead.
 const flag =
   (...categories) =>
-  () =>
-    Promise.resolve({ response: { categories, safe: false } });
+  ({ messages: [{ content }] }) =>
+    Promise.resolve({
+      response:
+        content === "maya_makes"
+          ? { categories: [], safe: true }
+          : { categories, safe: false },
+    });
 
 // Flags exactly the texts given, so a test picks which of a route's checks refuses.
 const flagOnly =
@@ -417,7 +424,7 @@ test("screening: a flagged prompt is refused before generation, saves nothing an
   const screened = [];
   ai.screen = (input) => {
     screened.push(input);
-    return flag("S1")();
+    return flag("S1")(input);
   };
   ai.game = () => {
     throw new Error("must not generate");
@@ -463,15 +470,13 @@ test("screening: a flag only in S6, S8 or S13 is let through", async (t) => {
     games: [game],
   } = await json(call("/api/games"));
   const comment = (body) =>
-    status(
-      call(`/api/games/${game.id}/comments`, { body: { body }, method: "POST" })
-    );
+    call(`/api/games/${game.id}/comments`, { body: { body }, method: "POST" });
   ai.screen = flag("S6", "S8", "S13");
-  assert.equal(await comment("see a doctor about it"), 201);
+  assert.equal(await status(comment("see a doctor about it")), 201);
   ai.screen = flag("S13", "S1");
-  assert.equal(await comment("mixed"), 422);
+  assert.deepEqual(await json(comment("mixed")), REFUSED);
   ai.screen = flag();
-  assert.equal(await comment("no category"), 422);
+  assert.deepEqual(await json(comment("no category")), REFUSED);
 });
 
 test("screening: fails closed when it errors, answers oddly or takes over 3 s", async (t) => {
