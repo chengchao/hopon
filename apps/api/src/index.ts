@@ -12,7 +12,7 @@ import type {
   ReportTarget,
   SavedGame,
 } from "@hopon/schemas";
-import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
@@ -36,8 +36,12 @@ import {
 } from "./schema.ts";
 
 // Set only by `pnpm api:offline` (`--var`), so it isn't in wrangler.jsonc or the generated `Env`.
-// OPERATOR_WEBHOOK_URL is an optional secret (`wrangler secret put`), so local dev runs without one.
-type HoponEnv = Env & { HOPON_OFFLINE?: string; OPERATOR_WEBHOOK_URL?: string };
+// OPERATOR_WEBHOOK_URL and CLERK_SECRET_KEY are optional secrets (`wrangler secret put`), so local dev runs without them.
+type HoponEnv = Env & {
+  CLERK_SECRET_KEY?: string;
+  HOPON_OFFLINE?: string;
+  OPERATOR_WEBHOOK_URL?: string;
+};
 
 // Clerk session JWT from `Authorization: Bearer`, verified offline with the dashboard's PEM key (CLERK_JWT_KEY).
 // `username` is a custom session claim ({{user.username}}) set on the Clerk instance; null until the user picks one.
@@ -1008,6 +1012,90 @@ app.post(`/api/:kind{games|comments}/${ID}/dismiss`, (c) =>
             : eq(reports.commentId, id)
         )
       );
+      return c.body(null, 204);
+    })
+  )
+);
+
+// One call to Clerk's Backend API. Any failure, or a refusal, is a 502: nothing in D1 has changed yet.
+const clerkApi = (env: HoponEnv, path: string, method = "GET") =>
+  Effect.tryPromise({
+    catch: (error) => {
+      console.error("Clerk call failed", error);
+      return fail(502, "Couldn't ban this account just now. Please try again.");
+    },
+    try: async () => {
+      const response = await fetch(`https://api.clerk.com/v1${path}`, {
+        headers: { Authorization: `Bearer ${env.CLERK_SECRET_KEY}` },
+        method,
+      });
+      if (!response.ok) {
+        throw new Error(`Clerk ${method} ${path}: ${response.status}`);
+      }
+      return (await response.json()) as {
+        public_metadata?: { role?: unknown };
+      };
+    },
+  });
+
+// Ban: the Operator shuts out the poster named in a report's snapshot, so it works after the content is gone.
+// Clerk first (no sign-in, sessions revoked), then one D1 batch Deletes every published game and comment of theirs and
+// closes the open reports on them as `banned`. Both steps are idempotent, so running it again finishes a failed Ban.
+// Their drafts, likes, saves, blocks and the reports they filed stay.
+app.post(`/api/:kind{games|comments}/${ID}/ban`, (c) =>
+  run(
+    c,
+    Effect.gen(function* () {
+      yield* operatorOnly;
+      const id = Number(c.req.param("id"));
+      const report = yield* query((db) =>
+        db
+          .select({ creator: reports.creator })
+          .from(reports)
+          .where(
+            c.req.param("kind") === "games"
+              ? and(eq(reports.gameId, id), isNull(reports.commentId))
+              : eq(reports.commentId, id)
+          )
+          .get()
+      );
+      if (!report) {
+        return yield* fail(404, "Report not found.");
+      }
+      const account = report.creator;
+      const user = yield* clerkApi(c.env, `/users/${account}`);
+      if (user.public_metadata?.role === "operator") {
+        return yield* fail(400, "You can't ban an Operator.");
+      }
+      yield* clerkApi(c.env, `/users/${account}/ban`, "POST");
+      yield* query((db) => {
+        const theirs = and(eq(games.owner, account), eq(games.published, 1));
+        const theirGames = db
+          .select({ id: games.id })
+          .from(games)
+          .where(theirs);
+        return db.batch([
+          closeReports(
+            db,
+            "banned",
+            or(
+              eq(reports.creator, account),
+              inArray(reports.gameId, theirGames)
+            )
+          ),
+          db.delete(likes).where(inArray(likes.gameId, theirGames)),
+          db.delete(saves).where(inArray(saves.gameId, theirGames)),
+          db
+            .delete(comments)
+            .where(
+              or(
+                eq(comments.user, account),
+                inArray(comments.gameId, theirGames)
+              )
+            ),
+          db.delete(games).where(theirs),
+        ]);
+      });
       return c.body(null, 204);
     })
   )

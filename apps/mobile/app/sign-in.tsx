@@ -6,6 +6,7 @@ import { View } from "react-native";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
+import { CONTACT_EMAIL } from "@/lib/rules";
 
 interface ClerkFailure {
   code?: string;
@@ -13,10 +14,14 @@ interface ClerkFailure {
   longMessage?: string;
   errors?: { code: string }[];
 }
-const notFound = (e: ClerkFailure) =>
-  e.code === "form_identifier_not_found" ||
-  !!e.errors?.some((x) => x.code === "form_identifier_not_found");
-const describe = (e: ClerkFailure) => e.longMessage ?? e.message;
+const hasCode = (e: ClerkFailure, code: string) =>
+  e.code === code || !!e.errors?.some((x) => x.code === code);
+const notFound = (e: ClerkFailure) => hasCode(e, "form_identifier_not_found");
+// Clerk refuses a Banned account's sign-in with `user_banned`.
+const describe = (e: ClerkFailure) =>
+  hasCode(e, "user_banned")
+    ? `This account has been banned for breaking hopon's rules. To appeal, email ${CONTACT_EMAIL}.`
+    : (e.longMessage ?? e.message);
 
 // One screen for both: an email code signs in an existing user, or signs up a new one.
 const SignIn = () => {

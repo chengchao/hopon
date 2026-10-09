@@ -1420,6 +1420,8 @@ test("operator: every Operator endpoint refuses everyone else", async (t) => {
     ["GET", "/api/reports/count"],
     ["POST", `/api/games/${gameId}/dismiss`],
     ["POST", `/api/comments/${comment.id}/dismiss`],
+    ["POST", `/api/games/${gameId}/ban`],
+    ["POST", `/api/comments/${comment.id}/ban`],
   ];
   const refusals = await Promise.all(
     endpoints.flatMap(([method, path]) =>
@@ -1448,8 +1450,12 @@ test("operator: every Operator endpoint refuses everyone else", async (t) => {
         status(call(path, { method, ...options }))
       )
     );
-  assert.deepEqual(await statuses({ user: "" }), [403, 403, 401, 401]);
-  assert.deepEqual(await statuses(OPERATOR), [200, 200, 204, 204]);
+  assert.deepEqual(
+    await statuses({ user: "" }),
+    [403, 403, 401, 401, 401, 401]
+  );
+  // Nothing here is reported, so there's nobody to Ban.
+  assert.deepEqual(await statuses(OPERATOR), [200, 200, 204, 204, 404, 404]);
 });
 test("operator: the queue groups open reports by target, oldest first, with reasons and counts, and marks deleted content", async (t) => {
   const { call, env } = await setup(t);
@@ -1661,6 +1667,173 @@ test("operator: Delete closes the content's open reports as deleted, its poster 
     targets.map((target) => [target.kind, target.id]),
     [["game", third.gameId]]
   );
+});
+
+// Stands in for Clerk's Backend API: records each call, answers a user lookup with `roles[id]`, and refuses everything
+// while `clerk.down`.
+const stubClerk = (t, roles = {}) => {
+  const clerk = { calls: [], down: false };
+  const realFetch = globalThis.fetch;
+  t.mock.method(globalThis, "fetch", (url, init = {}) => {
+    const { href, pathname } = new URL(String(url));
+    if (!href.startsWith("https://api.clerk.com/")) {
+      return realFetch(url, init);
+    }
+    clerk.calls.push({
+      auth: new Headers(init.headers).get("Authorization"),
+      method: init.method ?? "GET",
+      path: pathname,
+    });
+    if (clerk.down) {
+      return Promise.resolve(Response.json({ errors: [] }, { status: 500 }));
+    }
+    const id = pathname.split("/").at(3);
+    return Promise.resolve(
+      Response.json({ id, public_metadata: { role: roles[id] } })
+    );
+  });
+  return clerk;
+};
+test("ban: Clerk bans the poster first, then all their published games and comments go, their reports closing as banned", async (t) => {
+  const { call, count, env } = await setup(t);
+  env.CLERK_SECRET_KEY = "sk_test_hopon";
+  const clerk = stubClerk(t);
+  const fan = { user: "user_fan", username: "fan" };
+  // user_fan comments on user_owner's game, and publishes a game of their own that others like, save and comment on.
+  const { comment, gameId, reportComment } = await commented(call);
+  const create = (prompt) =>
+    json(call("/api/games", { body: { prompt }, method: "POST", ...fan }));
+  const theirs = await create("点击月亮的小游戏");
+  await call(`/api/games/${theirs.id}/publish`, { method: "POST", ...fan });
+  const draft = await create("点击太阳的小游戏");
+  const reply = await json(
+    call(`/api/games/${theirs.id}/comments`, {
+      body: { body: "nice" },
+      method: "POST",
+    })
+  );
+  for (const kind of ["like", "save"]) {
+    // oxlint-disable-next-line no-await-in-loop -- a few setup writes
+    await call(`/api/games/${theirs.id}/${kind}`, { method: "PUT" });
+    // oxlint-disable-next-line no-await-in-loop -- see above
+    await call(`/api/games/${gameId}/${kind}`, { method: "PUT", ...fan });
+  }
+  // What user_fan did as a viewer stays: a report they filed and a block.
+  await call(`/api/games/${gameId}/report`, {
+    body: { reason: "other" },
+    method: "POST",
+    ...fan,
+  });
+  await env.DB.prepare(
+    "INSERT INTO blocks(blocker, blocked, handle) VALUES('user_fan', 'user_c', 'c')"
+  ).run();
+  await reportComment("hate", { user: "user_a" });
+  await call(`/api/games/${theirs.id}/report`, {
+    body: { reason: "spam" },
+    method: "POST",
+    user: "user_a",
+  });
+  await call(`/api/comments/${reply.id}/report`, {
+    body: { reason: "spam" },
+    method: "POST",
+    user: "user_a",
+  });
+  const ban = (path = `/api/comments/${comment.id}/ban`) =>
+    call(path, { method: "POST", ...OPERATOR });
+  const before = await reportRows(env);
+  const counts = () =>
+    Promise.all(
+      ["games", "comments", "likes", "saves", "blocks"].map((table) =>
+        count(table)
+      )
+    );
+  const untouched = await counts();
+
+  // Clerk refuses: nothing in D1 changes.
+  clerk.down = true;
+  const refused = await ban();
+  assert.equal(refused.status, 502);
+  assert.deepEqual(await refused.json(), {
+    error: "Couldn't ban this account just now. Please try again.",
+  });
+  assert.deepEqual(await counts(), untouched);
+  assert.deepEqual(await reportRows(env), before);
+  clerk.down = false;
+
+  // Clerk bans, then D1 fails: running the Ban again finishes it.
+  const db = env.DB;
+  env.DB = {
+    batch: () => Promise.reject(new Error("D1 down")),
+    prepare: (sql) => db.prepare(sql),
+  };
+  assert.equal(await status(ban()), 500);
+  env.DB = db;
+  assert.deepEqual(await counts(), untouched);
+  clerk.calls.length = 0;
+  assert.equal(await status(ban()), 204);
+  assert.deepEqual(clerk.calls, [
+    { auth: "Bearer sk_test_hopon", method: "GET", path: "/v1/users/user_fan" },
+    {
+      auth: "Bearer sk_test_hopon",
+      method: "POST",
+      path: "/v1/users/user_fan/ban",
+    },
+  ]);
+
+  const { results } = await env.DB.prepare(
+    "SELECT id, owner, published FROM games WHERE owner = 'user_fan'"
+  ).all();
+  assert.deepEqual(
+    results.map((r) => ({ ...r })),
+    [{ id: draft.id, owner: "user_fan", published: 0 }]
+  );
+  const left = async (sql) => {
+    const rows = await env.DB.prepare(sql).all();
+    return rows.results.map((r) => ({ ...r }));
+  };
+  assert.deepEqual(await left("SELECT id FROM comments"), []);
+  assert.deepEqual(await left("SELECT game_id, user FROM likes"), [
+    { game_id: gameId, user: "user_fan" },
+  ]);
+  assert.deepEqual(await left("SELECT game_id, user FROM saves"), [
+    { game_id: gameId, user: "user_fan" },
+  ]);
+  assert.equal(await count("blocks"), 1);
+  // Reports on their content close as banned, including one on someone else's comment on their game.
+  // The one they filed stays open.
+  assert.deepEqual(await reportRows(env), [
+    { comment_id: null, game_id: gameId, ...OPEN },
+    { ...commentReport({ comment, gameId }), ...closed("banned") },
+    { comment_id: null, game_id: theirs.id, ...closed("banned") },
+    { comment_id: reply.id, game_id: theirs.id, ...closed("banned") },
+  ]);
+
+  // Content already gone, the snapshot still names whom to Ban; again changes nothing.
+  assert.equal(await status(ban(`/api/games/${theirs.id}/ban`)), 204);
+  assert.equal(await count("reports"), 4);
+});
+test("ban: an Operator can't be banned, and only a reported poster can", async (t) => {
+  const { call, env } = await setup(t);
+  env.CLERK_SECRET_KEY = "sk_test_hopon";
+  const clerk = stubClerk(t, { user_fan: "operator" });
+  const posted = await commented(call);
+  const { comment, reportComment } = posted;
+  const ban = () =>
+    call(`/api/comments/${comment.id}/ban`, { method: "POST", ...OPERATOR });
+  assert.equal(await status(ban()), 404);
+  await reportComment("spam", { user: "user_a" });
+  const refused = await ban();
+  assert.equal(refused.status, 400);
+  assert.deepEqual(await refused.json(), {
+    error: "You can't ban an Operator.",
+  });
+  assert.deepEqual(
+    clerk.calls.map(({ method, path }) => [method, path]),
+    [["GET", "/v1/users/user_fan"]]
+  );
+  assert.deepEqual(await reportRows(env), [
+    { ...commentReport(posted), ...OPEN },
+  ]);
 });
 
 test("pages: /terms has the Rules and /support the contact address, signed out", async (t) => {
