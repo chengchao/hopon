@@ -45,7 +45,7 @@ const SignIn = () => {
       }
     } catch (stepError) {
       setError(
-        (stepError as Error).message ||
+        describe(stepError as ClerkFailure) ||
           "Something went wrong. Please try again."
       );
     }

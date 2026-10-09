@@ -1669,10 +1669,10 @@ test("operator: Delete closes the content's open reports as deleted, its poster 
   );
 });
 
-// Stands in for Clerk's Backend API: records each call, answers a user lookup with `roles[id]`, and refuses everything
-// while `clerk.down`.
+// Stands in for Clerk's Backend API: records each call, answers a user lookup with `roles[id]` and whether it's
+// banned, bans on `POST …/ban`, and refuses everything while `clerk.down`.
 const stubClerk = (t, roles = {}) => {
-  const clerk = { calls: [], down: false };
+  const clerk = { banned: new Set(), calls: [], down: false };
   const realFetch = globalThis.fetch;
   t.mock.method(globalThis, "fetch", (url, init = {}) => {
     const { href, pathname } = new URL(String(url));
@@ -1688,8 +1688,15 @@ const stubClerk = (t, roles = {}) => {
       return Promise.resolve(Response.json({ errors: [] }, { status: 500 }));
     }
     const id = pathname.split("/").at(3);
+    if (pathname.endsWith("/ban")) {
+      clerk.banned.add(id);
+    }
     return Promise.resolve(
-      Response.json({ id, public_metadata: { role: roles[id] } })
+      Response.json({
+        banned: clerk.banned.has(id),
+        id,
+        public_metadata: { role: roles[id] },
+      })
     );
   });
   return clerk;
@@ -1766,11 +1773,10 @@ test("ban: Clerk bans the poster first, then all their published games and comme
     batch: () => Promise.reject(new Error("D1 down")),
     prepare: (sql) => db.prepare(sql),
   };
+  clerk.calls.length = 0;
   assert.equal(await status(ban()), 500);
   env.DB = db;
   assert.deepEqual(await counts(), untouched);
-  clerk.calls.length = 0;
-  assert.equal(await status(ban()), 204);
   assert.deepEqual(clerk.calls, [
     { auth: "Bearer sk_test_hopon", method: "GET", path: "/v1/users/user_fan" },
     {
@@ -1779,6 +1785,13 @@ test("ban: Clerk bans the poster first, then all their published games and comme
       path: "/v1/users/user_fan/ban",
     },
   ]);
+  // Already banned in Clerk, so only the lookup.
+  clerk.calls.length = 0;
+  assert.equal(await status(ban()), 204);
+  assert.deepEqual(
+    clerk.calls.map(({ method, path }) => [method, path]),
+    [["GET", "/v1/users/user_fan"]]
+  );
 
   const { results } = await env.DB.prepare(
     "SELECT id, owner, published FROM games WHERE owner = 'user_fan'"

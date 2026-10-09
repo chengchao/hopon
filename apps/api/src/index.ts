@@ -604,8 +604,19 @@ const publishedGame = Effect.fn("publishedGame")(function* (id: number) {
   return game;
 });
 
-// The Creator or the Operator deletes a published game, with its likes, comments and saves in one batch
-// (no FK cascade, see schema.ts). Anyone else gets the same 404 as a missing game. Reports outlive it, but the open
+// The statements that Delete the games `which` matches, with their likes, comments and saves (no FK cascade, see
+// schema.ts). The games go last, so a batch can still find them before that.
+const deleteGames = (db: DrizzleD1Database, which: SQL | undefined) => {
+  const ids = db.select({ id: games.id }).from(games).where(which);
+  return [
+    db.delete(likes).where(inArray(likes.gameId, ids)),
+    db.delete(comments).where(inArray(comments.gameId, ids)),
+    db.delete(saves).where(inArray(saves.gameId, ids)),
+    db.delete(games).where(which),
+  ] as const;
+};
+
+// The Creator or the Operator deletes a published game, with its likes, comments and saves in one batch. Anyone else gets the same 404 as a missing game. Reports outlive it, but the open
 // ones on it and its comments close: `creator_deleted` when its Creator deletes it, `deleted` when the Operator does.
 app.delete(`/api/games/${ID}`, (c) =>
   run(
@@ -620,10 +631,7 @@ app.delete(`/api/games/${ID}`, (c) =>
       }
       yield* query((db) =>
         db.batch([
-          db.delete(likes).where(eq(likes.gameId, id)),
-          db.delete(comments).where(eq(comments.gameId, id)),
-          db.delete(saves).where(eq(saves.gameId, id)),
-          db.delete(games).where(eq(games.id, id)),
+          ...deleteGames(db, eq(games.id, id)),
           closeReports(
             db,
             game.owner === owner ? "creator_deleted" : "deleted",
@@ -995,6 +1003,14 @@ app.get("/api/reports", (c) =>
   )
 );
 
+// The reports on a game (not its comments') or on a comment, by the route's `:kind` and `:id`.
+const reportsOn = (c: HonoContext<AppEnv>) => {
+  const id = Number(c.req.param("id"));
+  return c.req.param("kind") === "games"
+    ? and(eq(reports.gameId, id), isNull(reports.commentId))
+    : eq(reports.commentId, id);
+};
+
 // Dismiss: the Operator closes every open report on a game (not its comments') or a comment, and leaves it up.
 // It stays hidden from its reporters, whose lists leave out what they reported, open or closed.
 app.post(`/api/:kind{games|comments}/${ID}/dismiss`, (c) =>
@@ -1002,98 +1018,99 @@ app.post(`/api/:kind{games|comments}/${ID}/dismiss`, (c) =>
     c,
     Effect.gen(function* () {
       yield* operatorOnly;
-      const id = Number(c.req.param("id"));
-      yield* query((db) =>
-        closeReports(
-          db,
-          "dismissed",
-          c.req.param("kind") === "games"
-            ? and(eq(reports.gameId, id), isNull(reports.commentId))
-            : eq(reports.commentId, id)
-        )
-      );
+      yield* query((db) => closeReports(db, "dismissed", reportsOn(c)));
       return c.body(null, 204);
     })
   )
 );
 
-// One call to Clerk's Backend API. Any failure, or a refusal, is a 502: nothing in D1 has changed yet.
-const clerkApi = (env: HoponEnv, path: string, method = "GET") =>
-  Effect.tryPromise({
-    catch: (error) => {
-      console.error("Clerk call failed", error);
-      return fail(502, "Couldn't ban this account just now. Please try again.");
-    },
-    try: async () => {
-      const response = await fetch(`https://api.clerk.com/v1${path}`, {
-        headers: { Authorization: `Bearer ${env.CLERK_SECRET_KEY}` },
-        method,
-      });
-      if (!response.ok) {
-        throw new Error(`Clerk ${method} ${path}: ${response.status}`);
-      }
-      return (await response.json()) as {
-        public_metadata?: { role?: unknown };
-      };
-    },
-  });
+// Step 1 of a Ban: Clerk stops the account signing in and revokes its sessions. Refuses an Operator. An account
+// already banned is left as is, so running a Ban again goes straight on to step 2. Any Clerk failure is a 502.
+const banInClerk = Effect.fn("banInClerk")(function* (
+  env: HoponEnv,
+  account: string
+) {
+  const unavailable = fail(
+    502,
+    "Couldn't ban this account just now. Please try again."
+  );
+  const clerk = (path: string, method: string) =>
+    Effect.tryPromise({
+      catch: (error) => {
+        console.error("Clerk call failed", error);
+        return unavailable;
+      },
+      try: async () => {
+        const response = await fetch(
+          `https://api.clerk.com/v1/users/${account}${path}`,
+          {
+            headers: { Authorization: `Bearer ${env.CLERK_SECRET_KEY}` },
+            method,
+          }
+        );
+        if (!response.ok) {
+          throw new Error(`Clerk ${method} ${path}: ${response.status}`);
+        }
+        return (await response.json()) as {
+          banned?: unknown;
+          public_metadata?: { role?: unknown };
+        };
+      },
+    }).pipe(
+      Effect.timeoutOrElse({
+        duration: "10 seconds",
+        orElse: () => Effect.fail(unavailable),
+      })
+    );
+  const user = yield* clerk("", "GET");
+  if (user.public_metadata?.role === "operator") {
+    return yield* fail(400, "You can't ban an Operator.");
+  }
+  if (user.banned !== true) {
+    yield* clerk("/ban", "POST");
+  }
+});
 
 // Ban: the Operator shuts out the poster named in a report's snapshot, so it works after the content is gone.
-// Clerk first (no sign-in, sessions revoked), then one D1 batch Deletes every published game and comment of theirs and
-// closes the open reports on them as `banned`. Both steps are idempotent, so running it again finishes a failed Ban.
-// Their drafts, likes, saves, blocks and the reports they filed stay.
+// Clerk first, then one D1 batch Deletes every published game and comment of theirs and closes the open reports on
+// them (and on others' comments on their games) as `banned`. Both steps are idempotent, so running it again finishes
+// a failed Ban. Their drafts, likes, saves, blocks and the reports they filed stay.
 app.post(`/api/:kind{games|comments}/${ID}/ban`, (c) =>
   run(
     c,
     Effect.gen(function* () {
       yield* operatorOnly;
-      const id = Number(c.req.param("id"));
       const report = yield* query((db) =>
         db
           .select({ creator: reports.creator })
           .from(reports)
-          .where(
-            c.req.param("kind") === "games"
-              ? and(eq(reports.gameId, id), isNull(reports.commentId))
-              : eq(reports.commentId, id)
-          )
+          .where(reportsOn(c))
           .get()
       );
       if (!report) {
         return yield* fail(404, "Report not found.");
       }
       const account = report.creator;
-      const user = yield* clerkApi(c.env, `/users/${account}`);
-      if (user.public_metadata?.role === "operator") {
-        return yield* fail(400, "You can't ban an Operator.");
-      }
-      yield* clerkApi(c.env, `/users/${account}/ban`, "POST");
+      yield* banInClerk(c.env, account);
       yield* query((db) => {
-        const theirs = and(eq(games.owner, account), eq(games.published, 1));
-        const theirGames = db
-          .select({ id: games.id })
-          .from(games)
-          .where(theirs);
+        const theirGames = and(
+          eq(games.owner, account),
+          eq(games.published, 1)
+        );
         return db.batch([
           closeReports(
             db,
             "banned",
             or(
               eq(reports.creator, account),
-              inArray(reports.gameId, theirGames)
+              inArray(
+                reports.gameId,
+                db.select({ id: games.id }).from(games).where(theirGames)
+              )
             )
           ),
-          db.delete(likes).where(inArray(likes.gameId, theirGames)),
-          db.delete(saves).where(inArray(saves.gameId, theirGames)),
-          db
-            .delete(comments)
-            .where(
-              or(
-                eq(comments.user, account),
-                inArray(comments.gameId, theirGames)
-              )
-            ),
-          db.delete(games).where(theirs),
+          db.delete(comments).where(eq(comments.user, account)),
+          ...deleteGames(db, theirGames),
         ]);
       });
       return c.body(null, 204);
