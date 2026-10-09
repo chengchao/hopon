@@ -23,13 +23,12 @@ const keys = await crypto.subtle.generateKey(
 const CLERK_JWT_KEY = `-----BEGIN PUBLIC KEY-----\n${Buffer.from(await crypto.subtle.exportKey("spki", keys.publicKey)).toString("base64")}\n-----END PUBLIC KEY-----`;
 const b64 = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
 // `username` mirrors the Clerk session claim {{user.username}}: null until the user picks a handle.
-// `role` mirrors {{user.public_metadata.role}}, "operator" for the Operator and absent for everyone else.
 const sign = async (
   sub,
-  { exp = 60, key = keys.privateKey, role, username = null } = {}
+  { exp = 60, key = keys.privateKey, username = null } = {}
 ) => {
   const now = Math.floor(Date.now() / 1000);
-  const body = `${b64({ alg: "RS256", kid: "ins_test", typ: "JWT" })}.${b64({ exp: now + exp, iat: now, nbf: now, role, sub, username })}`;
+  const body = `${b64({ alg: "RS256", kid: "ins_test", typ: "JWT" })}.${b64({ exp: now + exp, iat: now, nbf: now, sub, username })}`;
   return `${body}.${Buffer.from(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(body))).toString("base64url")}`;
 };
 // Read a pending response's status or JSON body with one await.
@@ -46,6 +45,7 @@ const generated = {
   html: '<!doctype html><html><body><button>星星</button><script>document.querySelector("button").onclick=e=>e.target.textContent="1"</script></body></html>',
   title: "星星小游戏",
 };
+const OPERATOR_PASSWORD = "test-operator-password-of-32-chars!";
 // Seeded by migrations/*_originals.sql.
 const ORIGINALS = 2;
 const migrations = readdirSync(new URL("../migrations", import.meta.url))
@@ -84,6 +84,7 @@ const setup = async (t) => {
     AI_MODEL: "@cf/moonshotai/kimi-k2.5",
     CLERK_JWT_KEY,
     DB,
+    OPERATOR_PASSWORD,
   };
   const count = async (table) => {
     const { n } = await DB.prepare(
@@ -106,7 +107,6 @@ const setup = async (t) => {
       body,
       user = owner,
       username = "maya_makes",
-      role,
       token,
       contentType = "application/json",
     } = {}
@@ -117,7 +117,7 @@ const setup = async (t) => {
           "Content-Type": contentType,
           ...(user || token
             ? {
-                Authorization: `Bearer ${token ?? (await sign(user, { role, username }))}`,
+                Authorization: `Bearer ${token ?? (await sign(user, { username }))}`,
               }
             : {}),
         },
@@ -129,7 +129,40 @@ const setup = async (t) => {
       env,
       ctx
     );
-  return { ai, call, count, env, owner, settled };
+  // The Operator's browser on /operator: Basic credentials with any username (none when `password` is null), and on
+  // a write the headers a same-origin form post carries under `Referrer-Policy: no-referrer`.
+  const operate = (
+    path,
+    {
+      method = "GET",
+      origin = "null",
+      password = OPERATOR_PASSWORD,
+      site = "same-origin",
+    } = {}
+  ) =>
+    worker.fetch(
+      new Request(`https://hopon.test${path}`, {
+        headers: {
+          ...(password === null
+            ? {}
+            : {
+                Authorization: `Basic ${Buffer.from(`anyone:${password}`).toString("base64")}`,
+              }),
+          ...(method === "GET"
+            ? {}
+            : {
+                "Content-Type": "application/x-www-form-urlencoded",
+                Origin: origin,
+                "Sec-Fetch-Site": site,
+              }),
+        },
+        method,
+        redirect: "manual",
+      }),
+      env,
+      ctx
+    );
+  return { ai, call, count, env, operate, owner, settled };
 };
 test("AI JSON boundary rejects invalid and truncated output", async () => {
   assert.deepEqual(
@@ -276,10 +309,12 @@ test("Clerk auth, request validation and atomic per-account quota", async (t) =>
     await status(call("/api/games", { ...options, body: "null" })),
     400
   );
-  assert.equal(
-    await status(call("/api/games", { ...options, body: "{" })),
-    400
-  );
+  // Hono's own malformed-JSON refusal still renders as `{ error }`, unlike the responses basicAuth and csrf carry.
+  const malformed = await call("/api/games", { ...options, body: "{" });
+  assert.equal(malformed.status, 400);
+  assert.deepEqual(await malformed.json(), {
+    error: "Malformed JSON in request body",
+  });
   assert.equal(
     await status(call("/api/games", { ...options, contentType: "text/plain" })),
     415
@@ -838,9 +873,8 @@ test("comments: deleted by their author or the game's creator, hidden from every
     forStranger.map((c) => c.canDelete),
     [false, false]
   );
-  const remove = (id, user, role) =>
-    call(`/api/comments/${id}`, { method: "DELETE", role, user });
-  assert.equal(await status(remove(first.id, "user_stranger", "admin")), 404);
+  const remove = (id, user) =>
+    call(`/api/comments/${id}`, { method: "DELETE", user });
   assert.equal(await status(remove(first.id, "")), 401);
   assert.equal(await status(remove(first.id, "user_stranger")), 404);
   assert.equal(await status(remove(first.id, "user_owner")), 204);
@@ -848,8 +882,8 @@ test("comments: deleted by their author or the game's creator, hidden from every
   assert.equal(await status(remove(second.id, "user_fan")), 404);
   assert.deepEqual(await list(""), []);
 });
-test("comments: the Operator sees every comment as deletable and deletes any", async (t) => {
-  const { call } = await setup(t);
+test("comments: the Operator deletes any from /operator; in the app the Operator's account is anyone", async (t) => {
+  const { call, operate } = await setup(t);
   const {
     games: [game],
   } = await json(call("/api/games"));
@@ -861,32 +895,39 @@ test("comments: the Operator sees every comment as deletable and deletes any", a
     })
   );
   const { comments } = await json(
-    call(`/api/games/${game.id}/comments`, {
-      role: "operator",
-      user: "user_operator",
-    })
+    call(`/api/games/${game.id}/comments`, { user: "user_operator" })
   );
   assert.deepEqual(
     comments.map((c) => [c.canDelete, c.mine]),
-    [[true, false]]
+    [[false, false]]
   );
   assert.equal(
     await status(
       call(`/api/comments/${comment.id}`, {
         method: "DELETE",
-        role: "operator",
         user: "user_operator",
       })
     ),
-    204
+    404
   );
+  const deleted = await operate(`/operator/comments/${comment.id}/delete`, {
+    method: "POST",
+  });
+  assert.equal(deleted.status, 303);
+  assert.equal(deleted.headers.get("Location"), "/operator");
   const { comments: after } = await json(
     call(`/api/games/${game.id}/comments`)
   );
   assert.deepEqual(after, []);
+  assert.equal(
+    await status(
+      operate(`/operator/comments/${comment.id}/delete`, { method: "POST" })
+    ),
+    404
+  );
 });
 test("games: deleted by their creator or the Operator, with likes, comments and saves; reports stay", async (t) => {
-  const { call, count } = await setup(t);
+  const { call, count, operate } = await setup(t);
   const publish = async () => {
     const draft = await json(
       call("/api/games", {
@@ -913,8 +954,8 @@ test("games: deleted by their creator or the Operator, with likes, comments and 
     ]);
     return draft.id;
   };
-  const remove = (id, user, role) =>
-    call(`/api/games/${id}`, { method: "DELETE", role, user });
+  const remove = (id, user) =>
+    call(`/api/games/${id}`, { method: "DELETE", user });
   const counts = () =>
     Promise.all(["games", "likes", "comments", "saves", "reports"].map(count));
   const mine = await publish();
@@ -922,16 +963,21 @@ test("games: deleted by their creator or the Operator, with likes, comments and 
   const before = await counts();
   assert.equal(await status(remove(mine, "")), 401);
   assert.equal(await status(remove(mine, "user_fan")), 404);
-  assert.equal(await status(remove(mine, "user_fan", "admin")), 404);
+  assert.equal(await status(remove(theirs, "user_operator")), 404);
   assert.deepEqual(await counts(), before);
   assert.equal(await status(remove(mine, "user_owner")), 204);
   assert.equal(await status(remove(mine, "user_owner")), 404);
-  assert.equal(await status(remove(theirs, "user_operator", "operator")), 204);
+  assert.equal(
+    await status(
+      operate(`/operator/games/${theirs}/delete`, { method: "POST" })
+    ),
+    303
+  );
   assert.equal(await status(call(`/api/games/${theirs}/document`)), 404);
   assert.deepEqual(await counts(), [ORIGINALS, 0, 0, 0, 2]);
 });
 test("games: a draft isn't Deleted, even by its creator or the Operator", async (t) => {
-  const { call } = await setup(t);
+  const { call, operate } = await setup(t);
   const draft = await json(
     call("/api/games", { body: { prompt: "点击星星的小游戏" }, method: "POST" })
   );
@@ -941,11 +987,7 @@ test("games: a draft isn't Deleted, even by its creator or the Operator", async 
   );
   assert.equal(
     await status(
-      call(`/api/games/${draft.id}`, {
-        method: "DELETE",
-        role: "operator",
-        user: "user_operator",
-      })
+      operate(`/operator/games/${draft.id}/delete`, { method: "POST" })
     ),
     404
   );
@@ -1235,6 +1277,10 @@ test("reports: each new report POSTs the reason and snapshot to the Operator; a 
   assert.match(sent[0].text, new RegExp(game.title, "u"));
   assert.match(sent[0].text, /@hopon/u);
   assert.match(sent[0].text, /user_a/u);
+  assert.equal(
+    sent[0].text.split("\n").at(-1),
+    `https://hopon.test/operator#game-${game.id}`
+  );
   down = true;
   assert.equal(await status(report("user_b")), 204);
   await settled();
@@ -1382,6 +1428,10 @@ test("comment reports: each new one POSTs the reason and snapshot to the Operato
   );
   assert.match(sent[0].text, /you stink/u);
   assert.match(sent[0].text, /@fan \(user_fan\)/u);
+  assert.equal(
+    sent[0].text.split("\n").at(-1),
+    `https://hopon.test/operator#comment-${comment.id}`
+  );
 });
 test("comments: `mine` marks the viewer's own comments", async (t) => {
   const { call } = await setup(t);
@@ -1396,7 +1446,6 @@ test("comments: `mine` marks the viewer's own comments", async (t) => {
   assert.deepEqual(await mine("user_owner"), [false]);
   assert.deepEqual(await mine(""), [false]);
 });
-const OPERATOR = { role: "operator", user: "user_operator" };
 const OPEN = { closed: 0, closed_how: null, status: "open" };
 const closed = (how) => ({ closed: 1, closed_how: how, status: "closed" });
 // The report rows on a `commented` game and on its comment.
@@ -1412,265 +1461,42 @@ const reportRows = async (env) => {
   ).all();
   return results.map((r) => ({ ...r }));
 };
-test("operator: every Operator endpoint refuses everyone else", async (t) => {
-  const { call } = await setup(t);
-  const { comment, gameId } = await commented(call);
-  const endpoints = [
-    ["GET", "/api/reports"],
-    ["GET", "/api/reports/count"],
-    ["POST", `/api/games/${gameId}/dismiss`],
-    ["POST", `/api/comments/${comment.id}/dismiss`],
-    ["POST", `/api/games/${gameId}/ban`],
-    ["POST", `/api/comments/${comment.id}/ban`],
-  ];
-  const refusals = await Promise.all(
-    endpoints.flatMap(([method, path]) =>
-      [undefined, "admin"].map(async (role) => {
-        const response = await call(path, { method, role, user: "user_fan" });
-        return [method, path, role, response.status, await response.json()];
-      })
-    )
-  );
-  assert.deepEqual(
-    refusals,
-    endpoints.flatMap(([method, path]) =>
-      [undefined, "admin"].map((role) => [
-        method,
-        path,
-        role,
-        403,
-        { error: "Only the Operator can do this." },
-      ])
-    )
-  );
-  // Signed out, writes stop at sign-in as everywhere else; the Operator gets through.
-  const statuses = (options) =>
-    Promise.all(
-      endpoints.map(([method, path]) =>
-        status(call(path, { method, ...options }))
-      )
-    );
-  assert.deepEqual(
-    await statuses({ user: "" }),
-    [403, 403, 401, 401, 401, 401]
-  );
-  // Nothing here is reported, so there's nobody to Ban.
-  assert.deepEqual(await statuses(OPERATOR), [200, 200, 204, 204, 404, 404]);
-});
-test("operator: the queue groups open reports by target, oldest first, with reasons and counts, and marks deleted content", async (t) => {
-  const { call, env } = await setup(t);
-  const {
-    games: [newer, older],
-  } = await json(call("/api/games"));
-  const reportGame = (game, reason, user) =>
-    call(`/api/games/${game.id}/report`, {
-      body: { reason },
-      method: "POST",
-      user,
-    });
-  await reportGame(older, "spam", "user_a");
-  const { comment, gameId, reportComment } = await commented(call);
-  await reportComment("hate");
-  await reportGame(older, "age", "user_b");
-  await reportGame(older, "spam", "user_c");
-  await reportGame(newer, "other", "user_a");
-  // Content can be gone while its reports are still open; the queue says so.
-  await env.DB.batch([
-    env.DB.prepare("DELETE FROM games WHERE id = ?").bind(newer.id),
-  ]);
-  assert.deepEqual(await json(call("/api/reports/count", OPERATOR)), {
-    count: 3,
-  });
-  const { targets } = await json(call("/api/reports", OPERATOR));
-  for (const target of targets) {
-    assert.match(target.reportedAt, /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/u);
-  }
-  assert.deepEqual(
-    targets.map((target) => ({ ...target, reportedAt: undefined })),
-    [
-      {
-        body: null,
-        description: older.description,
-        gameId: older.id,
-        handle: "hopon",
-        id: older.id,
-        kind: "game",
-        live: true,
-        reasons: [
-          { count: 1, reason: "age" },
-          { count: 2, reason: "spam" },
-        ],
-        reportedAt: undefined,
-        title: older.title,
-      },
-      {
-        body: "you stink",
-        description: null,
-        gameId,
-        handle: "fan",
-        id: comment.id,
-        kind: "comment",
-        live: true,
-        reasons: [{ count: 1, reason: "hate" }],
-        reportedAt: undefined,
-        title: null,
-      },
-      {
-        body: null,
-        description: newer.description,
-        gameId: newer.id,
-        handle: "hopon",
-        id: newer.id,
-        kind: "game",
-        live: false,
-        reasons: [{ count: 1, reason: "other" }],
-        reportedAt: undefined,
-        title: newer.title,
-      },
-    ]
-  );
-});
-test("operator: Dismiss closes every open report on the target and leaves the content up, still hidden from its reporters", async (t) => {
-  const { call, env } = await setup(t);
-  const {
-    games: [game],
-  } = await json(call("/api/games"));
-  const comment = await json(
-    call(`/api/games/${game.id}/comments`, {
-      body: { body: "spam spam" },
-      method: "POST",
-      user: "user_fan",
-    })
-  );
-  for (const [path, user] of [
-    [`/api/games/${game.id}/report`, "user_a"],
-    [`/api/games/${game.id}/report`, "user_b"],
-    [`/api/comments/${comment.id}/report`, "user_a"],
-  ]) {
-    // oxlint-disable-next-line no-await-in-loop -- report ids follow this order
-    await call(path, { body: { reason: "spam" }, method: "POST", user });
-  }
-  const dismiss = (path) => call(path, { method: "POST", ...OPERATOR });
-  assert.equal(await status(dismiss(`/api/games/${game.id}/dismiss`)), 204);
-  // Dismissing the game leaves the reports on its comments open.
-  const onGame = { comment_id: null, game_id: game.id };
-  const onComment = { comment_id: comment.id, game_id: game.id };
-  assert.deepEqual(await reportRows(env), [
-    { ...onGame, ...closed("dismissed") },
-    { ...onGame, ...closed("dismissed") },
-    { ...onComment, ...OPEN },
-  ]);
-  const { targets } = await json(call("/api/reports", OPERATOR));
-  assert.deepEqual(
-    targets.map((target) => [target.kind, target.id]),
-    [["comment", comment.id]]
-  );
-  assert.equal(
-    await status(dismiss(`/api/comments/${comment.id}/dismiss`)),
-    204
-  );
-  assert.equal(
-    await status(dismiss(`/api/comments/${comment.id}/dismiss`)),
-    204
-  );
-  assert.deepEqual(await json(call("/api/reports", OPERATOR)), { targets: [] });
-  assert.deepEqual(await json(call("/api/reports/count", OPERATOR)), {
-    count: 0,
-  });
-  const feed = async (user) => {
-    const { games } = await json(call("/api/games", { user }));
-    return games.some((g) => g.id === game.id);
+const ENTITIES = {
+  "&#39;": "'",
+  "&amp;": "&",
+  "&gt;": ">",
+  "&lt;": "<",
+  "&quot;": '"',
+};
+// The queue page as the Operator reads it: the open count, and each target's anchor, its text (tags dropped, the time
+// as DATE) and where its links and forms go, in page order.
+const queue = async (operate) => {
+  const response = await operate("/operator");
+  assert.equal(response.status, 200);
+  const page = await response.text();
+  return {
+    count: Number(/<p>(?<n>\d+) open<\/p>/u.exec(page).groups.n),
+    page,
+    targets: [
+      ...page.matchAll(
+        /<section id="(?<id>[^"]+)">(?<card>[\s\S]*?)<\/section>/gu
+      ),
+    ].map(({ groups: { card, id } }) => ({
+      actions: [...card.matchAll(/(?:href|action)="(?<to>[^"]+)"/gu)].map(
+        (m) => m.groups.to
+      ),
+      id,
+      text: card
+        .replaceAll(/<[^>]+>/gu, " ")
+        .replaceAll(/&(?:#39|amp|gt|lt|quot);/gu, (entity) => ENTITIES[entity])
+        .replaceAll(/\d{4}-\d\d-\d\d \d\d:\d\d:\d\d/gu, "DATE")
+        .replaceAll(/\s+/gu, " ")
+        .trim(),
+    })),
   };
-  const comments = async (user) => {
-    const page = await json(call(`/api/games/${game.id}/comments`, { user }));
-    return page.comments.length;
-  };
-  assert.equal(await feed("user_other"), true);
-  assert.equal(await feed("user_a"), false);
-  assert.equal(await comments("user_other"), 1);
-  assert.equal(await comments("user_a"), 0);
-});
-test("operator: Delete closes the content's open reports as deleted, its poster deleting it as creator_deleted", async (t) => {
-  const { call, env } = await setup(t);
-  // Games by user_owner, each with a comment by user_fan; every game and comment reported once.
-  const first = await commented(call);
-  const second = await commented(call);
-  const third = await commented(call);
-  for (const { gameId, reportComment } of [first, second, third]) {
-    // oxlint-disable-next-line no-await-in-loop -- report ids follow this order
-    await call(`/api/games/${gameId}/report`, {
-      body: { reason: "spam" },
-      method: "POST",
-      user: "user_a",
-    });
-    // oxlint-disable-next-line no-await-in-loop -- see above
-    await reportComment("hate", { user: "user_a" });
-  }
-  // The Operator deletes the first game: its report and its comment's report close as deleted.
-  assert.equal(
-    await status(
-      call(`/api/games/${first.gameId}`, { method: "DELETE", ...OPERATOR })
-    ),
-    204
-  );
-  // The creator deletes the second game themselves.
-  assert.equal(
-    await status(call(`/api/games/${second.gameId}`, { method: "DELETE" })),
-    204
-  );
-  assert.deepEqual(await reportRows(env), [
-    { ...gameReport(first), ...closed("deleted") },
-    { ...commentReport(first), ...closed("deleted") },
-    { ...gameReport(second), ...closed("creator_deleted") },
-    { ...commentReport(second), ...closed("creator_deleted") },
-    { ...gameReport(third), ...OPEN },
-    { ...commentReport(third), ...OPEN },
-  ]);
-  // A comment deleted by its commenter, one by the Operator, and one by the Creator of the game it's on.
-  const fourth = await commented(call);
-  await fourth.reportComment("spam", { user: "user_a" });
-  const fifth = await commented(call);
-  await fifth.reportComment("spam", { user: "user_a" });
-  assert.equal(
-    await status(
-      call(`/api/comments/${third.comment.id}`, {
-        method: "DELETE",
-        user: "user_fan",
-      })
-    ),
-    204
-  );
-  assert.equal(
-    await status(
-      call(`/api/comments/${fourth.comment.id}`, {
-        method: "DELETE",
-        ...OPERATOR,
-      })
-    ),
-    204
-  );
-  assert.equal(
-    await status(
-      call(`/api/comments/${fifth.comment.id}`, { method: "DELETE" })
-    ),
-    204
-  );
-  const after = await reportRows(env);
-  assert.deepEqual(after.slice(4), [
-    { ...gameReport(third), ...OPEN },
-    { ...commentReport(third), ...closed("creator_deleted") },
-    { ...commentReport(fourth), ...closed("deleted") },
-    { ...commentReport(fifth), ...closed("creator_deleted") },
-  ]);
-  const { targets } = await json(call("/api/reports", OPERATOR));
-  assert.deepEqual(
-    targets.map((target) => [target.kind, target.id]),
-    [["game", third.gameId]]
-  );
-});
-
-// Stands in for Clerk's Backend API: records each call, answers a user lookup with `roles[id]` and whether it's
-// banned, bans on `POST …/ban`, and refuses everything while `clerk.down`.
+};
+// Stands in for Clerk's Backend API: records each call, answers a user lookup with `roles[id]` as its
+// `public_metadata.role` and whether it's banned, bans on `POST …/ban`, and refuses everything while `clerk.down`.
 const stubClerk = (t, roles = {}) => {
   const clerk = { banned: new Set(), calls: [], down: false };
   const realFetch = globalThis.fetch;
@@ -1701,8 +1527,357 @@ const stubClerk = (t, roles = {}) => {
   });
   return clerk;
 };
+test("operator: every /operator route asks for the password, and the old /api/ Operator routes are gone", async (t) => {
+  const { call, env, operate } = await setup(t);
+  const posted = await commented(call);
+  const { comment, gameId, reportComment } = posted;
+  await reportComment("spam", { user: "user_a" });
+  const routes = [
+    ["GET", "/operator"],
+    ["GET", `/operator/games/${gameId}/delete`],
+    ["GET", `/operator/comments/${comment.id}/ban`],
+    ["POST", `/operator/games/${gameId}/dismiss`],
+    ["POST", `/operator/comments/${comment.id}/dismiss`],
+    ["POST", `/operator/games/${gameId}/delete`],
+    ["POST", `/operator/comments/${comment.id}/ban`],
+  ];
+  const challenges = (password) =>
+    Promise.all(
+      routes.map(async ([method, path]) => {
+        const response = await operate(path, { method, password });
+        return [
+          method,
+          path,
+          response.status,
+          response.headers.get("WWW-Authenticate"),
+        ];
+      })
+    );
+  const refused = routes.map(([method, path]) => [
+    method,
+    path,
+    401,
+    'Basic realm="hopon Operator"',
+  ]);
+  assert.deepEqual(await challenges(null), refused);
+  assert.deepEqual(await challenges("wrong"), refused);
+  assert.deepEqual(await challenges(`${OPERATOR_PASSWORD}x`), refused);
+  // With the secret unset or empty, nobody gets in, whatever they send.
+  for (const unset of [undefined, ""]) {
+    env.OPERATOR_PASSWORD = unset;
+    // oxlint-disable-next-line no-await-in-loop -- `env` changes between rounds
+    assert.deepEqual(await challenges(OPERATOR_PASSWORD), refused);
+    // oxlint-disable-next-line no-await-in-loop -- see above
+    assert.deepEqual(await challenges(""), refused);
+  }
+  env.OPERATOR_PASSWORD = OPERATOR_PASSWORD;
+  assert.deepEqual(await reportRows(env), [
+    { ...commentReport(posted), ...OPEN },
+  ]);
+  assert.equal(await status(operate("/operator")), 200);
+  // Clerk no longer knows who the Operator is, so no account reaches these.
+  const gone = [
+    ["GET", "/api/reports"],
+    ["GET", "/api/reports/count"],
+    ["POST", `/api/games/${gameId}/dismiss`],
+    ["POST", `/api/comments/${comment.id}/dismiss`],
+    ["POST", `/api/games/${gameId}/ban`],
+    ["POST", `/api/comments/${comment.id}/ban`],
+  ];
+  assert.deepEqual(
+    await Promise.all(
+      gone.map(([method, path]) =>
+        status(call(path, { method, user: "user_operator" }))
+      )
+    ),
+    gone.map(() => 404)
+  );
+});
+test("operator: a write from another site is refused, even with the password, and changes nothing", async (t) => {
+  const { call, count, env, operate } = await setup(t);
+  env.CLERK_SECRET_KEY = "sk_test_hopon";
+  const clerk = stubClerk(t);
+  const { comment, gameId, reportComment } = await commented(call);
+  await reportComment("hate", { user: "user_a" });
+  await call(`/api/games/${gameId}/report`, {
+    body: { reason: "spam" },
+    method: "POST",
+    user: "user_a",
+  });
+  const before = await reportRows(env);
+  const counts = () => Promise.all(["games", "comments"].map(count));
+  const untouched = await counts();
+  const forged = {
+    method: "POST",
+    origin: "https://evil.test",
+    site: "cross-site",
+  };
+  const writes = [
+    `/operator/games/${gameId}/dismiss`,
+    `/operator/comments/${comment.id}/dismiss`,
+    `/operator/games/${gameId}/delete`,
+    `/operator/comments/${comment.id}/delete`,
+    `/operator/games/${gameId}/ban`,
+    `/operator/comments/${comment.id}/ban`,
+  ];
+  assert.deepEqual(
+    await Promise.all(writes.map((path) => status(operate(path, forged)))),
+    writes.map(() => 403)
+  );
+  assert.deepEqual(await reportRows(env), before);
+  assert.deepEqual(await counts(), untouched);
+  assert.deepEqual(clerk.calls, []);
+});
+// A queue card's Delete, Ban and Dismiss routes.
+const actions = (kind, id) =>
+  ["delete", "ban", "dismiss"].map(
+    (action) => `/operator/${kind}s/${id}/${action}`
+  );
+test("operator: the queue lists open reports by target, oldest first, with reasons and counts, and marks deleted content", async (t) => {
+  const { call, env, operate } = await setup(t);
+  const {
+    games: [newer, older],
+  } = await json(call("/api/games"));
+  const reportGame = (game, reason, user) =>
+    call(`/api/games/${game.id}/report`, {
+      body: { reason },
+      method: "POST",
+      user,
+    });
+  await reportGame(older, "spam", "user_a");
+  const { comment, gameId, reportComment } = await commented(call);
+  await reportComment("hate");
+  await reportGame(older, "age", "user_b");
+  await reportGame(older, "spam", "user_c");
+  await reportGame(newer, "other", "user_a");
+  // Content can be gone while its reports are still open; the queue says so.
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM games WHERE id = ?").bind(newer.id),
+  ]);
+  const { count, targets } = await queue(operate);
+  assert.equal(count, 3);
+  assert.deepEqual(targets, [
+    {
+      actions: [
+        `/api/games/${older.id}/document`,
+        ...actions("game", older.id),
+      ],
+      id: `game-${older.id}`,
+      text: `Game · @hopon · DATE UTC ${older.title} ${older.description} Not suitable for ages 13+ × 1 Spam or scam × 2 Play Delete Ban Dismiss`,
+    },
+    {
+      actions: actions("comment", comment.id),
+      id: `comment-${comment.id}`,
+      text: `Comment on game ${gameId} · @fan · DATE UTC you stink Hateful or harassing × 1 Delete Ban Dismiss`,
+    },
+    {
+      actions: actions("game", newer.id).slice(1),
+      id: `game-${newer.id}`,
+      text: `Game · @hopon · DATE UTC ${newer.title} ${newer.description} Content deleted Something else × 1 Ban Dismiss`,
+    },
+  ]);
+});
+test("operator: pages escape snapshots, run no script, can't be framed, and Delete asks first", async (t) => {
+  const { call, operate } = await setup(t);
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
+  const comment = await json(
+    call(`/api/games/${game.id}/comments`, {
+      body: { body: `<script>alert("hi")</script> & <b>bold</b>` },
+      method: "POST",
+      user: "user_fan",
+    })
+  );
+  await call(`/api/comments/${comment.id}/report`, {
+    body: { reason: "spam" },
+    method: "POST",
+  });
+  await call(`/api/games/${game.id}/report`, {
+    body: { reason: "spam" },
+    method: "POST",
+  });
+  const response = await operate("/operator");
+  assert.equal(
+    response.headers.get("Content-Security-Policy"),
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+  );
+  const page = await response.text();
+  assert.doesNotMatch(page, /<script|<b>/u);
+  assert.match(
+    page,
+    /<p>&lt;script&gt;alert\(&quot;hi&quot;\)&lt;\/script&gt; &amp; &lt;b&gt;bold&lt;\/b&gt;<\/p>/u
+  );
+  const confirm = async (path) => {
+    const answer = await operate(path);
+    assert.equal(answer.status, 200);
+    assert.equal(
+      answer.headers.get("Content-Security-Policy"),
+      response.headers.get("Content-Security-Policy")
+    );
+    return answer.text();
+  };
+  const deleteGame = await confirm(`/operator/games/${game.id}/delete`);
+  assert.match(deleteGame, /<h1>Delete game\?<\/h1>/u);
+  assert.match(
+    deleteGame,
+    /It&#39;s gone for everyone, with its likes, comments and saves\./u
+  );
+  assert.match(
+    deleteGame,
+    new RegExp(
+      `<form method="post" action="/operator/games/${game.id}/delete">\\s*<button>Delete</button>\\s*</form>`,
+      "u"
+    )
+  );
+  assert.match(
+    deleteGame,
+    new RegExp(`href="/operator#game-${game.id}">Cancel</a>`, "u")
+  );
+  const deleteComment = await confirm(
+    `/operator/comments/${comment.id}/delete`
+  );
+  assert.match(deleteComment, /<h1>Delete comment\?<\/h1>/u);
+  assert.match(deleteComment, /<p>It&#39;s gone for everyone\.<\/p>/u);
+  // Asking changes nothing.
+  const after = await queue(operate);
+  assert.equal(after.count, 2);
+});
+test("operator: Dismiss closes every open report on the target and leaves the content up, still hidden from its reporters", async (t) => {
+  const { call, env, operate } = await setup(t);
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
+  const comment = await json(
+    call(`/api/games/${game.id}/comments`, {
+      body: { body: "spam spam" },
+      method: "POST",
+      user: "user_fan",
+    })
+  );
+  for (const [path, user] of [
+    [`/api/games/${game.id}/report`, "user_a"],
+    [`/api/games/${game.id}/report`, "user_b"],
+    [`/api/comments/${comment.id}/report`, "user_a"],
+  ]) {
+    // oxlint-disable-next-line no-await-in-loop -- report ids follow this order
+    await call(path, { body: { reason: "spam" }, method: "POST", user });
+  }
+  const dismiss = (path) => operate(path, { method: "POST" });
+  const dismissed = await dismiss(`/operator/games/${game.id}/dismiss`);
+  assert.equal(dismissed.status, 303);
+  assert.equal(dismissed.headers.get("Location"), "/operator");
+  // Dismissing the game leaves the reports on its comments open.
+  const onGame = { comment_id: null, game_id: game.id };
+  const onComment = { comment_id: comment.id, game_id: game.id };
+  assert.deepEqual(await reportRows(env), [
+    { ...onGame, ...closed("dismissed") },
+    { ...onGame, ...closed("dismissed") },
+    { ...onComment, ...OPEN },
+  ]);
+  const { targets } = await queue(operate);
+  assert.deepEqual(
+    targets.map((target) => target.id),
+    [`comment-${comment.id}`]
+  );
+  assert.equal(
+    await status(dismiss(`/operator/comments/${comment.id}/dismiss`)),
+    303
+  );
+  assert.equal(
+    await status(dismiss(`/operator/comments/${comment.id}/dismiss`)),
+    303
+  );
+  const empty = await queue(operate);
+  assert.equal(empty.count, 0);
+  assert.deepEqual(empty.targets, []);
+  assert.match(empty.page, /<p>No open reports\.<\/p>/u);
+  const feed = async (user) => {
+    const { games } = await json(call("/api/games", { user }));
+    return games.some((g) => g.id === game.id);
+  };
+  const comments = async (user) => {
+    const page = await json(call(`/api/games/${game.id}/comments`, { user }));
+    return page.comments.length;
+  };
+  assert.equal(await feed("user_other"), true);
+  assert.equal(await feed("user_a"), false);
+  assert.equal(await comments("user_other"), 1);
+  assert.equal(await comments("user_a"), 0);
+});
+test("operator: Delete closes the content's open reports as deleted, its poster deleting it as creator_deleted", async (t) => {
+  const { call, env, operate } = await setup(t);
+  // Games by user_owner, each with a comment by user_fan; every game and comment reported once.
+  const first = await commented(call);
+  const second = await commented(call);
+  const third = await commented(call);
+  for (const { gameId, reportComment } of [first, second, third]) {
+    // oxlint-disable-next-line no-await-in-loop -- report ids follow this order
+    await call(`/api/games/${gameId}/report`, {
+      body: { reason: "spam" },
+      method: "POST",
+      user: "user_a",
+    });
+    // oxlint-disable-next-line no-await-in-loop -- see above
+    await reportComment("hate", { user: "user_a" });
+  }
+  const remove = (path) => operate(path, { method: "POST" });
+  // The Operator deletes the first game: its report and its comment's report close as deleted.
+  const deleted = await remove(`/operator/games/${first.gameId}/delete`);
+  assert.equal(deleted.status, 303);
+  assert.equal(deleted.headers.get("Location"), "/operator");
+  // The creator deletes the second game themselves.
+  assert.equal(
+    await status(call(`/api/games/${second.gameId}`, { method: "DELETE" })),
+    204
+  );
+  assert.deepEqual(await reportRows(env), [
+    { ...gameReport(first), ...closed("deleted") },
+    { ...commentReport(first), ...closed("deleted") },
+    { ...gameReport(second), ...closed("creator_deleted") },
+    { ...commentReport(second), ...closed("creator_deleted") },
+    { ...gameReport(third), ...OPEN },
+    { ...commentReport(third), ...OPEN },
+  ]);
+  // A comment deleted by its commenter, one by the Operator, and one by the Creator of the game it's on.
+  const fourth = await commented(call);
+  await fourth.reportComment("spam", { user: "user_a" });
+  const fifth = await commented(call);
+  await fifth.reportComment("spam", { user: "user_a" });
+  assert.equal(
+    await status(
+      call(`/api/comments/${third.comment.id}`, {
+        method: "DELETE",
+        user: "user_fan",
+      })
+    ),
+    204
+  );
+  assert.equal(
+    await status(remove(`/operator/comments/${fourth.comment.id}/delete`)),
+    303
+  );
+  assert.equal(
+    await status(
+      call(`/api/comments/${fifth.comment.id}`, { method: "DELETE" })
+    ),
+    204
+  );
+  const after = await reportRows(env);
+  assert.deepEqual(after.slice(4), [
+    { ...gameReport(third), ...OPEN },
+    { ...commentReport(third), ...closed("creator_deleted") },
+    { ...commentReport(fourth), ...closed("deleted") },
+    { ...commentReport(fifth), ...closed("creator_deleted") },
+  ]);
+  const { targets } = await queue(operate);
+  assert.deepEqual(
+    targets.map((target) => target.id),
+    [`game-${third.gameId}`]
+  );
+});
 test("ban: Clerk bans the poster first, then all their published games and comments go, their reports closing as banned", async (t) => {
-  const { call, count, env } = await setup(t);
+  const { call, count, env, operate } = await setup(t);
   env.CLERK_SECRET_KEY = "sk_test_hopon";
   const clerk = stubClerk(t);
   const fan = { user: "user_fan", username: "fan" };
@@ -1745,8 +1920,8 @@ test("ban: Clerk bans the poster first, then all their published games and comme
     method: "POST",
     user: "user_a",
   });
-  const ban = (path = `/api/comments/${comment.id}/ban`) =>
-    call(path, { method: "POST", ...OPERATOR });
+  const ban = (path = `/operator/comments/${comment.id}/ban`) =>
+    operate(path, { method: "POST" });
   const before = await reportRows(env);
   const counts = () =>
     Promise.all(
@@ -1787,7 +1962,9 @@ test("ban: Clerk bans the poster first, then all their published games and comme
   ]);
   // Already banned in Clerk, so only the lookup.
   clerk.calls.length = 0;
-  assert.equal(await status(ban()), 204);
+  const banned = await ban();
+  assert.equal(banned.status, 303);
+  assert.equal(banned.headers.get("Location"), "/operator");
   assert.deepEqual(
     clerk.calls.map(({ method, path }) => [method, path]),
     [["GET", "/v1/users/user_fan"]]
@@ -1822,30 +1999,50 @@ test("ban: Clerk bans the poster first, then all their published games and comme
   ]);
 
   // Content already gone, the snapshot still names whom to Ban; again changes nothing.
-  assert.equal(await status(ban(`/api/games/${theirs.id}/ban`)), 204);
+  assert.equal(await status(ban(`/operator/games/${theirs.id}/ban`)), 303);
   assert.equal(await count("reports"), 4);
 });
-test("ban: an Operator can't be banned, and only a reported poster can", async (t) => {
-  const { call, env } = await setup(t);
+test("ban: asks first, bans an account whatever its Clerk role, and only a reported poster", async (t) => {
+  const { call, env, operate } = await setup(t);
   env.CLERK_SECRET_KEY = "sk_test_hopon";
   const clerk = stubClerk(t, { user_fan: "operator" });
   const posted = await commented(call);
   const { comment, reportComment } = posted;
-  const ban = () =>
-    call(`/api/comments/${comment.id}/ban`, { method: "POST", ...OPERATOR });
-  assert.equal(await status(ban()), 404);
+  const path = `/operator/comments/${comment.id}/ban`;
+  assert.equal(await status(operate(path)), 404);
+  assert.equal(await status(operate(path, { method: "POST" })), 404);
   await reportComment("spam", { user: "user_a" });
-  const refused = await ban();
-  assert.equal(refused.status, 400);
-  assert.deepEqual(await refused.json(), {
-    error: "You can't ban an Operator.",
-  });
+  const confirm = await operate(path);
+  assert.equal(confirm.status, 200);
+  const page = await confirm.text();
+  assert.match(page, /<h1>Ban @fan\?<\/h1>/u);
+  assert.match(
+    page,
+    /They can&#39;t sign in again, and all their published games and comments are deleted for everyone\./u
+  );
+  assert.match(
+    page,
+    new RegExp(
+      `<form method="post" action="${path}">\\s*<button>Ban</button>\\s*</form>`,
+      "u"
+    )
+  );
+  assert.match(
+    page,
+    new RegExp(`href="/operator#comment-${comment.id}">Cancel</a>`, "u")
+  );
+  // Asking changes nothing.
+  assert.deepEqual(clerk.calls, []);
+  assert.equal(await status(operate(path, { method: "POST" })), 303);
   assert.deepEqual(
-    clerk.calls.map(({ method, path }) => [method, path]),
-    [["GET", "/v1/users/user_fan"]]
+    clerk.calls.map(({ method, path: called }) => [method, called]),
+    [
+      ["GET", "/v1/users/user_fan"],
+      ["POST", "/v1/users/user_fan/ban"],
+    ]
   );
   assert.deepEqual(await reportRows(env), [
-    { ...commentReport(posted), ...OPEN },
+    { ...commentReport(posted), ...closed("banned") },
   ]);
 });
 
