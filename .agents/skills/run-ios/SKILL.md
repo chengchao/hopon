@@ -40,6 +40,18 @@ First-time setup (`.env`, `.dev.vars`, Clerk keys) is in the README's 准备 sec
 
 The simulator is usually signed in to a Clerk test account (`…+clerk_test@example.com`). Signing in is the human's step: Clerk's development instance accepts its fixed test code for `+clerk_test` addresses, and the human enters it. So ask before signing out, and say the human will need to sign back in.
 
+## Flows through Clerk
+
+An action the API takes through Clerk's Backend API (Ban) needs `CLERK_SECRET_KEY` in `apps/api/.dev.vars` (README step 4); without it Clerk answers 401 and the app shows the API's 502. One that needs a second real account (the poster to Ban, the banned person signing in) gets a throwaway one, once the human has agreed to it being created:
+
+```sh
+clerk users create -d '{"email_address":["<name>+clerk_test@example.com"],"username":"<name>"}' --instance dev --yes
+```
+
+Seed its content by its id, as below. Clerk sends a banned account a sign-in code and refuses it only at the code step, so checking the banned message means the human enters the code. Deleting the account afterwards is the human's step too: give them `clerk api /users/<id> -X DELETE`.
+
+The simulator's `text` action can drop the end of what it types (it lost `@example.com` from an email). Screenshot a field before submitting it, and type the missing part.
+
 ## Other accounts' content
 
 Checking what the signed-in account sees on someone else's game or comment needs rows written as another account, which only SQL can do. Find the simulator account's id from what it has written (`SELECT owner FROM games` / `SELECT user FROM likes`), insert content as any other `user_…` id with `pnpm -F api exec wrangler d1 execute DB --local --command "INSERT …"`, and delete those rows before step 6. A published game can borrow an Original's `html`:
