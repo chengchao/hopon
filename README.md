@@ -27,6 +27,12 @@ apps/api/      Cloudflare Worker API（D1 + Drizzle、Workers AI、Clerk JWT 校
    printf 'CLERK_JWT_KEY="%s"\n' "$(cat clerk-public-key.pem)" >> apps/api/.dev.vars
    ```
 
+4. Operator 的 Ban 通过 Clerk Backend API 封禁账户，Worker 需要 Secret key（控制台 API keys → Secret keys，`sk_test_...`），同样写入 `apps/api/.dev.vars`。它列在 `wrangler.jsonc` 的 `secrets.required` 里（只有列出的 secret 会从 `.dev.vars` 加载）；本地缺少时 wrangler 只警告，其他功能照常，只有 Ban 会失败：
+
+   ```sh
+   echo 'CLERK_SECRET_KEY=sk_test_...' >> apps/api/.dev.vars
+   ```
+
 ## 本地运行
 
 ```sh
@@ -55,6 +61,7 @@ pnpm run db:local
 
 ```sh
 pnpm -F api exec wrangler secret put CLERK_JWT_KEY < clerk-public-key.pem
+pnpm -F api exec wrangler secret put CLERK_SECRET_KEY   # 生产实例的 sk_live_...
 pnpm run deploy
 ```
 

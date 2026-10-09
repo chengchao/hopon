@@ -17,7 +17,7 @@ const key = (target: ReportTarget) => `${target.kind}:${target.id}`;
 const when = (timestamp: string) =>
   new Date(`${timestamp.replace(" ", "T")}Z`).toLocaleString();
 
-// The Operator's queue: one card per reported game or comment, oldest open report first, each with Delete and Dismiss.
+// The Operator's queue: one card per reported game or comment, oldest open report first, each with Delete, Ban and Dismiss.
 // The API is the gate; Me only links here for the Operator.
 const Reports = () => {
   const insets = useSafeAreaInsets();
@@ -59,13 +59,16 @@ const Reports = () => {
     }, [load])
   );
 
-  // Reloads afterwards: deleting a game also closes the reports on its comments.
-  const act = async (target: ReportTarget, action: "delete" | "dismiss") => {
+  // Reloads afterwards: deleting a game also closes the reports on its comments, and a Ban those on all their content.
+  const act = async (
+    target: ReportTarget,
+    action: "ban" | "delete" | "dismiss"
+  ) => {
     const path = `/api/${target.kind}s/${target.id}`;
     setActing(true);
     setError("");
     try {
-      await api(action === "delete" ? path : `${path}/dismiss`, {
+      await api(action === "delete" ? path : `${path}/${action}`, {
         method: action === "delete" ? "DELETE" : "POST",
         token: await getToken(),
       });
@@ -88,6 +91,20 @@ const Reports = () => {
           onPress: () => act(target, "delete"),
           style: "destructive",
           text: "Delete",
+        },
+      ]
+    );
+
+  const confirmBan = (target: ReportTarget) =>
+    Alert.alert(
+      `Ban @${target.handle ?? "this person"}?`,
+      "They can't sign in again, and all their published games and comments are deleted for everyone.",
+      [
+        { style: "cancel", text: "Cancel" },
+        {
+          onPress: () => act(target, "ban"),
+          style: "destructive",
+          text: "Ban",
         },
       ]
     );
@@ -115,7 +132,7 @@ const Reports = () => {
           </Text>
         ))}
       </View>
-      <View className="flex-row gap-2 pt-1">
+      <View className="flex-row flex-wrap gap-2 pt-1">
         {item.live && item.kind === "game" && (
           <Button
             variant="outline"
@@ -135,6 +152,14 @@ const Reports = () => {
             <Text>Delete</Text>
           </Button>
         )}
+        <Button
+          variant="destructive"
+          className="rounded-full"
+          disabled={acting}
+          onPress={() => confirmBan(item)}
+        >
+          <Text>Ban</Text>
+        </Button>
         <Button
           variant="ghost"
           className="rounded-full"

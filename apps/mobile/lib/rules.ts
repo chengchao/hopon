@@ -11,7 +11,7 @@ export const agreedToRules = (
 ) => user?.unsafeMetadata.rulesAgreed === RULES_VERSION;
 
 // Placeholder until the mailbox exists; the Worker has its own copy in apps/api/src/pages.ts.
-const CONTACT_EMAIL = "support@hopon.example";
+export const CONTACT_EMAIL = "support@hopon.example";
 
 export const openRules = () => openBrowserAsync(`${API_URL}/terms`);
 

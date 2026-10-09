@@ -16,7 +16,7 @@
     "remote": true,
   },
   "secrets": {
-    "required": ["CLERK_JWT_KEY"],
+    "required": ["CLERK_JWT_KEY", "CLERK_SECRET_KEY"],
   },
   "vars": {
     "AI_MODEL": "@cf/moonshotai/kimi-k2.5",
