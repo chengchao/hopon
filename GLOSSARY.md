@@ -18,7 +18,7 @@ Make a small game from one sentence, then swipe a feed to discover and play othe
 
 **Delete**: Permanently take away a published **Game** or a **Comment**, so nobody can see it again. Deleting a **Game** also takes away its likes, **Comments** and **Saves**. The **Creator** or the **Operator** deletes a **Game**; there is no hiding it and bringing it back. _Avoid_: Remove, unpublish, take down
 
-**Operator**: The person who runs hopon, deletes **Games** and **Comments** that break its **Rules**, and **Bans** the people who post them. _Avoid_: Admin, moderator
+**Operator**: The person who runs hopon, deletes **Games** and **Comments** that break its **Rules**, and **Bans** the people who post them. They do it from a password-protected web page outside the app; in the app the Operator is an ordinary person. _Avoid_: Admin, moderator
 
 **Rules**: What everyone agrees to, with an explicit "I agree", before they can do anything signed in: zero tolerance for objectionable content and abusive people. Breaking them gets **Games** and **Comments** **Deleted** and can get a person **Banned**. If the Rules change, everyone agrees again. _Avoid_: Terms, community guidelines, ToS
 
