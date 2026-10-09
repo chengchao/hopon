@@ -11,6 +11,7 @@ Judgement calls a reviewer checks in a diff. Anything a fixed pattern can catch 
 
 ## API (`apps/api`)
 
+- **AI answers are untrusted.** Code that reads Workers AI output sends any shape it gets (`null`, a string, missing fields, nothing) down its failure path, not only the shapes the generated types promise. A `Schema` decode, as in `parseGame`, does that in one step.
 - **Not found, not forbidden.** A request for a record hidden from the viewer (someone else's draft, a comment you can't delete, a game across a Block) gets the same `404` and message as a missing one.
 
 ## Both

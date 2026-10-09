@@ -13,7 +13,7 @@
     "db:remote": "pnpm -F api db:remote",
     "deploy": "pnpm -F api deploy",
     "test": "pnpm -r test",
-    "check": "pnpm -r test && oxlint apps packages *.ts *.js && oxfmt --check && pnpm -r typecheck",
+    "check": "oxlint apps packages *.ts *.js && oxfmt --check && pnpm -r typecheck && pnpm -r test",
     "lint": "oxlint apps packages *.ts *.js",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
