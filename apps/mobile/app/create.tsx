@@ -58,6 +58,7 @@ const Create = () => {
   const showDraft = useCallback(
     async (game: GameSummary | null) => {
       setDraft(game);
+      setPublishFailure("");
       if (game) {
         reveal.current = true;
         const token = (await getToken()) ?? undefined;
@@ -105,6 +106,8 @@ const Create = () => {
     if (busy) {
       return;
     }
+    // Making happens on the form, so its busy text and errors mustn't pull the sheet back down to the old draft.
+    reveal.current = false;
     setBusy(true);
     setError("");
     try {
