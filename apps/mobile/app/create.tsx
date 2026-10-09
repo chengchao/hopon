@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { feedGameHeight } from "@/components/feed";
 import { GameView } from "@/components/game-view";
 import { Ticket } from "@/components/ticket";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,9 @@ const examples = [
   },
 ];
 
+// Until Discover has laid out a game (it's empty, or Make opened first): the smallest viewport games are built for.
+const MIN_GAME_HEIGHT = 540;
+
 const Create = () => {
   const insets = useSafeAreaInsets();
   const { isLoaded, isSignedIn, getToken } = useAuth();
@@ -44,13 +48,19 @@ const Create = () => {
   const [busy, setBusy] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState("");
+  const [publishFailure, setPublishFailure] = useState("");
   const restored = useRef(false);
+  const scroll = useRef<ScrollView>(null);
+  // Set when a draft appears: the preview stays scrolled to the top of the sheet, through the layout shifts that follow, until the person scrolls.
+  const reveal = useRef(false);
 
   // Clerk tokens live ~60s, so every request and every preview load gets a fresh one.
   const showDraft = useCallback(
     async (game: GameSummary | null) => {
       setDraft(game);
+      setPublishFailure("");
       if (game) {
+        reveal.current = true;
         const token = (await getToken()) ?? undefined;
         setPreview((p) => ({ key: p.key + 1, token }));
       }
@@ -96,6 +106,8 @@ const Create = () => {
     if (busy) {
       return;
     }
+    // Making happens on the form, so its busy text and errors mustn't pull the sheet back down to the old draft.
+    reveal.current = false;
     setBusy(true);
     setError("");
     try {
@@ -120,7 +132,7 @@ const Create = () => {
       return router.push("/handle");
     }
     setPublishing(true);
-    setError("");
+    setPublishFailure("");
     try {
       await api(`/api/games/${draft.id}/publish`, {
         method: "POST",
@@ -134,7 +146,7 @@ const Create = () => {
       if (handleRejected(publishError)) {
         router.push(HANDLE_REJECTED);
       } else {
-        setError((publishError as Error).message);
+        setPublishFailure((publishError as Error).message);
       }
     }
     setPublishing(false);
@@ -145,6 +157,10 @@ const Create = () => {
   const makeLabel = draft ? "Make it again" : "Make the game";
   return (
     <ScrollView
+      ref={scroll}
+      onScrollBeginDrag={() => {
+        reveal.current = false;
+      }}
       className="flex-1 bg-background"
       contentContainerClassName="gap-5 px-5"
       contentContainerStyle={{
@@ -233,12 +249,23 @@ const Create = () => {
         </Text>
       )}
 
-      <View>
+      {/* A draft spans the sheet less the feed row's px-3, so it's as wide as the feed shows it. */}
+      <View
+        className={cn(draft && "-mx-5 px-3")}
+        onLayout={(e) => {
+          if (reveal.current) {
+            scroll.current?.scrollTo({ y: e.nativeEvent.layout.y });
+          }
+        }}
+      >
         <View
           className={
             draft
-              ? "h-[420px] overflow-hidden rounded-t-2xl bg-card"
+              ? "overflow-hidden rounded-t-2xl bg-card"
               : "h-[260px] rounded-2xl bg-card"
+          }
+          style={
+            draft ? { height: feedGameHeight() ?? MIN_GAME_HEIGHT } : undefined
           }
         >
           {draft ? (
@@ -285,6 +312,15 @@ const Create = () => {
                 </Text>
               </Button>
             </View>
+            {/* Here, not with the form's errors: those sit above the fold while the preview fills the sheet. */}
+            {!!publishFailure && (
+              <Text
+                accessibilityRole="alert"
+                className="pt-2 text-primary-foreground"
+              >
+                {publishFailure}
+              </Text>
+            )}
           </Ticket>
         )}
       </View>

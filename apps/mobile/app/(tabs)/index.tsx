@@ -16,6 +16,7 @@ const Discover = () => {
         key={`${published}:${isSignedIn}`}
         path="/api/games"
         empty="No games yet. Make the first one."
+        measure
       />
     </View>
   );
