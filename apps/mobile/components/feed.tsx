@@ -23,15 +23,21 @@ import { Text } from "@/components/ui/text";
 import { api, gameUrl } from "@/lib/api";
 import { snapTarget } from "@/lib/feed-motion";
 
+// How tall the `measure` feed (Discover) last laid out its game box, so Make previews a draft at that height.
+let measuredGameHeight: number | undefined;
+export const feedGameHeight = () => measuredGameHeight;
+
 // The vertical, one-game-at-a-time feed over a paged endpoint (`?before=` cursor). `start` is the first page's cursor.
 export const Feed = ({
   path,
   start,
   empty,
+  measure = false,
 }: {
   path: string;
   start?: number;
   empty: string;
+  measure?: boolean;
 }) => {
   const [games, setGames] = useState<FeedGame[]>([]);
   const [active, setActive] = useState(0);
@@ -260,7 +266,14 @@ export const Feed = ({
             extraData={active}
             renderItem={({ item, index }) => (
               <View style={{ height }} className="px-3 pb-3 pt-2">
-                <View className="flex-1 overflow-hidden rounded-t-2xl bg-card">
+                <View
+                  className="flex-1 overflow-hidden rounded-t-2xl bg-card"
+                  onLayout={(e) => {
+                    if (measure) {
+                      measuredGameHeight = e.nativeEvent.layout.height;
+                    }
+                  }}
+                >
                   {Math.abs(index - active) <= 1 && (
                     // Keyed by row: a WKWebView moved up a row (when a reported game leaves) paints blank, so it reloads.
                     <GameView
