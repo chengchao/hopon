@@ -36,12 +36,8 @@ import {
 } from "./schema.ts";
 
 // Set only by `pnpm api:offline` (`--var`), so it isn't in wrangler.jsonc or the generated `Env`.
-// OPERATOR_WEBHOOK_URL and CLERK_SECRET_KEY are optional secrets (`wrangler secret put`), so local dev runs without them.
-type HoponEnv = Env & {
-  CLERK_SECRET_KEY?: string;
-  HOPON_OFFLINE?: string;
-  OPERATOR_WEBHOOK_URL?: string;
-};
+// OPERATOR_WEBHOOK_URL is an optional secret (`wrangler secret put`), so local dev runs without one.
+type HoponEnv = Env & { HOPON_OFFLINE?: string; OPERATOR_WEBHOOK_URL?: string };
 
 // Clerk session JWT from `Authorization: Bearer`, verified offline with the dashboard's PEM key (CLERK_JWT_KEY).
 // `username` is a custom session claim ({{user.username}}) set on the Clerk instance; null until the user picks one.
