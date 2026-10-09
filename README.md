@@ -33,7 +33,13 @@ apps/api/      Cloudflare Worker API（D1 + Drizzle、Workers AI、Clerk JWT 校
    echo 'CLERK_SECRET_KEY=sk_test_...' >> apps/api/.dev.vars
    ```
 
-5. 每条新 Report 会 POST 到 Operator 的 webhook（`OPERATOR_WEBHOOK_URL`），同样列在 `secrets.required` 里。本地想试 webhook 时写入 `apps/api/.dev.vars`；缺少时 wrangler 只警告，Report 照常保存，只是不发通知。
+5. 每条新 Report 会 POST 到 Operator 的 webhook（`OPERATOR_WEBHOOK_URL`），同样列在 `secrets.required` 里。本地想试 webhook 时写入 `apps/api/.dev.vars`；缺少时 wrangler 只警告，Report 照常保存，只是不发通知。通知末尾附有该内容在 `/operator` 上的链接。
+
+6. Operator 在 Worker 的 `/operator` 页面处理 Report（Delete、Dismiss、Ban），用浏览器的 Basic 认证登录：用户名随意，密码是 `OPERATOR_PASSWORD`（至少 32 位随机字符，用密码生成器生成），同样列在 `secrets.required` 里。本地写入 `apps/api/.dev.vars` 后打开 http://localhost:8787/operator；缺少或为空时谁都进不去：
+
+   ```sh
+   echo 'OPERATOR_PASSWORD=...' >> apps/api/.dev.vars
+   ```
 
 ## 本地运行
 
@@ -65,6 +71,7 @@ pnpm run db:local
 pnpm -F api exec wrangler secret put CLERK_JWT_KEY < clerk-public-key.pem
 pnpm -F api exec wrangler secret put CLERK_SECRET_KEY   # 生产实例的 sk_live_...
 pnpm -F api exec wrangler secret put OPERATOR_WEBHOOK_URL
+pnpm -F api exec wrangler secret put OPERATOR_PASSWORD
 pnpm run deploy
 ```
 

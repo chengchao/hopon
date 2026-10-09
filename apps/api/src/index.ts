@@ -8,7 +8,6 @@ import type {
   FeedGame,
   GamePage,
   GameSummary,
-  ReportQueue,
   ReportTarget,
   SavedGame,
 } from "@hopon/schemas";
@@ -19,12 +18,23 @@ import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { Context, Effect, Result } from "effect";
 import { Hono } from "hono";
 import type { Context as HonoContext } from "hono";
+import { basicAuth } from "hono/basic-auth";
 import { bodyLimit } from "hono/body-limit";
+import { csrf } from "hono/csrf";
+import { HTTPException } from "hono/http-exception";
+import { timingSafeEqual } from "hono/utils/buffer";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type * as z from "zod/mini";
 
 import { fail, GAME_CSP, parseGame } from "./game.ts";
-import { PAGE_CSP, SUPPORT, TERMS } from "./pages.ts";
+import {
+  OPERATOR_CSP,
+  operatorConfirm,
+  operatorQueue,
+  PAGE_CSP,
+  SUPPORT,
+  TERMS,
+} from "./pages.ts";
 import {
   blocks,
   comments,
@@ -41,8 +51,8 @@ type HoponEnv = Env & { HOPON_OFFLINE?: string };
 
 // Clerk session JWT from `Authorization: Bearer`, verified offline with the dashboard's PEM key (CLERK_JWT_KEY).
 // `username` is a custom session claim ({{user.username}}) set on the Clerk instance; null until the user picks one.
-// `role` is another ({{user.public_metadata.role}}): "operator" marks the Operator. This check is the only gate.
-// Both live in the Clerk instance's config, not this repo: `clerk config pull | jq .session.claims` shows them.
+// It lives in the Clerk instance's config, not this repo: `clerk config pull | jq .session.claims` shows it.
+// Clerk doesn't know who the Operator is: the Operator's routes are under /operator, behind OPERATOR_PASSWORD.
 const session = async (request: Request, env: HoponEnv) => {
   const token = /^Bearer (?<token>\S+)$/u.exec(
     request.headers.get("Authorization") || ""
@@ -53,7 +63,6 @@ const session = async (request: Request, env: HoponEnv) => {
   try {
     const claims = await verifyToken(token, { jwtKey: env.CLERK_JWT_KEY });
     return {
-      operator: claims.role === "operator",
       owner: claims.sub,
       username:
         typeof claims.username === "string" && claims.username
@@ -81,7 +90,7 @@ const systemPrompt = `You create polished, small, fully playable mobile browser 
 class Db extends Context.Service<Db, DrizzleD1Database>()("hopon/api/Db") {}
 class Viewer extends Context.Service<
   Viewer,
-  { operator: boolean; owner?: string; username: string | null }
+  { owner?: string; username: string | null }
 >()("hopon/api/Viewer") {}
 
 // One Drizzle query. A D1 failure is a defect, so the client sees a 500.
@@ -97,17 +106,12 @@ const signedIn = Effect.fnUntraced(function* (message: string) {
   return owner;
 });
 
-const operatorOnly = Effect.gen(function* () {
-  const { operator } = yield* Viewer;
-  if (!operator) {
-    return yield* fail(403, "Only the Operator can do this.");
-  }
-});
+type ClosedHow = NonNullable<typeof reports.$inferSelect.closedHow>;
 
 // Closes the open reports `on` matches, recording how and when. Closed reports are kept as the audit trail.
 const closeReports = (
   db: DrizzleD1Database,
-  how: NonNullable<typeof reports.$inferSelect.closedHow>,
+  how: ClosedHow,
   on: SQL | undefined
 ) =>
   db
@@ -292,7 +296,6 @@ interface AppEnv {
   Bindings: HoponEnv;
   Variables: {
     db: DrizzleD1Database;
-    operator?: boolean;
     owner?: string;
     username?: string | null;
   };
@@ -307,7 +310,6 @@ const run = <A, E>(
     effect.pipe(
       Effect.provideService(Db, c.var.db),
       Effect.provideService(Viewer, {
-        operator: c.var.operator ?? false,
         owner: c.var.owner,
         username: c.var.username ?? null,
       })
@@ -332,12 +334,11 @@ app.use(async (c, next) => {
 
 app.use(async (c, next) => {
   // Bearer tokens are never sent automatically by browsers, so writes need no Origin/CSRF check.
-  const { operator, owner, username } = await session(c.req.raw, c.env);
+  const { owner, username } = await session(c.req.raw, c.env);
   if (c.req.path.startsWith("/api/") && c.req.method !== "GET" && !owner) {
     throw fail(401, "Sign in to continue.");
   }
   c.set("db", drizzle(c.env.DB));
-  c.set("operator", operator);
   c.set("owner", owner);
   c.set("username", username);
   return next();
@@ -354,6 +355,11 @@ app.use(
 
 // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Hono's error handler API is a callback.
 app.onError((error: Error & { status?: ContentfulStatusCode }, c) => {
+  // Hono middleware's own responses, such as basicAuth's 401 whose WWW-Authenticate makes the browser ask. Other
+  // HTTPExceptions (a malformed JSON body) carry only a status and message, and render as JSON below.
+  if (error instanceof HTTPException && error.res) {
+    return error.getResponse();
+  }
   if (!error.status) {
     console.error("Request failed", error);
   }
@@ -539,12 +545,20 @@ app.post(
     )
 );
 
+// Deletes a comment, closing its open reports as `how`.
+const deleteComment = (id: number, how: ClosedHow) =>
+  query((db) =>
+    db.batch([
+      db.delete(comments).where(eq(comments.id, id)),
+      closeReports(db, how, eq(reports.commentId, id)),
+    ])
+  );
+
 app.delete(`/api/comments/${ID}`, (c) =>
   run(
     c,
     Effect.gen(function* () {
       const owner = yield* signedIn("Sign in to continue.");
-      const { operator } = yield* Viewer;
       const id = Number(c.req.param("id"));
       const comment = yield* query((db) =>
         db
@@ -554,24 +568,12 @@ app.delete(`/api/comments/${ID}`, (c) =>
           .where(eq(comments.id, id))
           .get()
       );
-      // The commenter, the game's creator or the Operator; anyone else gets the same 404 as a missing comment.
-      const allowed =
-        operator || comment?.user === owner || comment?.gameOwner === owner;
-      if (!comment || !allowed) {
+      // The commenter or the game's creator; anyone else gets the same 404 as a missing comment.
+      if (comment?.user !== owner && comment?.gameOwner !== owner) {
         return yield* fail(404, "Comment not found.");
       }
-      // Its reports close as `deleted` only when the Operator takes down someone else's comment. The commenter, or the
-      // game's Creator clearing a comment off their own game, closes them as `creator_deleted`: nobody else's decision.
-      yield* query((db) =>
-        db.batch([
-          db.delete(comments).where(eq(comments.id, id)),
-          closeReports(
-            db,
-            operator && comment.user !== owner ? "deleted" : "creator_deleted",
-            eq(reports.commentId, id)
-          ),
-        ])
-      );
+      // The commenter, or the game's Creator clearing a comment off their own game: nobody else's decision.
+      yield* deleteComment(id, "creator_deleted");
       return c.body(null, 204);
     })
   )
@@ -612,43 +614,42 @@ const deleteGames = (db: DrizzleD1Database, which: SQL | undefined) => {
   ] as const;
 };
 
-// The Creator or the Operator deletes a published game, with its likes, comments and saves in one batch. Anyone else gets the same 404 as a missing game. Reports outlive it, but the open
-// ones on it and its comments close: `creator_deleted` when its Creator deletes it, `deleted` when the Operator does.
+// Deletes a game with its likes, comments and saves in one batch. Reports outlive it, but the open ones on it and its
+// comments close as `how`.
+const deleteGame = (id: number, how: ClosedHow) =>
+  query((db) =>
+    db.batch([
+      ...deleteGames(db, eq(games.id, id)),
+      closeReports(db, how, eq(reports.gameId, id)),
+    ])
+  );
+
+// The Creator deletes their published game. Anyone else gets the same 404 as a missing game.
 app.delete(`/api/games/${ID}`, (c) =>
   run(
     c,
     Effect.gen(function* () {
       const owner = yield* signedIn("Sign in to continue.");
-      const { operator } = yield* Viewer;
       const id = Number(c.req.param("id"));
       const game = yield* publishedGame(id);
-      if (!operator && game.owner !== owner) {
+      if (game.owner !== owner) {
         return yield* fail(404, GAME_UNAVAILABLE);
       }
-      yield* query((db) =>
-        db.batch([
-          ...deleteGames(db, eq(games.id, id)),
-          closeReports(
-            db,
-            game.owner === owner ? "creator_deleted" : "deleted",
-            eq(reports.gameId, id)
-          ),
-        ])
-      );
+      yield* deleteGame(id, "creator_deleted");
       return c.body(null, 204);
     })
   )
 );
 
-// The commenter, the game's creator or the Operator may delete a comment.
+// The commenter or the game's creator may delete a comment.
 const commentView = (
   { user, ...comment }: typeof comments.$inferSelect,
-  { operator, owner }: Context.Service.Shape<typeof Viewer>,
+  { owner }: Context.Service.Shape<typeof Viewer>,
   gameOwner: string
 ): Comment => ({
   author: comment.author,
   body: comment.body,
-  canDelete: operator || user === owner || gameOwner === owner,
+  canDelete: user === owner || gameOwner === owner,
   createdAt: comment.createdAt,
   id: comment.id,
   mine: user === owner,
@@ -732,9 +733,11 @@ app.post(
     )
 );
 
-// Tells the Operator about a new report. Best effort: the report is already stored, so a failed send is only logged.
+// Tells the Operator about a new report, linking to it on /operator at `origin`. Best effort: the report is already
+// stored, so a failed send is only logged.
 const notifyOperator = async (
   url: string,
+  origin: string,
   report: typeof reports.$inferInsert
 ) => {
   const reason = REPORT_REASONS.find((r) => r.reason === report.reason);
@@ -744,6 +747,9 @@ const notifyOperator = async (
       ? [`Comment ${report.commentId} on game ${report.gameId}`, report.body]
       : [`Game ${report.gameId}: ${report.title}`, report.description]),
     `By @${report.handle ?? "?"} (${report.creator}), reported by ${report.reporter}`,
+    report.commentId
+      ? `${origin}/operator#comment-${report.commentId}`
+      : `${origin}/operator#game-${report.gameId}`,
   ].join("\n");
   try {
     const response = await fetch(url, {
@@ -775,7 +781,9 @@ const fileReport = Effect.fn("fileReport")(function* (
   // Unset in tests, and in local dev without it in .dev.vars (wrangler only warns).
   const url = c.env.OPERATOR_WEBHOOK_URL;
   if (created && url) {
-    c.executionCtx.waitUntil(notifyOperator(url, report));
+    c.executionCtx.waitUntil(
+      notifyOperator(url, new URL(c.req.url).origin, report)
+    );
   }
 });
 
@@ -919,83 +927,76 @@ app.delete(`/api/blocks/${ID}`, (c) =>
   )
 );
 
-// The Operator's open count: how many games and comments have open reports.
-app.get("/api/reports/count", (c) =>
-  run(
-    c,
-    Effect.gen(function* () {
-      yield* operatorOnly;
-      const row = yield* query((db) => {
-        const open = db
-          .selectDistinct({
-            commentId: reports.commentId,
-            gameId: reports.gameId,
-          })
-          .from(reports)
-          .where(eq(reports.status, "open"))
-          .as("open");
-        return db
-          .select({ count: sql<number>`COUNT(*)` })
-          .from(open)
-          .get();
-      });
-      return c.json({ count: row?.count ?? 0 });
-    })
-  )
+// The Operator moderates from /operator, a page with no script. One password, OPERATOR_PASSWORD, guards every route
+// under it with HTTP Basic auth; the username is ignored, and with the secret unset or empty nobody gets in. Browsers
+// send Basic credentials on any form post, another site's too, so csrf() refuses writes the page didn't make. Under
+// `Referrer-Policy: no-referrer` the page's own posts arrive with `Origin: null`; `Sec-Fetch-Site: same-origin` lets them in.
+app.use(
+  "/operator/*",
+  basicAuth({
+    realm: "hopon Operator",
+    verifyUser: async (_user, password, c) => {
+      const expected: string | undefined = c.env.OPERATOR_PASSWORD;
+      return !!expected && (await timingSafeEqual(password, expected));
+    },
+  }),
+  csrf()
 );
 
 // The Operator's queue: open reports grouped by game or comment, oldest open report first.
-// ponytail: every open report in one response; page it if the open queue ever outgrows a screenful or two.
-app.get("/api/reports", (c) =>
+// ponytail: every open report on one page; page it if the open queue ever outgrows a screenful or two.
+const reportQueue = Effect.gen(function* () {
+  const rows = yield* query((db) =>
+    db
+      .select({
+        body: reports.body,
+        commentId: reports.commentId,
+        createdAt: reports.createdAt,
+        description: reports.description,
+        gameId: reports.gameId,
+        handle: reports.handle,
+        live: sql`CASE WHEN ${reports}.comment_id IS NULL
+          THEN EXISTS(SELECT 1 FROM ${games} WHERE ${games}.id = ${reports}.game_id)
+          ELSE EXISTS(SELECT 1 FROM ${comments} WHERE ${comments}.id = ${reports}.comment_id) END`.mapWith(
+          Boolean
+        ),
+        reason: reports.reason,
+        title: reports.title,
+      })
+      .from(reports)
+      .where(eq(reports.status, "open"))
+      .orderBy(reports.id)
+  );
+  // Groups keep the order of their first (oldest) report, whose snapshot the target shows.
+  const groups = Map.groupBy(rows, (row) => `${row.gameId}:${row.commentId}`);
+  return [...groups.values()].map((group): ReportTarget => {
+    const [oldest] = group;
+    return {
+      body: oldest.body,
+      description: oldest.description,
+      gameId: oldest.gameId,
+      handle: oldest.handle,
+      id: oldest.commentId ?? oldest.gameId,
+      kind: oldest.commentId === null ? "game" : "comment",
+      live: oldest.live,
+      reasons: REPORT_REASONS.flatMap(({ reason }) => {
+        const reported = group.filter((row) => row.reason === reason);
+        return reported.length ? [{ count: reported.length, reason }] : [];
+      }),
+      reportedAt: oldest.createdAt,
+      title: oldest.title,
+    };
+  });
+});
+
+app.get("/operator", (c) =>
   run(
     c,
     Effect.gen(function* () {
-      yield* operatorOnly;
-      const rows = yield* query((db) =>
-        db
-          .select({
-            body: reports.body,
-            commentId: reports.commentId,
-            createdAt: reports.createdAt,
-            description: reports.description,
-            gameId: reports.gameId,
-            handle: reports.handle,
-            live: sql`CASE WHEN ${reports}.comment_id IS NULL
-              THEN EXISTS(SELECT 1 FROM ${games} WHERE ${games}.id = ${reports}.game_id)
-              ELSE EXISTS(SELECT 1 FROM ${comments} WHERE ${comments}.id = ${reports}.comment_id) END`.mapWith(
-              Boolean
-            ),
-            reason: reports.reason,
-            title: reports.title,
-          })
-          .from(reports)
-          .where(eq(reports.status, "open"))
-          .orderBy(reports.id)
-      );
-      // Groups keep the order of their first (oldest) report, whose snapshot the target shows.
-      const groups = Map.groupBy(
-        rows,
-        (row) => `${row.gameId}:${row.commentId}`
-      );
-      const targets = [...groups.values()].map((group): ReportTarget => {
-        const [oldest] = group;
-        return {
-          body: oldest.body,
-          description: oldest.description,
-          gameId: oldest.gameId,
-          handle: oldest.handle,
-          id: oldest.commentId ?? oldest.gameId,
-          kind: oldest.commentId === null ? "game" : "comment",
-          live: oldest.live,
-          reasons: REPORT_REASONS.flatMap(({ reason }) => {
-            const reported = group.filter((row) => row.reason === reason);
-            return reported.length ? [{ count: reported.length, reason }] : [];
-          }),
-          reportedAt: oldest.createdAt,
-          title: oldest.title,
-        };
+      const targets = yield* reportQueue;
+      return c.html(operatorQueue(targets), 200, {
+        "Content-Security-Policy": OPERATOR_CSP,
       });
-      return c.json({ targets } satisfies ReportQueue);
     })
   )
 );
@@ -1008,21 +1009,88 @@ const reportsOn = (c: HonoContext<AppEnv>) => {
     : eq(reports.commentId, id);
 };
 
-// Dismiss: the Operator closes every open report on a game (not its comments') or a comment, and leaves it up.
-// It stays hidden from its reporters, whose lists leave out what they reported, open or closed.
-app.post(`/api/:kind{games|comments}/${ID}/dismiss`, (c) =>
+// The poster a target's reports name, from their snapshot, so it's known after the content is gone.
+const reportedPoster = Effect.fn("reportedPoster")(function* (
+  c: HonoContext<AppEnv>
+) {
+  const report = yield* query((db) =>
+    db
+      .select({ creator: reports.creator, handle: reports.handle })
+      .from(reports)
+      .where(reportsOn(c))
+      .get()
+  );
+  if (!report) {
+    return yield* fail(404, "Report not found.");
+  }
+  return report;
+});
+
+// Delete and Ban ask first, on a page of their own.
+app.get(`/operator/:kind{games|comments}/${ID}/:action{delete|ban}`, (c) =>
   run(
     c,
     Effect.gen(function* () {
-      yield* operatorOnly;
-      yield* query((db) => closeReports(db, "dismissed", reportsOn(c)));
-      return c.body(null, 204);
+      const { handle } = yield* reportedPoster(c);
+      const target = {
+        handle,
+        id: Number(c.req.param("id")),
+        kind: c.req.param("kind") === "games" ? "game" : "comment",
+      } as const;
+      return c.html(
+        operatorConfirm(
+          target,
+          c.req.param("action") === "ban" ? "ban" : "delete"
+        ),
+        200,
+        { "Content-Security-Policy": OPERATOR_CSP }
+      );
     })
   )
 );
 
-// Step 1 of a Ban: Clerk stops the account signing in and revokes its sessions. Refuses an Operator. An account
-// already banned is left as is, so running a Ban again goes straight on to step 2. Any Clerk failure is a 502.
+// Dismiss: the Operator closes every open report on a game (not its comments') or a comment, and leaves it up.
+// It stays hidden from its reporters, whose lists leave out what they reported, open or closed.
+app.post(`/operator/:kind{games|comments}/${ID}/dismiss`, (c) =>
+  run(
+    c,
+    Effect.gen(function* () {
+      yield* query((db) => closeReports(db, "dismissed", reportsOn(c)));
+      return c.redirect("/operator", 303);
+    })
+  )
+);
+
+// Delete: the Operator takes down a published game or a comment, closing its open reports (and, for a game, those on
+// its comments) as `deleted`.
+app.post(`/operator/:kind{games|comments}/${ID}/delete`, (c) =>
+  run(
+    c,
+    Effect.gen(function* () {
+      const id = Number(c.req.param("id"));
+      if (c.req.param("kind") === "games") {
+        yield* publishedGame(id);
+        yield* deleteGame(id, "deleted");
+      } else {
+        const comment = yield* query((db) =>
+          db
+            .select({ id: comments.id })
+            .from(comments)
+            .where(eq(comments.id, id))
+            .get()
+        );
+        if (!comment) {
+          return yield* fail(404, "Comment not found.");
+        }
+        yield* deleteComment(id, "deleted");
+      }
+      return c.redirect("/operator", 303);
+    })
+  )
+);
+
+// Step 1 of a Ban: Clerk stops the account signing in and revokes its sessions. An account already banned is left as
+// is, so running a Ban again goes straight on to step 2. Any Clerk failure is a 502.
 const banInClerk = Effect.fn("banInClerk")(function* (
   env: HoponEnv,
   account: string
@@ -1048,10 +1116,7 @@ const banInClerk = Effect.fn("banInClerk")(function* (
         if (!response.ok) {
           throw new Error(`Clerk ${method} ${path}: ${response.status}`);
         }
-        return (await response.json()) as {
-          banned?: unknown;
-          public_metadata?: { role?: unknown };
-        };
+        return (await response.json()) as { banned?: unknown };
       },
     }).pipe(
       Effect.timeoutOrElse({
@@ -1060,9 +1125,6 @@ const banInClerk = Effect.fn("banInClerk")(function* (
       })
     );
   const user = yield* clerk("", "GET");
-  if (user.public_metadata?.role === "operator") {
-    return yield* fail(400, "You can't ban an Operator.");
-  }
   if (user.banned !== true) {
     yield* clerk("/ban", "POST");
   }
@@ -1072,22 +1134,11 @@ const banInClerk = Effect.fn("banInClerk")(function* (
 // Clerk first, then one D1 batch Deletes every published game and comment of theirs and closes the open reports on
 // them (and on others' comments on their games) as `banned`. Both steps are idempotent, so running it again finishes
 // a failed Ban. Their drafts, likes, saves, blocks and the reports they filed stay.
-app.post(`/api/:kind{games|comments}/${ID}/ban`, (c) =>
+app.post(`/operator/:kind{games|comments}/${ID}/ban`, (c) =>
   run(
     c,
     Effect.gen(function* () {
-      yield* operatorOnly;
-      const report = yield* query((db) =>
-        db
-          .select({ creator: reports.creator })
-          .from(reports)
-          .where(reportsOn(c))
-          .get()
-      );
-      if (!report) {
-        return yield* fail(404, "Report not found.");
-      }
-      const account = report.creator;
+      const { creator: account } = yield* reportedPoster(c);
       yield* banInClerk(c.env, account);
       yield* query((db) => {
         const theirGames = and(
@@ -1110,7 +1161,7 @@ app.post(`/api/:kind{games|comments}/${ID}/ban`, (c) =>
           ...deleteGames(db, theirGames),
         ]);
       });
-      return c.body(null, 204);
+      return c.redirect("/operator", 303);
     })
   )
 );
