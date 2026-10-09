@@ -141,10 +141,12 @@ export const CommentsSheet = ({
         setText("");
       }
     } catch (postError) {
-      if (open.current === gameId && handleRejected(postError)) {
-        leave(HANDLE_REJECTED);
-      } else if (open.current === gameId) {
-        setError((postError as Error).message);
+      if (open.current === gameId) {
+        if (handleRejected(postError)) {
+          leave(HANDLE_REJECTED);
+        } else {
+          setError((postError as Error).message);
+        }
       }
     }
     if (open.current === gameId) {

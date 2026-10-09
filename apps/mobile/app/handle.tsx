@@ -21,7 +21,8 @@ const Handle = () => {
     rejected?: "1";
   }>();
   const { user } = useUser();
-  const [name, setName] = useState(user?.username ?? "");
+  // A refused name starts blank, so Continue can't save it again.
+  const [name, setName] = useState(rejected ? "" : (user?.username ?? ""));
   const [error, setError] = useState(
     rejected ? "Your name breaks hopon's rules. Pick a different one." : ""
   );

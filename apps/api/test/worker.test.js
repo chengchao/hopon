@@ -600,6 +600,20 @@ test("screening: when the text and the Handle are both flagged, the response say
     username: "bad_name",
   });
   assert.deepEqual(await comment.json(), HANDLE_REJECTED);
+  // A Handle check that can't answer doesn't hide the text's refusal.
+  ai.screen = (input) =>
+    input.messages[0].content === "maya_makes"
+      ? Promise.reject(new Error("AI down"))
+      : flagOnly("a slur")(input);
+  assert.deepEqual(
+    await json(
+      call(`/api/games/${game.id}/comments`, {
+        body: { body: "a slur" },
+        method: "POST",
+      })
+    ),
+    REFUSED
+  );
   assert.equal(await count("comments"), 0);
   assert.deepEqual(await json(call("/api/drafts/latest")), { draft });
 });

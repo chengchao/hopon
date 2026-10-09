@@ -231,7 +231,8 @@ const screen = Effect.fn("screen")(function* (
 });
 
 // Screens public text and the Handle stamped on it in parallel. Both run to the end so the failure is never a race:
-// the Handle's comes first, since the app sends the person to fix it before they can post anything.
+// a refusal beats "try again", so the person learns which failed, and the Handle's comes first, since the app sends
+// the person to fix it before they can post anything.
 const screenWithHandle = Effect.fn("screenWithHandle")(function* (
   env: HoponEnv,
   owner: string,
@@ -243,10 +244,12 @@ const screenWithHandle = Effect.fn("screenWithHandle")(function* (
     [screen(env, owner, "handle", handle), screen(env, owner, what, text)],
     { concurrency: 2, mode: "result" }
   );
-  for (const check of checks) {
-    if (Result.isFailure(check)) {
-      return yield* check.failure;
-    }
+  const failures = checks
+    .filter(Result.isFailure)
+    .map((check) => check.failure);
+  const failure = failures.find(({ status }) => status === 422) ?? failures[0];
+  if (failure) {
+    return yield* failure;
   }
 });
 
