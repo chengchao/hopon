@@ -24,10 +24,7 @@ const Me = () => {
   const [error, setError] = useState("");
   const [liked, setLiked] = useState<number | null>(null);
   const [saved, setSaved] = useState<number | null>(null);
-  const [reports, setReports] = useState<number | null>(null);
   const [blocked, setBlocked] = useState<number | null>(null);
-  // Only decides what to show; the API checks the session's `role` claim itself.
-  const operator = user?.publicMetadata?.role === "operator";
 
   // Clerk's getToken isn't referentially stable, so the focus effect reads it through a ref instead of its deps.
   const token = useRef(getToken);
@@ -55,10 +52,7 @@ const Me = () => {
       fetchInto<BlockedAccounts>("/api/blocks", ({ blocks }) =>
         setBlocked(blocks.length)
       );
-      if (operator) {
-        fetchCount("/api/reports/count", setReports);
-      }
-    }, [isSignedIn, operator])
+    }, [isSignedIn])
   );
 
   const deleteAccount = () => {
@@ -133,17 +127,6 @@ const Me = () => {
               <Text className="text-base">Blocked accounts</Text>
               <Text className="text-muted-foreground">{blocked ?? "–"}</Text>
             </Pressable>
-            {operator && (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityHint="Opens the Reports queue"
-                onPress={() => router.push("/reports")}
-                className="h-14 flex-row items-center justify-between rounded-2xl bg-card px-4 active:opacity-80"
-              >
-                <Text className="text-base">Reports</Text>
-                <Text className="text-muted-foreground">{reports ?? "–"}</Text>
-              </Pressable>
-            )}
             {!!error && (
               <Text accessibilityRole="alert" className="text-destructive">
                 {error}

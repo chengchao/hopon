@@ -108,11 +108,6 @@ export interface ReportTarget {
   live: boolean;
 }
 
-/** Open targets, oldest open report first. */
-export interface ReportQueue {
-  targets: ReportTarget[];
-}
-
 /** Someone the viewer has Blocked, as their Blocked accounts list shows them. */
 export interface BlockedAccount {
   /** The opaque id to unblock with. */

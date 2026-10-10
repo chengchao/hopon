@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, not built yet. Reverses the Operator parts of [#29](https://github.com/chengchao/hopon/issues/29): "API: Operator" (who the Operator is and how the API knows), the Operator's Reports row, queue and comment Delete under "App (Expo)", the `role` step under "Human-only steps", and user stories 50 and 66. Everything else the Operator can do (the queue's grouping and fields, Delete, Dismiss, Ban, the webhook) stays as #29 specifies.
+Accepted. Built in [#99](https://github.com/chengchao/hopon/issues/99) and [#100](https://github.com/chengchao/hopon/issues/100). Reverses the Operator parts of [#29](https://github.com/chengchao/hopon/issues/29): "API: Operator" (who the Operator is and how the API knows), the Operator's Reports row, queue and comment Delete under "App (Expo)", the `role` step under "Human-only steps", and user stories 50 and 66. Everything else the Operator can do (the queue's grouping and fields, Delete, Dismiss, Ban, the webhook) stays as #29 specifies.
 
 ## Context
 
