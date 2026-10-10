@@ -17,3 +17,4 @@ Judgement calls a reviewer checks in a diff. Anything a fixed pattern can catch 
 ## Both
 
 - **Glossary words.** User-facing copy and new names use the terms in `GLOSSARY.md`.
+- **Docs follow behaviour.** A diff that removes or changes what something does also updates the documents that describe it: skills under `.agents/skills/`, README steps, and the Status line of the ADR it builds.
