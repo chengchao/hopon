@@ -59,4 +59,4 @@ SELECT 'user_rival', 'rival', 'Rival Run', 'A seeded game.', html, 1 FROM games 
 
 Offline mode can't generate, so to check Make's preview, seed a draft as the simulator account itself: the same `INSERT` with its id as `owner`, `NULL` as `author` and `0` as `published`. Make restores the newest draft when it opens, and publishing it puts it in Discover.
 
-Reports are seeded the same way: `INSERT INTO reports … SELECT` the snapshot columns from the game or comment being reported, with any `user_…` id as the reporter. The app has no Operator tools; the Operator's queue is the API's `/operator` page (README, step 6), not part of an iOS run.
+Reports are seeded the same way: `INSERT INTO reports … SELECT` the snapshot columns from the game or comment being reported, with any `user_…` id as the reporter.
