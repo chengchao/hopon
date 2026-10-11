@@ -32,6 +32,7 @@ import {
   operatorConfirm,
   operatorQueue,
   PAGE_CSP,
+  PRIVACY,
   SUPPORT,
   TERMS,
 } from "./pages.ts";
@@ -380,6 +381,9 @@ const ID = ":id{[1-9]\\d{0,14}}";
 
 app.get("/terms", (c) =>
   c.html(TERMS, 200, { "Content-Security-Policy": PAGE_CSP })
+);
+app.get("/privacy", (c) =>
+  c.html(PRIVACY, 200, { "Content-Security-Policy": PAGE_CSP })
 );
 app.get("/support", (c) =>
   c.html(SUPPORT, 200, { "Content-Security-Policy": PAGE_CSP })

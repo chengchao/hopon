@@ -2046,7 +2046,7 @@ test("ban: asks first, bans an account whatever its Clerk role, and only a repor
   ]);
 });
 
-test("pages: /terms has the Rules and /support the contact address, signed out", async (t) => {
+test("pages: /terms has the Rules, /support the contact address and /privacy the policy, signed out", async (t) => {
   const { call } = await setup(t);
   const terms = await call("/terms", { user: "" });
   assert.equal(terms.status, 200);
@@ -2055,12 +2055,15 @@ test("pages: /terms has the Rules and /support the contact address, signed out",
   assert.match(rules, /<title>Terms of Use<\/title>/u);
   assert.match(rules, /zero tolerance/iu);
   assert.match(rules, /within 24 hours/u);
-  assert.match(rules, /mailto:support@hopon\.example/u);
+  assert.match(rules, /mailto:support@gethopon\.app/u);
   const support = await call("/support", { user: "" });
   assert.equal(support.status, 200);
   const page = await support.text();
-  assert.match(page, /mailto:support@hopon\.example/u);
+  assert.match(page, /mailto:support@gethopon\.app/u);
   assert.match(page, /href="\/terms"/u);
+  const privacy = await call("/privacy", { user: "" });
+  assert.equal(privacy.status, 200);
+  assert.match(await privacy.text(), /<title>Privacy Policy<\/title>/u);
 });
 // `commented`, plus a published game by user_fan that user_owner saved, and a comment from each of them on an Original.
 const feuding = async (call) => {

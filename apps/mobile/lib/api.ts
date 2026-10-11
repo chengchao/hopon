@@ -1,6 +1,12 @@
 // iOS Simulator reaches the host at localhost; Android emulator needs http://10.0.2.2:8787; a phone needs the LAN IP.
-export const API_URL =
-  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8787";
+// A release build has no fallback: one missing the EAS env var would ship pointing at localhost.
+const apiUrl =
+  process.env.EXPO_PUBLIC_API_URL ??
+  (__DEV__ ? "http://localhost:8787" : undefined);
+if (!apiUrl) {
+  throw new Error("Set EXPO_PUBLIC_API_URL in the EAS environment");
+}
+export const API_URL = apiUrl;
 export const gameUrl = (id: number) => `${API_URL}/api/games/${id}/document`;
 
 // `code` is set when the app acts on an error rather than just showing it.
