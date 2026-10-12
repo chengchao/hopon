@@ -1,11 +1,12 @@
-// Worker-served pages: /terms is the Rules the app links to, /support the App Store Support URL, /operator the
-// Operator's queue. Kept out of index.ts: workerd treats every named export of the Worker entry as an entrypoint.
+// Worker-served pages: /terms is the Rules the app links to, /support the App Store Support URL, /privacy the
+// stores' privacy policy URL, /operator the Operator's queue. Kept out of index.ts: workerd treats every named export
+// of the Worker entry as an entrypoint.
 import { REPORT_REASONS } from "@hopon/schemas";
 import type { ReportTarget } from "@hopon/schemas";
 import { html } from "hono/html";
 
-// Placeholder until the mailbox exists; the app has its own copy in apps/mobile/lib/rules.ts.
-const CONTACT_EMAIL = "support@hopon.example";
+// The app has its own copy in apps/mobile/lib/rules.ts.
+const CONTACT_EMAIL = "support@gethopon.app";
 const contact = `<a href="mailto:${CONTACT_EMAIL}">${CONTACT_EMAIL}</a>`;
 
 const csp = (formAction: string) =>
@@ -76,6 +77,32 @@ export const SUPPORT = page(
   `<h1>hopon Support</h1>
 <p>Need help, or want to tell us about a game, a comment or a person? Email ${contact}.</p>
 <p>Everyone on hopon agrees to its <a href="/terms">Rules (Terms of Use)</a>.</p>`
+);
+
+// Must match the App Store privacy answers and the Play data safety form: change them together.
+export const PRIVACY = page(
+  "Privacy Policy",
+  `<h1>Privacy Policy</h1>
+<p>This is what hopon collects, why, and what you can do about it.</p>
+
+<h2>What we collect</h2>
+<ul>
+<li><strong>Your email address</strong>, to sign you in with a one-time code. <a href="https://clerk.com/legal/privacy">Clerk</a> handles sign-in and stores it for us.</li>
+<li><strong>Your account ID and @handle</strong>, to show who made a game or comment.</li>
+<li><strong>What you post</strong>: the games you make and publish, your comments, and the reports you send.</li>
+<li><strong>What you do in the app</strong>: the games you save and like, and the people you block. Only you see your saves and blocks.</li>
+</ul>
+<p>The sentence you make a game from goes to <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare</a> Workers AI, which writes the game. We don't keep the sentence. Cloudflare also hosts hopon.</p>
+<p>No ads, no tracking across other apps or websites, and we never sell your data.</p>
+
+<h2>Who sees it</h2>
+<p>Published games and comments, with your @handle, are public, and so is how many people like a game, but not who. Drafts, saves, blocks and your email are not public. We review what's reported to us.</p>
+
+<h2 id="delete-account">Deleting your account</h2>
+<p>Delete your account from the Me tab. That deletes your sign-in and email. Games you published and comments you posted stay up under your @handle; email ${contact} to have them deleted too.</p>
+
+<h2>Contact</h2>
+<p>Questions about your data: ${contact}.</p>`
 );
 
 // The Operator's queue: same order and fields as the app's, with each target at its own anchor for the webhook's link.

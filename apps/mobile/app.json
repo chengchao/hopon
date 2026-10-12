@@ -7,10 +7,34 @@
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#1C1D45",
+    "icon": "./assets/icon.png",
     "ios": {
-      "supportsTablet": true
+      "bundleIdentifier": "app.gethopon",
+      "supportsTablet": true,
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
-    "plugins": ["expo-router", "expo-secure-store", "expo-font"],
+    "android": {
+      "package": "app.gethopon",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1C1D45"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "backgroundColor": "#1C1D45"
+        }
+      ]
+    ],
     "experiments": {
       "typedRoutes": true
     }

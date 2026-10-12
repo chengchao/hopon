@@ -79,7 +79,15 @@ pnpm run deploy
 
 远程命令报 `[code: 7403]` 时先重跑一次：wrangler 的 OAuth 令牌过期后，刷新令牌的那一次请求会失败。仍然失败就运行 `pnpm -F api exec wrangler whoami`，Token Permissions 里没有 `d1` 和 `workers` 时，令牌权限不足，用 `pnpm -F api exec wrangler login` 重新登录。
 
-Worker 提供 `/api/*` 和两个静态页面：`/terms`（Rules，标题为 Terms of Use）与 `/support`（联系地址，即 App Store 的 Support URL）。原网页前端已移除。应用商店构建与提交（EAS）尚未配置。
+Worker 提供 `/api/*` 和三个静态页面：`/terms`（Rules，标题为 Terms of Use）、`/support`（联系地址，即 App Store 的 Support URL）与 `/privacy`（两个商店的隐私政策 URL，须与商店的隐私问卷一致）。原网页前端已移除。
+
+## 应用商店构建
+
+`apps/mobile/eas.json` 有 `preview`（内部分发）和 `production` 两个 profile，Bundle ID 与包名均为 `app.gethopon`。`EXPO_PUBLIC_API_URL` 和 `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` 存在 EAS 的同名环境里，不在 `.env`；release 构建缺 `EXPO_PUBLIC_API_URL` 会在启动时报错，而不是连 localhost。首次配置（图标、账号、构建、TestFlight、Play 内部测试、商店问卷）运行向导，可中断后重跑：
+
+```sh
+scripts/store-setup.sh
+```
 
 ## 检查
 
@@ -100,7 +108,7 @@ Worker 测试在 wrangler 提供的真实本地 D1（workerd）上运行迁移�
 - 评论：任何人可读；发表需登录并有 @handle，只能评论已发布游戏，1–300 字纯文本，每个账户每个 UTC 日最多 100 条。评论者本人或游戏创作者可删除（硬删除）。删除账户后评论保留，显示发表时的 handle。
 - 收藏（Save）：仅本人可见，不显示收藏数；需要登录（未登录不在设备上暂存），只能收藏已发布游戏。收藏列表按收藏时间倒序分页；从列表点开进入收藏流，从所点游戏开始向更早的收藏滑动。删除账户后收藏保留。
 - 公开游戏按 ID 倒序游标分页。游戏区域只处理游戏输入；名称与描述区域负责上下滑动（每次最多一款，松开吸附），读屏用户可用调节手势切换；开启“减少动态效果”时不播放滚动动画。当前及相邻游戏预加载（最多三个 WebView），更远的卸载，因此回来时游戏可能重置。
-- 上架前仍需：举报/屏蔽/审核机制，须同时覆盖游戏和评论（App Store 用户生成内容规则 1.2）、EAS 构建与提交、图标与启动图。
+- 上架前仍需：举报/屏蔽/审核机制，须同时覆盖游戏和评论（App Store 用户生成内容规则 1.2）。
 - `sharp` 覆盖为安全补丁 `^0.35.4`，修复 wrangler 本地工具链传递依赖的漏洞；产品不做图片处理。
 
 研究与依据：[UI/UX 观察及取舍](docs/uiux-research.md)、[技术核对](docs/technical-research.md)（其中 TanStack 部分描述的是已移除的网页前端）。
