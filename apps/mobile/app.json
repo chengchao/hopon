@@ -10,6 +10,7 @@
     "icon": "./assets/icon.png",
     "ios": {
       "bundleIdentifier": "app.gethopon",
+      "deploymentTarget": "17.0",
       "supportsTablet": true,
       "config": {
         "usesNonExemptEncryption": false
@@ -26,6 +27,7 @@
       "expo-router",
       "expo-secure-store",
       "expo-font",
+      ["@clerk/expo", { "appleSignIn": false }],
       [
         "expo-splash-screen",
         {
@@ -37,6 +39,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "cfb076df-dd71-4351-bdc5-0de71dea7e09"
+      }
+    },
+    "owner": "chengchao60827"
   }
 }

@@ -29,6 +29,7 @@
     "expo-secure-store": "~57.0.4",
     "expo-splash-screen": "~57.0.9",
     "expo-status-bar": "~57.0.1",
+    "expo-system-ui": "~57.0.4",
     "expo-web-browser": "~57.0.3",
     "lucide-react-native": "^1.51.0",
     "nativewind": "^4.2.7",
@@ -47,6 +48,7 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
-    "@types/react": "^19.2.18"
+    "@types/react": "^19.2.18",
+    "babel-preset-expo": "~57.0.13"
   }
 }
