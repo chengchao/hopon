@@ -119,12 +119,9 @@ new Sound([1, 0, 520, 0.05, 0.3, 0.4, 0, 1, 0, 0, 260, 0.08]); // win jingle
 
 ## Checking your work
 
-```js
-write("game.ts", source); // or patch("game.ts", oldText, newText) for a small change (must match exactly once)
-await playtest(); // plays 3 s with random taps; prints {ok, errors, state, score, objects, time}
-```
+Save `game.ts`, then playtest it the way your instructions say (`node /opt/hopon/playtest.js` from bash, or `await playtest()` in run_node). It plays 3 s with random taps and prints `{ok, errors, state, score, objects, time}`.
 
-`ok` means no console errors and the clock ran. Look at `playtest.png` (attached to the result): is the game visible and readable at 360×540? `state: "over"` after 3 s of random taps is fine for action games. Fix every error and playtest again before you finish.
+`ok` means no console errors and the clock ran. Look at `playtest.png` (read it if it is not attached to the result): is the game visible and readable at 360×540? `state: "over"` after 3 s of random taps is fine for action games. Fix every error and playtest again before you finish.
 
 ## Examples
 

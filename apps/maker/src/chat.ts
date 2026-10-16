@@ -1,5 +1,6 @@
-// pnpm -F maker chat "<prompt>" --model <id> --box local|e2b [--no-images] [--steer "<text>"]
-// One Maker session, streamed to the terminal; game.ts, game.js, playtest.png and the transcript land in out/<run>/.
+// pnpm -F maker chat "<prompt>" --model <id> --mode run_node|ops --box local|e2b [--no-images] [--steer "<text>"]
+// One Maker session, streamed to the terminal; game.ts, game.js, playtest.png, the system prompt and the transcript
+// land in out/<run>/.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -9,10 +10,12 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { E2BBox, LocalBox } from "./box.ts";
 import type { Box } from "./box.ts";
 import { createMaker, exportJsonl, MAX_RUNS } from "./maker.ts";
+import type { Mode } from "./maker.ts";
 
 export interface RunOptions {
   prompt: string;
   modelId: string;
+  mode?: Mode;
   boxKind: "local" | "e2b";
   images?: boolean;
   steer?: string;
@@ -32,9 +35,24 @@ const playtestResult = (text: string) => {
     : undefined;
 };
 
+const callDetail = (toolName: string, args: Record<string, unknown>) =>
+  (toolName === "run_node"
+    ? String(args.code).split("\n").slice(-3).join(" ⏎ ")
+    : JSON.stringify(args).replaceAll("\\n", " ⏎ ")
+  ).slice(0, 160);
+
+const resultParts = (content: { type: string; text?: string }[]) => ({
+  images: content.filter((part) => part.type === "image").length,
+  text: content
+    .filter((part) => part.type === "text")
+    .map((part) => part.text ?? "")
+    .join("\n"),
+});
+
 export const runOnce = async ({
   prompt,
   modelId,
+  mode = "run_node",
   boxKind,
   images = true,
   steer,
@@ -49,18 +67,24 @@ export const runOnce = async ({
     import.meta.dirname,
     "..",
     "out",
-    `${new Date().toISOString().replaceAll(/[:.]/gu, "-")}-${modelId}-${slug}`
+    `${new Date().toISOString().replaceAll(/[:.]/gu, "-")}-${mode}-${modelId}-${slug}`
   );
   mkdirSync(dir, { recursive: true });
   const box: Box =
     boxKind === "e2b" ? await E2BBox.create() : await LocalBox.create();
-  const { session } = await createMaker({ box, images, modelId });
+  const { session } = await createMaker({ box, images, mode, modelId });
   const log = (text: string) => quiet || process.stdout.write(text);
+  writeFileSync(path.join(dir, "system-prompt.md"), session.systemPrompt);
 
+  // The step that runs code: run_node, or bash in ops mode.
+  const runner = mode === "ops" ? "bash" : "run_node";
   let runs = 0;
   const playtests: boolean[] = [];
   const errors: string[] = [];
   let imagesSent = 0;
+  // Wall time per tool call, by tool: the E2B round trips are the cost of ops mode.
+  const toolMs: Record<string, number[]> = {};
+  const startedAt = new Map<string, number>();
   session.subscribe((event) => {
     if (
       event.type === "message_update" &&
@@ -68,7 +92,8 @@ export const runOnce = async ({
     ) {
       log(event.assistantMessageEvent.delta);
     } else if (event.type === "tool_execution_start") {
-      if (event.toolName === "run_node") {
+      startedAt.set(event.toolCallId, Date.now());
+      if (event.toolName === runner) {
         runs += 1;
         if (runs === 1 && steer) {
           // Mid-run steering: delivered after this assistant turn's tool calls finish.
@@ -78,22 +103,15 @@ export const runOnce = async ({
           void session.abort();
         }
       }
-      const detail =
-        event.toolName === "run_node"
-          ? String(event.args.code).split("\n").slice(-3).join(" ⏎ ")
-          : JSON.stringify(event.args);
-      log(`\n▶ ${event.toolName} ${detail.slice(0, 160)}\n`);
+      log(`\n▶ ${event.toolName} ${callDetail(event.toolName, event.args)}\n`);
     } else if (event.type === "tool_execution_end") {
-      const content = event.result?.content ?? [];
-      const text = content
-        .filter((part: { type: string }) => part.type === "text")
-        .map((part: { text: string }) => part.text)
-        .join("\n");
-      imagesSent += content.filter(
-        (part: { type: string }) => part.type === "image"
-      ).length;
+      (toolMs[event.toolName] ??= []).push(
+        Date.now() - (startedAt.get(event.toolCallId) ?? Date.now())
+      );
+      const { images: count, text } = resultParts(event.result?.content ?? []);
+      imagesSent += count;
       const result =
-        event.toolName === "run_node" ? playtestResult(text) : undefined;
+        event.toolName === runner ? playtestResult(text) : undefined;
       if (result) {
         playtests.push(result.ok);
       }
@@ -140,6 +158,7 @@ export const runOnce = async ({
     firstPlaytestOk: playtests[0] ?? false,
     imagesSent,
     lastPlaytestOk: playtests.at(-1) ?? false,
+    mode,
     model: modelId,
     playtests: playtests.length,
     prompt,
@@ -150,6 +169,7 @@ export const runOnce = async ({
         .join("") ?? "",
     runs,
     seconds: Math.round((Date.now() - started) / 1000),
+    toolMs,
     turns: assistant.length,
     usage,
   };
@@ -169,6 +189,7 @@ if (import.meta.main) {
     allowPositionals: true,
     options: {
       box: { default: "local", type: "string" },
+      mode: { default: "run_node", type: "string" },
       model: { default: "claude-haiku-5-5", type: "string" },
       "no-images": { type: "boolean" },
       steer: { type: "string" },
@@ -177,6 +198,7 @@ if (import.meta.main) {
   const summary = await runOnce({
     boxKind: values.box === "e2b" ? "e2b" : "local",
     images: !values["no-images"],
+    mode: values.mode === "ops" ? "ops" : "run_node",
     modelId: values.model,
     prompt: positionals.join(" "),
     steer: values.steer,

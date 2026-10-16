@@ -1,8 +1,10 @@
-// The Maker's session: pi-coding-agent with its built-in tools off, an in-memory transcript, and two custom tools.
-// run_node sends model-written code to a Box; load_skill returns a skill from skills/ (pi only lists skills when a
-// read or bash tool is active, so without one the model needs its own way to load them).
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+// The Maker's session: pi-coding-agent with an in-memory transcript, in one of two modes.
+// run_node: built-in tools off, two custom tools. run_node sends model-written code to a Box; load_skill returns
+//   a skill (pi only lists skills when a read or bash tool is active, so the model needs its own way to load them).
+// ops: pi's own built-in tools, with their operations executing in the Box (src/ops.ts); the skill and AGENTS.md
+//   come from agent-home/ through pi's resource loader, no custom system prompt.
+import { cpSync, mkdtempSync, readFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 
 import { InMemoryCredentialStore, Type } from "@earendil-works/pi-ai";
@@ -18,9 +20,16 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 
+import { E2BBox } from "./box.ts";
 import type { Box } from "./box.ts";
+import { createCodingTools, createE2BTools } from "./ops.ts";
 
-export const SKILLS_DIR = path.join(import.meta.dirname, "..", "skills");
+// pi's project layout: AGENTS.md plus .agents/skills/<name>/SKILL.md. Copied to a temp dir per session so pi's
+// ancestor walk doesn't pick up this repo's own AGENTS.md and skills.
+export const AGENT_HOME = path.join(import.meta.dirname, "..", "agent-home");
+export const SKILLS_DIR = path.join(AGENT_HOME, ".agents", "skills");
+const IMAGE_DIR = path.join(import.meta.dirname, "..", "image");
+export type Mode = "run_node" | "ops";
 export const MAX_RUNS = 12;
 const OUTPUT_LIMIT = 6000;
 
@@ -115,6 +124,7 @@ const stripFrontmatter = (text: string) =>
 export interface MakerOptions {
   box: Box;
   modelId: string;
+  mode?: Mode;
   // A transcript from exportJsonl() to continue.
   jsonl?: string;
   // Attach playtest.png to run_node results (off to test models without image input).
@@ -124,6 +134,7 @@ export interface MakerOptions {
 export const createMaker = async ({
   box,
   modelId,
+  mode = "run_node",
   jsonl,
   images = true,
 }: MakerOptions) => {
@@ -137,9 +148,14 @@ export const createMaker = async ({
   if (missing.length > 0) {
     throw new Error(`${missing.join(", ")} missing from apps/maker/.env`);
   }
-  // An empty cwd and agentDir: nothing to discover, and anything pi writes would show up here.
-  const cwd = mkdtempSync(path.join(tmpdir(), "hopon-maker-"));
-  const agentDir = path.join(cwd, ".pi");
+  // run_node: an empty cwd and agentDir, nothing to discover, and anything pi writes would show up here.
+  // ops: the loader's cwd is a copy of agent-home (AGENTS.md, skills); the session's cwd is the box's workspace.
+  const home = mkdtempSync(path.join(tmpdir(), "hopon-maker-"));
+  const agentDir = path.join(home, ".pi");
+  if (mode === "ops") {
+    cpSync(AGENT_HOME, home, { recursive: true });
+  }
+  const cwd = mode === "ops" ? box.cwd : home;
   const modelRuntime = await ModelRuntime.create({
     credentials: new InMemoryCredentialStore(),
     modelsPath: null,
@@ -149,15 +165,18 @@ export const createMaker = async ({
     process.env.CLOUDFLARE_API_KEY ?? ""
   );
   const resourceLoader = new DefaultResourceLoader({
-    additionalSkillPaths: [SKILLS_DIR],
+    // noSkills + an explicit path: pi's own discovery would also load ~/.agents/skills and every ancestor's.
+    additionalSkillPaths: [
+      mode === "ops" ? path.join(home, ".agents", "skills") : SKILLS_DIR,
+    ],
     agentDir,
-    cwd,
-    noContextFiles: true,
+    cwd: home,
+    noContextFiles: mode === "run_node",
     noExtensions: true,
     noPromptTemplates: true,
     noSkills: true,
     noThemes: true,
-    systemPrompt: SYSTEM_PROMPT,
+    ...(mode === "run_node" && { systemPrompt: SYSTEM_PROMPT }),
   });
   await resourceLoader.reload();
   const { skills } = resourceLoader.getSkills();
@@ -214,12 +233,39 @@ export const createMaker = async ({
     }),
   });
 
+  // ops mode: pi's tools, run in the box. The E2B box gets E2B operations; the local box gets pi's local
+  // operations with the Maker's env withheld and /opt/hopon mapped to image/.
+  const opsTools =
+    box instanceof E2BBox
+      ? createE2BTools(cwd, { localRoots: [home], sandbox: box.sandbox })
+      : createCodingTools(cwd, {
+          bash: {
+            exposeSessionEnvironment: false,
+            spawnHook: ({ command, cwd: dir }) => ({
+              command: command.replaceAll("/opt/hopon", IMAGE_DIR),
+              cwd: dir,
+              env: {
+                HOME: dir,
+                PATH: process.env.PATH,
+                PLAYWRIGHT_BROWSERS_PATH: path.join(
+                  homedir(),
+                  "Library",
+                  "Caches",
+                  "ms-playwright"
+                ),
+              },
+            }),
+          },
+        });
+
   const sessionManager = jsonl
     ? SessionManager.inMemory(cwd, undefined, parseSessionEntries(jsonl))
     : SessionManager.inMemory(cwd);
   const { session } = await createAgentSession({
     agentDir,
-    customTools: [runNode, loadSkill],
+    // Custom tools with built-in names replace the built-ins in pi's registry, so with noTools "builtin" these
+    // are the session's read/bash/edit/write/grep/find/ls, and pi's system prompt lists them and the skills.
+    customTools: mode === "ops" ? opsTools : [runNode, loadSkill],
     cwd,
     model,
     modelRuntime,
@@ -232,7 +278,7 @@ export const createMaker = async ({
     // "off" sends thinking: disabled, which Claude 5.5 rejects (it wants "between_tools"); low is the floor that works everywhere.
     thinkingLevel: "low",
   });
-  return { cwd, session };
+  return { cwd, home, session };
 };
 
 export type MakerSession = Awaited<ReturnType<typeof createMaker>>["session"];

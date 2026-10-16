@@ -1,5 +1,7 @@
 # Maker phase-0 spike
 
+Spike B (`SPIKE-B.md`) adds `--mode ops` and moved `skills/littlejs-api.md` to `agent-home/.agents/skills/littlejs-api/SKILL.md`.
+
 Throwaway code in `apps/maker` that answers four questions before phase 1. Plan: `~/.claude/plans/there-are-models-that-iridescent-wigderson.md`. Run things with:
 
 ```bash

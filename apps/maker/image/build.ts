@@ -16,7 +16,7 @@ const template = Template({ fileContextPath: import.meta.dirname })
     "cd /opt/hopon && npm init -y >/dev/null && npm pkg set type=module && npm install esbuild@0.28.2 playwright-core@1.58.2",
     "cd /opt/hopon && npx playwright-core install --with-deps chromium-headless-shell",
   ])
-  .copy(["exec.js", "runtime.js"], "/opt/hopon/")
+  .copy(["exec.js", "helpers.js", "playtest.js", "runtime.js"], "/opt/hopon/")
   .runCmd("chown -R user:user /workspace")
   .setUser("user")
   .setWorkdir("/workspace");

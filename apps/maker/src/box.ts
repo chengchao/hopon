@@ -28,6 +28,8 @@ export interface RunResult {
 }
 
 export interface Box {
+  // The workspace directory, as the box sees it.
+  cwd: string;
   run: (code: string, options?: { timeoutMs?: number }) => Promise<RunResult>;
   writeFile: (file: string, content: string | Uint8Array) => Promise<void>;
   readFile: (file: string) => Promise<Uint8Array>;
@@ -43,6 +45,7 @@ const changedSince = (dir: string, since: number) =>
 
 export class LocalBox implements Box {
   readonly dir = mkdtempSync(path.join(tmpdir(), "hopon-box-"));
+  readonly cwd = this.dir;
   private readonly exec = path.join(
     import.meta.dirname,
     "..",
@@ -105,6 +108,7 @@ const WORKSPACE = "/workspace";
 
 export class E2BBox implements Box {
   readonly sandbox: Sandbox;
+  readonly cwd = WORKSPACE;
 
   constructor(sandbox: Sandbox) {
     this.sandbox = sandbox;

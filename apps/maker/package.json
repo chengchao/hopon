@@ -6,6 +6,7 @@
     "chat": "node --env-file-if-exists=.env src/chat.ts",
     "spike:sdk": "node --env-file-if-exists=.env src/spike-sdk.ts",
     "spike:box": "node --env-file-if-exists=.env src/spike-box.ts",
+    "spike:ops": "node --env-file-if-exists=.env src/spike-ops.ts",
     "template": "node --env-file-if-exists=.env image/build.ts",
     "test": "node --test",
     "typecheck": "tsc --noEmit",

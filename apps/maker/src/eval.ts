@@ -1,4 +1,5 @@
-// pnpm -F maker eval [--box local|e2b] [--models a,b] — the five spike prompts on each model, then a table.
+// pnpm -F maker eval [--box local|e2b] [--mode run_node|ops] [--models a,b] — the five spike prompts on each model,
+// then a table.
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -18,11 +19,13 @@ export const PROMPTS = [
 const { values } = parseArgs({
   options: {
     box: { default: "local", type: "string" },
+    mode: { default: "run_node", type: "string" },
     models: { default: Object.keys(MODELS).join(","), type: "string" },
   },
 });
 
 const boxKind = values.box === "e2b" ? "e2b" : "local";
+const mode = values.mode === "ops" ? "ops" : "run_node";
 // One worker per model; prompts run in order within it.
 const perModel = await Promise.all(
   values.models.split(",").map(async (modelId) => {
@@ -31,6 +34,7 @@ const perModel = await Promise.all(
       // oxlint-disable-next-line no-await-in-loop -- one run at a time per model
       const row = await runOnce({
         boxKind,
+        mode,
         modelId,
         prompt,
         quiet: true,
@@ -48,21 +52,26 @@ const perModel = await Promise.all(
 const results = perModel.flat();
 
 writeFileSync(
-  path.join(import.meta.dirname, "..", "out", `eval-${Date.now()}.json`),
+  path.join(
+    import.meta.dirname,
+    "..",
+    "out",
+    `eval-${mode}-${Date.now()}.json`
+  ),
   JSON.stringify(results, null, 2)
 );
 console.log(
-  "| model | prompt | first playtest ok | final ok | run_node calls | in / out tokens | $ | images | s |"
+  `| model | prompt | first playtest ok | final ok | ${mode === "ops" ? "bash" : "run_node"} calls | tool calls | in / out tokens | $ | images | s |`
 );
-console.log("|---|---|---|---|---|---|---|---|---|");
+console.log("|---|---|---|---|---|---|---|---|---|---|");
 for (const row of results) {
   if ("error" in row) {
     console.log(
-      `| ${row.model} | ${row.prompt.slice(0, 28)} | error: ${row.error.slice(0, 60)} |||||||`
+      `| ${row.model} | ${row.prompt.slice(0, 28)} | error: ${row.error.slice(0, 60)} ||||||||`
     );
     continue;
   }
   console.log(
-    `| ${row.model} | ${row.prompt.slice(0, 28)}… | ${row.firstPlaytestOk ? "yes" : "no"} | ${row.lastPlaytestOk ? "yes" : "no"} | ${row.runs} | ${row.usage.input} / ${row.usage.output} | ${row.usage.cost.toFixed(3)} | ${row.imagesSent}${row.errors.length > 0 ? " ⚠" : ""} | ${row.seconds} |`
+    `| ${row.model} | ${row.prompt.slice(0, 28)}… | ${row.firstPlaytestOk ? "yes" : "no"} | ${row.lastPlaytestOk ? "yes" : "no"} | ${row.runs} | ${Object.values(row.toolMs).flat().length} | ${row.usage.input} / ${row.usage.output} | ${row.usage.cost.toFixed(3)} | ${row.imagesSent}${row.errors.length > 0 ? " ⚠" : ""} | ${row.seconds} |`
   );
 }
