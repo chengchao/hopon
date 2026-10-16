@@ -7,10 +7,10 @@ import {
   existsSync,
   mkdtempSync,
   readdirSync,
-  readFileSync,
   statSync,
   writeFileSync,
 } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -95,10 +95,8 @@ export class LocalBox implements Box {
     return Promise.resolve();
   }
 
-  readFile(file: string) {
-    return Promise.resolve(
-      new Uint8Array(readFileSync(path.join(this.dir, file)))
-    );
+  async readFile(file: string) {
+    return new Uint8Array(await readFile(path.join(this.dir, file)));
   }
 }
 
