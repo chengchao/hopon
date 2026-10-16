@@ -114,7 +114,7 @@ const order: string[] = [];
 session.subscribe((event) => {
   if (event.type === "tool_execution_start") {
     order.push(`tool:${event.toolName}`);
-    if (order.length === 1) {
+    if (order.filter((step) => step.startsWith("tool:")).length === 1) {
       void session.steer("Steer: also tell me the word STEERED.");
       void session.followUp("Follow-up: now say FOLLOWED.");
     }

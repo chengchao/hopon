@@ -37,7 +37,12 @@ Evidence so far (no model call needed):
 - After creating a session and appending messages: nothing under `cwd`, the `agentDir` is never created, `~/.pi` is untouched.
 - A transcript exported to JSONL (header, model change, thinking level, 2 messages) restores in a **new process** with both messages intact.
 
-EVAL_SDK_PLACEHOLDER
+Live, on Kimi K2.5 (`pnpm -F maker spike:sdk --model kimi-k2.5`):
+
+- The request's `tools` is exactly `run_node`, `load_skill`; nothing in the system prompt mentions file tools.
+- After two prompts with tool calls: nothing under `cwd`, `~/.pi` untouched.
+- Exported 9 messages to JSONL, started a **new process**, restored with `SessionManager.inMemory(…, entries)`, asked for the secret word from the first process: `"pumpkin"`.
+- `steer()` and `followUp()` called during a `run_node` call both return `"queued"`. The steer lands as a user message right after that tool's result (same run, next turn); the follow-up lands after the agent has nothing left to do; one `prompt()` resolves after both, then `agent_settled` fires. That's the "make it pink" mid-run path, as designed. pi also puts an empty `system` message at the head of `session.messages`.
 
 ## 2. Box
 
