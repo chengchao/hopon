@@ -1,0 +1,73 @@
+[sse] 07:26.655 fetch connect #1 Last-Event-ID=-
+[sse] 07:27.700 fetch event tick id=1
+[sse] 07:28.700 fetch event tick id=2
+[sse] 07:29.700 fetch event tick id=3
+[sse] 07:30.701 fetch event tick id=4
+[sse] 07:31.702 fetch event tick id=5
+[sse] 07:32.089 AppState inactive
+[sse] 07:32.703 fetch event tick id=6
+[sse] 07:32.883 AppState background
+[sse] 07:33.717 fetch event tick id=7
+[sse] 07:34.717 fetch event tick id=8
+[sse] 07:35.717 fetch event tick id=9
+[sse] 07:36.817 fetch event tick id=10
+[sse] 07:37.818 fetch event tick id=11
+[sse] 07:38.581 fetch stream ended before done
+[sse] 07:39.817 fetch connect #2 Last-Event-ID=11
+[sse] 07:40.917 fetch event tick id=12
+[sse] 07:41.867 fetch event tick id=13
+[sse] 07:42.867 fetch event tick id=14
+[sse] 07:43.868 fetch event tick id=15
+[sse] 07:44.870 fetch event tick id=16
+[sse] 07:45.867 fetch event tick id=17
+[sse] 07:46.868 fetch event tick id=18
+[sse] 07:47.868 fetch event tick id=19
+[sse] 07:48.867 fetch event tick id=20
+[sse] 07:49.868 fetch event tick id=21
+[sse] 07:50.868 fetch event tick id=22
+[sse] 07:51.867 fetch event tick id=23
+[sse] 07:53.468 fetch event tick id=24
+[sse] 07:53.867 fetch event tick id=25
+[sse] 07:54.867 fetch event tick id=26
+[sse] 07:55.868 fetch event tick id=27
+[sse] 07:56.868 fetch event tick id=28
+[sse] 07:57.869 fetch event tick id=29
+[sse] 07:58.870 fetch event tick id=30
+[sse] 07:59.871 fetch event tick id=31
+[sse] 08:00.872 fetch event tick id=32
+[sse] 08:01.873 fetch event tick id=33
+[sse] 08:02.512 AppState active
+[sse] 08:02.874 fetch event tick id=34
+[sse] 08:03.875 fetch event tick id=35
+[sse] 08:04.876 fetch event tick id=36
+[sse] 08:05.877 fetch event tick id=37
+[sse] 08:06.877 fetch event tick id=38
+[sse] 08:07.878 fetch event tick id=39
+[sse] 08:08.878 fetch event tick id=40
+[sse] 08:09.881 fetch event tick id=41
+[sse] 08:10.881 fetch event tick id=42
+[sse] 08:11.883 fetch event tick id=43
+[sse] 08:12.883 fetch event tick id=44
+[sse] 08:13.885 fetch event tick id=45
+[sse] 08:14.886 fetch event tick id=46
+[sse] 08:15.888 fetch event tick id=47
+[sse] 08:16.889 fetch event tick id=48
+[sse] 08:17.890 fetch event tick id=49
+[sse] 08:18.891 fetch event tick id=50
+[sse] 08:19.892 fetch event tick id=51
+[sse] 08:20.895 fetch event tick id=52
+[sse] 08:21.895 fetch event tick id=53
+[sse] 08:22.896 fetch event tick id=54
+[sse] 08:23.896 fetch event tick id=55
+[sse] 08:24.896 fetch event tick id=56
+[sse] 08:25.899 fetch event tick id=57
+[sse] 08:26.900 fetch event tick id=58
+[sse] 08:27.901 fetch event tick id=59
+[sse] 08:28.903 fetch event tick id=60
+[sse] 08:28.904 fetch event done id=-
+[sse] 08:28.904 fetch done
+sse open, Last-Event-ID 0
+[wrangler:info] GET /api/sse-test 200 OK (7ms)
+sse open, Last-Event-ID 11
+[wrangler:info] GET /api/sse-test 200 OK (22ms)
+sse closed after 60

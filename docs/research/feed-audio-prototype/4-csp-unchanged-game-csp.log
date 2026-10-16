@@ -1,0 +1,7 @@
+[audio] 3 offscreen {"event":"tick","ctx":"interrupted","gain":0,"music":{"paused":true,"ready":1,"t":0},"muted":false,"paused":true,"tapped":false}
+[audio] setAudioModeAsync playsInSilentMode=false
+[audio] setAudioModeAsync playsInSilentMode=false
+[audio] 4 offscreen {"event":"csp","directive":"script-src-elem","uri":"http://localhost:8787/runtime/v1.js"}
+[audio] 5 ACTIVE {"event":"csp","directive":"script-src-elem","uri":"http://localhost:8787/runtime/v1.js"}
+[audio] 5 ACTIVE {"event":"csp","directive":"media-src","uri":"http://localhost:8787/api/games/5/assets/music.mp3"}
+[audio] 4 offscreen {"event":"csp","directive":"media-src","uri":"http://localhost:8787/api/games/4/assets/music.mp3"}

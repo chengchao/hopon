@@ -3,6 +3,7 @@ packages:
   - packages/*
 minimumReleaseAgeExclude:
   - "@types/node@22.20.2"
+  - littlejsengine@1.27.2
 overrides:
   sharp: ^0.35.4
 allowBuilds:

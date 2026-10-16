@@ -1,0 +1,27 @@
+[audio] setAudioModeAsync playsInSilentMode=false
+[audio] setAudioModeAsync playsInSilentMode=false
+[audio] setAudioModeAsync playsInSilentMode=false
+[audio] setAudioModeAsync playsInSilentMode=false
+[audio] 5 ACTIVE {"event":"boot","ctx":"suspended","gain":0.30000001192092896,"music":null,"muted":false,"paused":true,"tapped":false}
+[audio] 4 offscreen {"event":"boot","ctx":"suspended","gain":0.30000001192092896,"music":null,"muted":false,"paused":true,"tapped":false}
+[audio] 4 offscreen {"event":"load","ctx":"suspended","gain":0,"music":{"paused":true,"ready":0,"t":0},"muted":false,"paused":true,"tapped":false}
+[audio] 5 ACTIVE {"event":"load","ctx":"suspended","gain":0,"music":{"paused":true,"ready":1,"t":0},"muted":false,"paused":true,"tapped":false}
+[audio] 5 ACTIVE {"event":"probe-play-ok","ctx":"suspended","gain":0,"music":{"paused":true,"ready":1,"t":0},"muted":false,"paused":true,"tapped":false}
+[audio] 4 offscreen {"event":"probe-play-ok","ctx":"suspended","gain":0,"music":{"paused":true,"ready":1,"t":0},"muted":false,"paused":true,"tapped":false}
+[audio] 5 ACTIVE {"event":"got-mute","ctx":"suspended","gain":0,"music":{"paused":true,"ready":1,"t":0},"muted":false,"paused":true,"tapped":false}
+[audio] 4 offscreen {"event":"got-mute","ctx":"suspended","gain":0,"music":{"paused":true,"ready":1,"t":0},"muted":false,"paused":true,"tapped":false}
+[audio] 4 offscreen {"event":"got-pause","ctx":"suspended","gain":0,"music":{"paused":true,"ready":1,"t":0},"muted":false,"paused":true,"tapped":false}
+[audio] 5 ACTIVE {"event":"got-resume","ctx":"suspended","gain":0.30000001192092896,"music":{"paused":false,"ready":1,"t":0},"muted":false,"paused":false,"tapped":false}
+[audio] 5 ACTIVE {"event":"music-play-ok","ctx":"running","gain":0.30000001192092896,"music":{"paused":false,"ready":4,"t":0},"muted":false,"paused":false,"tapped":false}
+[audio] 5 ACTIVE {"event":"tick","ctx":"running","gain":0.30000001192092896,"music":{"paused":false,"ready":4,"t":1.1},"muted":false,"paused":false,"tapped":false}
+[audio] 4 offscreen {"event":"tick","ctx":"suspended","gain":0,"music":{"paused":true,"ready":1,"t":0},"muted":false,"paused":true,"tapped":false}
+[audio] 5 ACTIVE {"event":"tick","ctx":"running","gain":0.30000001192092896,"music":{"paused":false,"ready":4,"t":3.1},"muted":false,"paused":false,"tapped":false}
+[audio] 4 offscreen {"event":"tick","ctx":"suspended","gain":0,"music":{"paused":true,"ready":1,"t":0},"muted":false,"paused":true,"tapped":false}
+[audio] 5 ACTIVE {"event":"tick","ctx":"running","gain":0.30000001192092896,"music":{"paused":false,"ready":4,"t":5.1},"muted":false,"paused":false,"tapped":false}
+[audio] 4 offscreen {"event":"tick","ctx":"suspended","gain":0,"music":{"paused":true,"ready":1,"t":0},"muted":false,"paused":true,"tapped":false}
+[audio] 5 ACTIVE {"event":"tick","ctx":"running","gain":0.30000001192092896,"music":{"paused":false,"ready":4,"t":7.1},"muted":false,"paused":false,"tapped":false}
+[audio] 4 offscreen {"event":"tick","ctx":"suspended","gain":0,"music":{"paused":true,"ready":1,"t":0},"muted":false,"paused":true,"tapped":false}
+[audio] 5 ACTIVE {"event":"tick","ctx":"running","gain":0.30000001192092896,"music":{"paused":false,"ready":4,"t":0.9},"muted":false,"paused":false,"tapped":false}
+[audio] 4 offscreen {"event":"tick","ctx":"suspended","gain":0,"music":{"paused":true,"ready":1,"t":0},"muted":false,"paused":true,"tapped":false}
+[audio] 5 ACTIVE {"event":"tick","ctx":"running","gain":0.30000001192092896,"music":{"paused":false,"ready":4,"t":2.9},"muted":false,"paused":false,"tapped":false}
+[audio] 4 offscreen {"event":"tick","ctx":"suspended","gain":0,"music":{"paused":true,"ready":1,"t":0},"muted":false,"paused":true,"tapped":false}

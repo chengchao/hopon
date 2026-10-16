@@ -1,5 +1,6 @@
 import { useAuth } from "@clerk/expo";
 import type { FeedGame, GamePage } from "@hopon/schemas";
+import { setAudioModeAsync } from "expo-audio";
 import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -9,6 +10,7 @@ import {
   FlatList,
   PanResponder,
   Platform,
+  Pressable,
   View,
 } from "react-native";
 
@@ -48,6 +50,21 @@ export const Feed = ({
   const [reduceMotion, setReduceMotion] = useState(false);
   const [commentsFor, setCommentsFor] = useState<FeedGame | null>(null);
   const [reportFor, setReportFor] = useState<ReportTarget | null>(null);
+  // PROTOTYPE (feed audio): one mute for every card, and a switch for mediaPlaybackRequiresUserAction.
+  const [muted, setMuted] = useState(false);
+  const [gesture, setGesture] = useState(true);
+  useEffect(() => {
+    // Ambient, so the ringer switch silences the app. Whether WebView audio follows needs a device to check.
+    const setMode = async () => {
+      try {
+        await setAudioModeAsync({ playsInSilentMode: false });
+        console.log("[audio] setAudioModeAsync playsInSilentMode=false");
+      } catch (audioError) {
+        console.log(`[audio] setAudioModeAsync failed ${audioError}`);
+      }
+    };
+    setMode();
+  }, []);
   const { isSignedIn, getToken } = useAuth();
   // Clerk's getToken isn't referentially stable, so `load` reads it through a ref instead of its deps.
   const token = useRef(getToken);
@@ -263,7 +280,7 @@ export const Feed = ({
             })}
             initialNumToRender={3}
             windowSize={3}
-            extraData={active}
+            extraData={`${active}-${muted}-${gesture}`}
             renderItem={({ item, index }) => (
               <View style={{ height }} className="px-3 pb-3 pt-2">
                 <View
@@ -277,7 +294,10 @@ export const Feed = ({
                   {Math.abs(index - active) <= 1 && (
                     // Keyed by row: a WKWebView moved up a row (when a reported game leaves) paints blank, so it reloads.
                     <GameView
-                      key={index}
+                      key={`${index}-${gesture}`}
+                      active={index === active}
+                      muted={muted}
+                      gesture={gesture}
                       uri={gameUrl(item.id)}
                       title={item.title}
                     />
@@ -340,6 +360,24 @@ export const Feed = ({
             )}
           />
         )}
+        <View className="absolute left-3 top-3 flex-row gap-2">
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setMuted((on) => !on)}
+            className="rounded-full bg-black/70 px-3 py-1"
+          >
+            <Text className="text-white">{muted ? "Unmute" : "Mute"}</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setGesture((on) => !on)}
+            className="rounded-full bg-black/70 px-3 py-1"
+          >
+            <Text className="text-white">
+              {gesture ? "gesture: required" : "gesture: not required"}
+            </Text>
+          </Pressable>
+        </View>
         {!games.length && (
           <View className="absolute inset-0 items-center justify-center gap-4 px-8">
             <Text

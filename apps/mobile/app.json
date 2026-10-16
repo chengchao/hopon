@@ -27,7 +27,12 @@
       "expo-router",
       "expo-secure-store",
       "expo-font",
-      ["@clerk/expo", { "appleSignIn": false }],
+      [
+        "@clerk/expo",
+        {
+          "appleSignIn": false
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -35,7 +40,8 @@
           "imageWidth": 200,
           "backgroundColor": "#1C1D45"
         }
-      ]
+      ],
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true

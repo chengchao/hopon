@@ -1,0 +1,15 @@
+[sse] 08:47.093 rn-sse open
+[sse] 08:47.099 rn-sse tick id=1
+[sse] 08:47.587 rn-sse tick id=2
+[sse] 08:48.088 rn-sse tick id=3
+[sse] 08:48.588 rn-sse tick id=4
+[sse] 08:49.089 rn-sse tick id=5
+[sse] 08:49.591 rn-sse tick id=6
+[sse] 08:50.091 rn-sse tick id=7
+[sse] 08:50.593 rn-sse tick id=8
+[sse] 08:51.094 rn-sse tick id=9
+[sse] 08:51.596 rn-sse tick id=10
+[sse] 08:51.597 rn-sse done
+sse open, Last-Event-ID 0
+[wrangler:info] GET /api/sse-test 200 OK (4ms)
+sse closed after 10

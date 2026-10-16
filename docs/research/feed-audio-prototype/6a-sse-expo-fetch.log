@@ -1,0 +1,16 @@
+[sse] 05:53.881 fetch connect #1 Last-Event-ID=-
+[sse] 05:54.470 fetch event tick id=1
+[sse] 05:54.942 fetch event tick id=2
+[sse] 05:55.442 fetch event tick id=3
+[sse] 05:55.944 fetch event tick id=4
+[sse] 05:56.444 fetch event tick id=5
+[sse] 05:56.945 fetch event tick id=6
+[sse] 05:57.447 fetch event tick id=7
+[sse] 05:57.947 fetch event tick id=8
+[sse] 05:58.448 fetch event tick id=9
+[sse] 05:58.949 fetch event tick id=10
+[sse] 05:58.950 fetch event done id=-
+[sse] 05:58.950 fetch done
+sse open, Last-Event-ID 0
+[wrangler:info] GET /api/sse-test 200 OK (24ms)
+sse closed after 10

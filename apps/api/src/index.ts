@@ -22,6 +22,7 @@ import { basicAuth } from "hono/basic-auth";
 import { bodyLimit } from "hono/body-limit";
 import { csrf } from "hono/csrf";
 import { HTTPException } from "hono/http-exception";
+import { streamSSE } from "hono/streaming";
 import { timingSafeEqual } from "hono/utils/buffer";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type * as z from "zod/mini";
@@ -36,6 +37,7 @@ import {
   SUPPORT,
   TERMS,
 } from "./pages.ts";
+import { RUNTIME_CSP, RUNTIME_MARKER, runtimeTags } from "./runtime/v1.ts";
 import {
   blocks,
   comments,
@@ -322,7 +324,10 @@ const app = new Hono<AppEnv>();
 app.use(async (c, next) => {
   // oxlint-disable-next-line node/callback-return -- Hono middleware sets headers after the handler runs.
   await next();
-  c.header("Cache-Control", "no-store");
+  // PROTOTYPE: the runtime sets its own long cache.
+  if (!c.res.headers.has("Cache-Control")) {
+    c.header("Cache-Control", "no-store");
+  }
   c.header("X-Content-Type-Options", "nosniff");
   c.header("Referrer-Policy", "no-referrer");
   if (!c.res.headers.has("Content-Security-Policy")) {
@@ -1261,6 +1266,66 @@ app.on(["PUT", "DELETE"], `/api/games/${ID}/:kind{like|save}`, (c) =>
   )
 );
 
+// PROTOTYPE routes for the feed-audio spike (docs/research/feed-audio-prototype.md).
+app.get("/runtime/v1.js", async (c) => {
+  const { RUNTIME_V1 } = await import("./runtime/files.ts");
+  return c.body(RUNTIME_V1, 200, {
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "Content-Type": "text/javascript; charset=utf-8",
+  });
+});
+
+// Every game gets the fixture track. No auth: the document's Authorization header isn't sent with subresource
+// requests. iOS's media stack asks for byte ranges, so Range is answered (it also plays without).
+app.get(`/api/games/${ID}/assets/music.mp3`, async (c) => {
+  const { FIXTURE_MUSIC } = await import("./runtime/files.ts");
+  const size = FIXTURE_MUSIC.byteLength;
+  const range = /^bytes=(?<start>\d*)-(?<end>\d*)$/u.exec(
+    c.req.header("Range") ?? ""
+  )?.groups;
+  console.log(`asset music.mp3 Range: ${c.req.header("Range") ?? "(none)"}`);
+  const headers = {
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "public, max-age=3600",
+    "Content-Type": "audio/mpeg",
+  };
+  if (!range) {
+    return c.body(FIXTURE_MUSIC, 200, headers);
+  }
+  const start = range.start ? Number(range.start) : size - Number(range.end);
+  const end =
+    range.start && range.end ? Math.min(Number(range.end), size - 1) : size - 1;
+  return c.body(FIXTURE_MUSIC.slice(start, end + 1), 206, {
+    ...headers,
+    "Content-Range": `bytes ${start}-${end}/${size}`,
+  });
+});
+
+// `n` events `ms` apart, with ids, resuming after Last-Event-ID.
+app.get("/api/sse-test", (c) =>
+  streamSSE(c, async (stream) => {
+    const after = Number(c.req.header("Last-Event-ID") ?? 0);
+    const count = Number(c.req.query("n") ?? 10);
+    const ms = Number(c.req.query("ms") ?? 500);
+    let i = after;
+    console.log(`sse open, Last-Event-ID ${after}`);
+    stream.onAbort(() => console.log(`sse aborted after ${i}`));
+    while (i < count && !stream.aborted) {
+      // oxlint-disable-next-line no-await-in-loop -- events go out one at a time, `ms` apart.
+      await stream.sleep(ms);
+      i += 1;
+      // oxlint-disable-next-line no-await-in-loop -- as above.
+      await stream.writeSSE({
+        data: JSON.stringify({ at: Date.now(), i }),
+        event: "tick",
+        id: String(i),
+      });
+    }
+    await stream.writeSSE({ data: "", event: "done" });
+    console.log(`sse closed after ${i}`);
+  })
+);
+
 app.get(`/api/games/${ID}/document`, (c) =>
   run(
     c,
@@ -1280,6 +1345,19 @@ app.get(`/api/games/${ID}/document`, (c) =>
       );
       if (!game) {
         return yield* fail(404, GAME_UNAVAILABLE);
+      }
+      if (game.html.includes(RUNTIME_MARKER)) {
+        return c.html(
+          game.html.replace(
+            RUNTIME_MARKER,
+            runtimeTags(Number(c.req.param("id")))
+          ),
+          200,
+          {
+            "Content-Security-Policy": RUNTIME_CSP,
+            "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+          }
+        );
       }
       return c.html(game.html, 200, {
         "Content-Security-Policy": GAME_CSP,
