@@ -1,0 +1,22 @@
+{
+  "name": "maker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "chat": "node --env-file-if-exists=.env src/chat.ts",
+    "spike:sdk": "node --env-file-if-exists=.env src/spike-sdk.ts",
+    "spike:box": "node --env-file-if-exists=.env src/spike-box.ts",
+    "template": "node --env-file-if-exists=.env image/build.ts",
+    "test": "node --test",
+    "typecheck": "tsc --noEmit",
+    "eval": "node --env-file-if-exists=.env src/eval.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "1.2.0",
+    "@earendil-works/pi-coding-agent": "1.2.0",
+    "e2b": "^2.56.0",
+    "esbuild": "^0.28.2",
+    "littlejsengine": "1.26.1",
+    "playwright-core": "1.58.2"
+  }
+}
