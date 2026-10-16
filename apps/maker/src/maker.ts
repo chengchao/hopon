@@ -51,17 +51,46 @@ const KIMI_K2_5 = {
   name: "Kimi K2.5",
 } as Model<Api>;
 
+// The gateway's Unified Billing doesn't cover Haiku 5.5 on its Anthropic route (the call reaches Anthropic without a
+// key: 401 "x-api-key header is required"), but Cloudflare's REST API bills it at /ai/v1/messages as
+// `anthropic/claude-haiku-5.5`, in Anthropic's protocol with a Bearer token (pi's x-api-key rides along unused).
+const HAIKU_5_5 = {
+  // The gateway's descriptor, not Anthropic's: Anthropic's turns on mid-conversation system messages, which
+  // Cloudflare's endpoint rejects ("messages[1].role"). The anthropic provider only signs and sends it.
+  ...getBuiltinModel("cloudflare-ai-gateway", "claude-haiku-5-5"),
+  baseUrl: `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/ai`,
+  headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_KEY}` },
+  id: "anthropic/claude-haiku-5.5",
+  provider: "anthropic",
+} as Model<Api>;
+
+// ponytail: that endpoint validates a narrower request than Anthropic's: it rejects the SDK's `?beta=true` and a
+// `system` given as content blocks. Rewrite both for that one URL; delete once the gateway bills Haiku 5.5.
+const CLOUDFLARE_MESSAGES = `${HAIKU_5_5.baseUrl}/v1/messages`;
+const realFetch = globalThis.fetch;
+globalThis.fetch = (input, init) => {
+  const url = input instanceof Request ? input.url : String(input);
+  if (!url.startsWith(CLOUDFLARE_MESSAGES) || typeof init?.body !== "string") {
+    return realFetch(input, init);
+  }
+  const body = JSON.parse(init.body) as {
+    system?: string | { text: string }[];
+  };
+  if (Array.isArray(body.system)) {
+    body.system = body.system.map((part) => part.text).join("\n\n");
+  }
+  return realFetch(CLOUDFLARE_MESSAGES, {
+    ...init,
+    body: JSON.stringify(body),
+  });
+};
+
 export const MODELS: Record<string, Model<Api>> = {
-  // The gateway's Unified Billing covers Sonnet 5.5 and Haiku 4.5 but not Haiku 5.5 yet: that call reaches
-  // Anthropic without a key (401 "x-api-key header is required"). Haiku 4.5 stands in until it does.
   "claude-haiku-4-5": getBuiltinModel(
     "cloudflare-ai-gateway",
     "claude-haiku-4-5"
   ),
-  "claude-haiku-5-5": getBuiltinModel(
-    "cloudflare-ai-gateway",
-    "claude-haiku-5-5"
-  ),
+  "claude-haiku-5-5": HAIKU_5_5,
   "claude-sonnet-5-5": getBuiltinModel(
     "cloudflare-ai-gateway",
     "claude-sonnet-5-5"
