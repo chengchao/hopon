@@ -83,12 +83,49 @@ Surprises:
 - **LittleJS is no longer ~40 KB.** 1.26.1's `littlejs.min.js` is 474 KB / 147 KB gzipped (3D, box2d, editor). Our core-only runtime is **148 KB / 47 KB gzipped**; their strip-ASSERT step would trim more. Still fine for a cached `/runtime/v1.js`, but the plan's number is off by 3×.
 - Today's `GAME_CSP` has `script-src 'unsafe-inline'` only. The plan's `<script src="/runtime/v1.js">` needs `'self'` added. Chromium runs a `'self'` script under `sandbox allow-scripts` (checked); WebKit (iOS WebView) not yet checked.
 - LittleJS's globals are `let`s, so they're not on `window`; the scaffold looks hooks up by name, and the playtest reads state by name. A game's `const gameUpdate = …` works too.
+- Kimi on Workers AI reasons even with pi's thinking level at "low" (3k–21k output tokens per game) at about 30 tokens/s, so turns take minutes. Once it also typed a CJK comma into code.
 - The release build keeps running after a per-frame exception (per engine.js), so a game can look alive while throwing every frame; `playtest()` counts console errors, which catches it.
 
 ## 4. Eval
 
-EVAL_TABLE_PLACEHOLDER
+`pnpm -F maker eval --models kimi-k2.5,claude-sonnet-5-5,claude-haiku-4-5` (LocalBox, models in parallel, prompts in order). Prompts: the three examples in `apps/mobile/app/create.tsx`, plus "A neon snake game. Swipe to turn, eat the glowing dots, don't bite your own tail." and "Whack-a-mole with garden gnomes: tap them before they duck back down. 30 seconds on the clock." Thinking level "low" for all. "Green" = `playtest()` ok: no console errors and the clock ran.
+
+| model | prompt | 1st playtest green | final green | run_node calls | in / out tokens | $ | s |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| kimi-k2.5 | moon cat | yes | yes | 3 | 65,901 / 19,106 | 0.076 | 545 |
+| kimi-k2.5 | fruit catcher | yes | yes | 1 | 14,077 / 3,301 | 0.015 | 97 |
+| kimi-k2.5 | ocean memory | yes | yes | 1 | 26,871 / 15,940 | 0.053 | 410 |
+| kimi-k2.5 | neon snake | no | yes | 5 | 133,366 / 21,174 | 0.082 | 573 |
+| kimi-k2.5 | gnome whack | yes | yes | 1 | 25,996 / 16,481 | 0.055 | 486 |
+| claude-sonnet-5-5 | moon cat | yes | yes | 1 | 19,200 / 2,102 | 0.048 | 22 |
+| claude-sonnet-5-5 | fruit catcher | yes | yes | 2 | 29,990 / 2,595 | 0.057 | 33 |
+| claude-sonnet-5-5 | ocean memory | yes | yes | 1 | 19,585 / 2,485 | 0.053 | 28 |
+| claude-sonnet-5-5 | neon snake | yes | yes | 1 | 18,913 / 1,952 | 0.046 | 23 |
+| claude-sonnet-5-5 | gnome whack | yes | yes | 1 | 18,925 / 1,789 | 0.045 | 24 |
+| claude-haiku-4-5 | moon cat | yes | yes | 7 | 103,266 / 7,028 | 0.066 | 108 |
+| claude-haiku-4-5 | fruit catcher | yes | yes | 2 | 28,112 / 3,611 | 0.035 | 41 |
+| claude-haiku-4-5 | ocean memory | yes | yes | 2 | 28,001 / 3,554 | 0.034 | 45 |
+| claude-haiku-4-5 | neon snake | yes | yes | 1 | 17,757 / 2,621 | 0.027 | 26 |
+| claude-haiku-4-5 | gnome whack | yes | yes | 2 | 27,024 / 2,480 | 0.027 | 28 |
+
+| model | 1st green | median run_node calls | $ / game | median s / game | looks (contact sheet) |
+| --- | --- | --- | --- | --- | --- |
+| Kimi K2.5 (Workers AI) | 4/5 | 1 | 0.056 | 486 | playable, small sprites |
+| Sonnet 5.5 | 5/5 | 1 | 0.050 | 24 | best: clear sprites, every prompt reads right |
+| Haiku 4.5 (stand-in) | 5/5 | 2 | 0.038 | 41 | weakest: text-only cards, a broken timer |
+
+![The 15 final screenshots](eval-contact-sheet.png)
+
+- **Every model accepted the screenshot image part** in tool results (no API errors; all three describe what's on the screenshot in their reasoning: Kimi 56 times, Haiku 17, Sonnet 6).
+- **Haiku 5.5 isn't in the table.** The gateway's Unified Billing doesn't cover it yet: the call reaches Anthropic without a key (401). Sonnet 5.5, Opus 5.5 and Haiku 4.5 work on the same gateway. Cloudflare's own REST API does bill `anthropic/claude-haiku-5.5`, but its `/ai/v1/messages` rejects pi's requests (`?beta=true`, array `system`), and its `/ai/v1/chat/completions` streams Anthropic-format SSE that pi can't parse. Haiku 4.5 stands in; rerun `--models claude-haiku-5-5` once Cloudflare bills it, or store an Anthropic key in the gateway (BYOK).
+- **Green isn't correct.** Haiku's gnome game shows "0s" from the first second (it used `Timer.elapsed()`, a boolean, as seconds) and still passed. Snake games die to random taps within 3 s and pass too. The skill now spells out `Timer` (`-timer.get()` is seconds left).
+- Round 1 (Kimi only, before two fixes): the scaffold drew the score at top centre, on top of Kimi's "27s" timer, so the screenshot read "20s"; Kimi spent 13 runs and $0.34 debugging a bug that wasn't there, and hit the 12-run cap. The score now sits top left and the skill says to keep that corner clear. Also, pi's thinking level "off" sends `thinking: {type: "disabled"}`, which Claude 5.5 rejects (it wants `"between_tools"`), so every Sonnet call 400'd until we moved to "low".
+- E2B end to end: `pnpm -F maker chat "<neon snake>" --model claude-sonnet-5-5 --box e2b` made the game in 26 s, one run, $0.043, green, with the playtest screenshot taken by Chromium inside the box.
 
 ## Recommendation
 
-RECOMMENDATION_PLACEHOLDER
+- **Harness: keep pi-coding-agent.** Everything the Maker needs works: built-in tools off, our two tools only, in-memory transcript exported as JSONL and resumed in another process, `steer()` / `followUp()` mid-run, no files written. Budget for its gaps: our own `load_skill`, our own JSONL string export, and an exact version pin (it shipped 1.0.4 → 1.3.0 in ten days).
+- **Box: E2B.** Create ~0.5 s, pause ~0.3 s, resume + first command ~0.5 s, egress dropped, no secrets. Before launch, warm Chromium into the template snapshot: the first playtest in a fresh box takes 22 s, later ones 4.4 s.
+- **Engine: LittleJS, no need for Kaplay.** 15 of 15 games were green in the end, and the only first-playtest failure was a Kimi typo (a "、" in code), not an engine API mistake. All three models wrote working LittleJS from the skill alone. The runtime is 148 KB minified / 47 KB gzipped, not the plan's ~40 KB. Add `'self'` to `GAME_CSP` for a served `/runtime/v1.js` and check it on iOS WebKit.
+- **Model: Sonnet 5.5 as the default, through the Cloudflare AI Gateway.** It made the best games, fastest (24 s median), at about the same cost per game as Kimi ($0.050 vs $0.056: Kimi's reasoning output eats its lower token price). Kimi K2.5 on Workers AI takes ~8 minutes a game, too slow for a chat, and its reasoning doesn't turn off through the gateway. Rerun Haiku 5.5 when the gateway bills it; if it matches Sonnet's quality it is the cheap tier.
+- **Before phase 5's 30-prompt eval, make playtest stricter.** Green means "no errors and the clock ran", which every model passes. Let the model script its own inputs (`playtest({ taps: [...] })`), take a start and an end screenshot, and report `state: "over"` within the first seconds as a warning, so the model (and the eval) can tell "died to random taps" from "broken".

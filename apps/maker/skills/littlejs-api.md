@@ -49,7 +49,7 @@ Do not draw your own score, title or game-over text. The scaffold draws the scor
 
 - `vec2(x, y)` → `Vector2` with `.add(v) .subtract(v) .scale(n) .multiply(v) .length() .normalize(len?) .distance(v) .angle() .rotate(a) .copy() .lerp(v, p)`. Methods return new vectors; `pos.x += 1` mutates.
 - `rgb(r, g, b, a?)` with 0..1 channels, `hsl(h, s, l, a?)` with h in 0..1. Constants: `WHITE BLACK GRAY RED ORANGE YELLOW GREEN CYAN BLUE PURPLE MAGENTA`. `color.lerp(other, p)`, `color.scale(n)`.
-- `rand(a?, b?)`, `randInt(a, b?)` (b exclusive), `randBool(chance?)`, `randSign()`, `randInCircle(r)`, `clamp(v, min, max)`, `lerp(a, b, p)`, `isOverlapping(posA, sizeA, posB, sizeB)` (centered boxes), `new Timer(seconds)` with `.elapsed() .active() .set(s)`.
+- `rand(a?, b?)`, `randInt(a, b?)` (b exclusive), `randBool(chance?)`, `randSign()`, `randInCircle(r)`, `clamp(v, min, max)`, `lerp(a, b, p)`, `isOverlapping(posA, sizeA, posB, sizeB)` (centered boxes), `new Timer(seconds)`: `.active()` and `.elapsed()` are **booleans**; seconds left is `-timer.get()` (it counts up from `-seconds` to 0), `.getPercent()` is 0..1, `.set(s)` restarts it. A countdown: `Math.ceil(-timer.get())`.
 
 ## Drawing (world space unless noted)
 
