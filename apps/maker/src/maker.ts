@@ -200,7 +200,8 @@ export const createMaker = async ({
     settingsManager: SettingsManager.inMemory({
       compaction: { enabled: false },
     }),
-    thinkingLevel: "off",
+    // "off" sends thinking: disabled, which Claude 5.5 rejects (it wants "between_tools"); low is the floor that works everywhere.
+    thinkingLevel: "low",
   });
   return { cwd, session };
 };
