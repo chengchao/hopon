@@ -10,7 +10,7 @@ pnpm -F maker chat "<prompt>" --model <id> --box local|e2b [--no-images] [--stee
 pnpm -F maker eval [--box e2b] [--models a,b]      # Q4: 5 prompts × models, prints the table
 ```
 
-Keys live in `apps/maker/.env` (see `.env.example`).
+Keys live in `apps/maker/.env` (see `.env.example`): one Cloudflare AI Gateway token for all models, plus E2B.
 
 ## 1. pi-coding-agent SDK
 
@@ -26,10 +26,13 @@ Version 1.2.0 (1.3.0 shipped on the day of the spike; pnpm's minimum release age
 | Default system prompt | Talks about pi's docs and file tools. Replace it with `DefaultResourceLoader({ systemPrompt })`; what's left is our prompt plus a `<cwd>` section (an empty temp dir). |
 | Credentials | `ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null })` then `setRuntimeApiKey()`: no `auth.json` / `models.json`. `AuthStorage.inMemory` from the docs isn't exported from the package index. |
 | `getModel` from pi-ai | Deprecated; use `getBuiltinModel` from `@earendil-works/pi-ai/providers/all`. |
-| Kimi K2.5 via pi-ai | Not in the catalog any more (K2.6, K2.7-code, K3 only). `maker.ts` clones the K2.6 descriptor as `kimi-k2.5`. |
+| Kimi K2.5 via pi-ai | Not in the catalog any more (K2.6, K2.7-code, K3 only). `maker.ts` clones the gateway's Workers AI K2.6 descriptor as `workers-ai/@cf/moonshotai/kimi-k2.5` with Workers AI's K2.5 prices ($0.60 in, $0.10 cached, $3.00 out per M). |
+
+**One key for every model.** All three models go through one Cloudflare AI Gateway: pi-ai's `cloudflare-ai-gateway` provider sends only `cf-aig-authorization: Bearer <CLOUDFLARE_API_KEY>` (it strips `Authorization` / `x-api-key`), so Claude bills to the gateway's Unified Billing credits (5% fee on credit purchases, no markup on tokens) and Kimi K2.5 runs on Workers AI: the same `@cf/moonshotai/kimi-k2.5` the API's Make uses today. Needs `CLOUDFLARE_API_KEY` (AI Gateway Run), `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_GATEWAY_ID`; the gateway must have authentication on and must not store a `default` BYOK key (that blocks the Unified Billing fallback). It also gives the Maker the gateway's logs and spend limits for free.
 
 Evidence so far (no model call needed):
 
+- Requests go to `gateway.ai.cloudflare.com/v1/<account>/<gateway>/anthropic/v1/messages` (Claude) and `…/compat/chat/completions` (Kimi), and the payload's `tools` is exactly `["run_node", "load_skill"]`.
 - Active tools: `["run_node", "load_skill"]`; system prompt sections: preamble (ours) + `cwd`.
 - After creating a session and appending messages: nothing under `cwd`, the `agentDir` is never created, `~/.pi` is untouched.
 - A transcript exported to JSONL (header, model change, thinking level, 2 messages) restores in a **new process** with both messages intact.

@@ -36,24 +36,38 @@ How to work:
 
 Use at most ${MAX_RUNS} run_node calls per message.`;
 
-// Kimi K2.5 left pi-ai's catalog when K2.6 arrived; Moonshot still serves it. Prices: platform.moonshot.ai.
+// Every model goes through one Cloudflare AI Gateway: Claude on Unified Billing, Kimi on Workers AI (the same
+// @cf/moonshotai/kimi-k2.5 the API's Make uses today). One token, plus CLOUDFLARE_ACCOUNT_ID and
+// CLOUDFLARE_GATEWAY_ID, which pi-ai reads from the env.
+
+// K2.5 left pi-ai's catalog when K2.6 arrived; Workers AI still serves it. Prices: Workers AI pricing page.
 const KIMI_K2_5 = {
-  ...getBuiltinModel("moonshotai", "kimi-k2.6"),
+  ...getBuiltinModel(
+    "cloudflare-ai-gateway",
+    "workers-ai/@cf/moonshotai/kimi-k2.6"
+  ),
   cost: { cacheRead: 0.1, cacheWrite: 0, input: 0.6, output: 3 },
-  id: "kimi-k2.5",
+  id: "workers-ai/@cf/moonshotai/kimi-k2.5",
   name: "Kimi K2.5",
 } as Model<Api>;
 
 export const MODELS: Record<string, Model<Api>> = {
-  "claude-haiku-5-5": getBuiltinModel("anthropic", "claude-haiku-5-5"),
-  "claude-sonnet-5-5": getBuiltinModel("anthropic", "claude-sonnet-5-5"),
+  "claude-haiku-5-5": getBuiltinModel(
+    "cloudflare-ai-gateway",
+    "claude-haiku-5-5"
+  ),
+  "claude-sonnet-5-5": getBuiltinModel(
+    "cloudflare-ai-gateway",
+    "claude-sonnet-5-5"
+  ),
   "kimi-k2.5": KIMI_K2_5,
 };
 
-const KEYS: Record<string, string> = {
-  anthropic: "ANTHROPIC_API_KEY",
-  moonshotai: "MOONSHOT_API_KEY",
-};
+const GATEWAY_ENV = [
+  "CLOUDFLARE_API_KEY",
+  "CLOUDFLARE_ACCOUNT_ID",
+  "CLOUDFLARE_GATEWAY_ID",
+];
 
 const clip = (text: string) =>
   text.length > OUTPUT_LIMIT
@@ -84,10 +98,9 @@ export const createMaker = async ({
       `unknown model ${modelId}; one of ${Object.keys(MODELS).join(", ")}`
     );
   }
-  const keyName = KEYS[model.provider] ?? "";
-  const key = process.env[keyName];
-  if (!key) {
-    throw new Error(`${keyName} is missing from apps/maker/.env`);
+  const missing = GATEWAY_ENV.filter((name) => !process.env[name]);
+  if (missing.length > 0) {
+    throw new Error(`${missing.join(", ")} missing from apps/maker/.env`);
   }
   // An empty cwd and agentDir: nothing to discover, and anything pi writes would show up here.
   const cwd = mkdtempSync(path.join(tmpdir(), "hopon-maker-"));
@@ -96,7 +109,10 @@ export const createMaker = async ({
     credentials: new InMemoryCredentialStore(),
     modelsPath: null,
   });
-  await modelRuntime.setRuntimeApiKey(model.provider, key);
+  await modelRuntime.setRuntimeApiKey(
+    model.provider,
+    process.env.CLOUDFLARE_API_KEY ?? ""
+  );
   const resourceLoader = new DefaultResourceLoader({
     additionalSkillPaths: [SKILLS_DIR],
     agentDir,
