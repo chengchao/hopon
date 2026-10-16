@@ -86,13 +86,15 @@ addEventListener("load", () => {
     () => {
       hoponCall("gameRenderPost");
       if (hopon.state === "play") {
+        // Top-left corner, so it never lands on a game's own centred HUD (a timer, say).
         drawTextScreen(
-          String(hopon.score),
-          vec2(mainCanvasSize.x / 2, 36),
-          36,
+          `★ ${hopon.score}`,
+          vec2(14, 26),
+          28,
           WHITE,
           4,
-          BLACK
+          BLACK,
+          "left"
         );
       } else if (hopon.state === "start") {
         hoponOverlay([

@@ -18,7 +18,7 @@ A game is one file, `game.ts`, in the workspace. `playtest()` strips the types (
 
 ## The hopon scaffold
 
-The scaffold owns the start screen ("title" + "hint", tap to start), the score at the top, the game-over screen and tap-to-restart. While the start or game-over screen shows, the game is paused (`gameUpdate` and objects stop; `gameRender` still draws behind the overlay).
+The scaffold owns the start screen ("title" + "hint", tap to start), the score in the top-left corner, the game-over screen and tap-to-restart. While the start or game-over screen shows, the game is paused (`gameUpdate` and objects stop; `gameRender` still draws behind the overlay).
 
 ```ts
 hopon.title = "Moon Cat"; // set at top level
@@ -31,7 +31,7 @@ hopon.best;
 hopon.state; // "start" | "play" | "over"
 ```
 
-Do not draw your own score, title or game-over text.
+Do not draw your own score, title or game-over text. The scaffold draws the score in the **top-left corner** (about 120×50 CSS px); keep your own HUD (timer, lives, level) out of that corner, e.g. top centre or top right.
 
 ## The five hooks
 

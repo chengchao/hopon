@@ -52,6 +52,12 @@ const KIMI_K2_5 = {
 } as Model<Api>;
 
 export const MODELS: Record<string, Model<Api>> = {
+  // The gateway's Unified Billing covers Sonnet 5.5 and Haiku 4.5 but not Haiku 5.5 yet: that call reaches
+  // Anthropic without a key (401 "x-api-key header is required"). Haiku 4.5 stands in until it does.
+  "claude-haiku-4-5": getBuiltinModel(
+    "cloudflare-ai-gateway",
+    "claude-haiku-4-5"
+  ),
   "claude-haiku-5-5": getBuiltinModel(
     "cloudflare-ai-gateway",
     "claude-haiku-5-5"
