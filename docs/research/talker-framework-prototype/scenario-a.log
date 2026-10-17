@@ -1,0 +1,13 @@
+13:44:52 turn 1
+{"operationId":"ebdda520-cc86-40a2-bcd3-c5a7959a9056","session":"1","accepted":true}
+13:44:56 build s1-toolu_01Y7NGSvHnAScBm6QXFtMByK started
+13:45:01 client away 20 s
+13:45:11 steer
+{"steer":true,"operationId":"1440336b-1e83-4ee4-9f04-300d703d0ea0","session":"1","accepted":true}
+13:47:01 turn 1 over
+13:47:04 turn 2
+{"operationId":"d3170972-52b8-4adc-93d7-59ae6b3ac983","session":"1","accepted":true}
+13:47:04 build s1-toolu_0183qJD3tA3KteTfDni6839r started
+13:47:19 STOP
+{"stopped":true}
+13:47:27 coder job after stop: {'startedAt': 1792269959901, 'starts': 1}

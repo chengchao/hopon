@@ -1,0 +1,14 @@
+20:48:40.098 connect since=0
+20:48:40.155 first message 112 ms
+20:48:40.155 state idle
+20:48:41.019 #1 turn_started {"model":"sonnet","text":"Make me a tiny snake game with neon colors."}
+20:48:45.150 #2 assistant {"step":1,"text":"","toolCalls":[{"id":"toolu_01C2oH4DgdoynXVvyFje3ySB","name":"build","params":{"spec":"Build a tiny Snake game with a neon
+20:48:45.153 #3 build_attach {"jobId":"st1-toolu_01C2oH4DgdoynXVvyFje3ySB"}
+20:48:45.170 #4 build_progress {"line":"progress 0/60"}
+20:48:55.185 #5 build_progress {"line":"progress 10/60"}
+20:48:56.028 tick
+20:49:00.239 #6 turn_failed {"reason":"stopped"}
+20:49:40.310 #7 turn_started {"model":"sonnet","text":"What happened to my game?"}
+20:49:43.718 #8 assistant {"step":1,"text":"The build was stopped before it finished, so your snake game doesn't exist yet. Do you want me to start it again?","toolCa
+20:49:43.719 #9 turn_done {}
+20:49:52.332 last #9 dup 0 gap 0

@@ -1,0 +1,10 @@
+20:56:09.979 connect since=0
+20:56:10.015 first message 91 ms
+20:56:10.015 state idle
+20:56:10.016 #1 turn_started {"model":"sonnet","text":"Say hi in three words."}
+20:56:10.016 #2 assistant {"step":1,"text":"Hi, hello there!","toolCalls":[],"usage":{"inputTokens":{"uncached":468,"total":468,"cacheRead":0,"cacheWrite":0},"outputT
+20:56:10.017 #3 turn_done {}
+20:56:49.880 #4 turn_started {"model":"sonnet","text":"Say bye in three words."}
+20:56:51.127 #5 assistant {"step":1,"text":"Goodbye, see you!","toolCalls":[],"usage":{"inputTokens":{"uncached":488,"total":488,"cacheRead":0,"cacheWrite":0},"output
+20:56:51.127 #6 turn_done {}
+20:56:57.893 last #6 dup 0 gap 0

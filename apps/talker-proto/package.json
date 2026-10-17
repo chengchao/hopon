@@ -1,0 +1,21 @@
+{
+  "name": "talker-proto",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "coder": "wrangler dev -c wrangler.coder.jsonc --port 8790",
+    "a": "wrangler dev -c wrangler.a.jsonc --port 8791",
+    "b": "wrangler dev -c wrangler.b.jsonc --port 8792"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "1.3.0",
+    "@earendil-works/pi-durable": "1.3.0",
+    "@effect/ai-anthropic": "4.0.5",
+    "@effect/sql-sqlite-do": "4.0.5",
+    "agents": "0.28.1",
+    "effect": "4.0.5"
+  },
+  "devDependencies": {
+    "wrangler": "4.151.0"
+  }
+}

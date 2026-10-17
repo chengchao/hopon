@@ -1,0 +1,13 @@
+13:44:52 turn 1
+{"turn":1}
+13:44:56 build s1-toolu_01Y7NGSvHnAScBm6QXFtMByK started
+13:45:01 client away 20 s
+13:45:11 steer
+{"steer":true,"turn":1}
+13:47:02 turn 1 over
+13:47:05 turn 2
+{"turn":2}
+13:47:05 build s1-toolu_0183qJD3tA3KteTfDni6839r started
+13:47:20 STOP
+{"stopped":true}
+13:47:28 coder job after stop: {'startedAt': 1792269959901, 'starts': 1}

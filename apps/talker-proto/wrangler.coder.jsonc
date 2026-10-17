@@ -1,0 +1,10 @@
+// PROTOTYPE (#128): the fake Coder. One Job object per jobId runs a 60 s job on the wall clock; POST attaches.
+{
+  "name": "talker-proto-coder",
+  "main": "src/coder.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": { "bindings": [{ "name": "JOB", "class_name": "Job" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Job"] }],
+  "vars": { "JOB_SECONDS": "60" },
+}

@@ -6,6 +6,9 @@ minimumReleaseAgeExclude:
 overrides:
   sharp: ^0.35.4
 allowBuilds:
+  "@google/genai": false
+  core-js-pure: false
+  protobufjs: false
   browser-tabs-lock: false
   core-js: false
   esbuild: true

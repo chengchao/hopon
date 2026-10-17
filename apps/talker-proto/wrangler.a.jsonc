@@ -1,0 +1,13 @@
+// PROTOTYPE (#128): Talker A, pi-durable through Cloudflare's PiHarness in a SQLite-backed Durable Object.
+{
+  "name": "talker-proto-a",
+  "main": "src/a.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "ai": { "binding": "AI", "remote": true },
+  "durable_objects": {
+    "bindings": [{ "name": "TALKER", "class_name": "TalkerA" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TalkerA"] }],
+  "vars": { "CODER_URL": "http://localhost:8790" },
+}

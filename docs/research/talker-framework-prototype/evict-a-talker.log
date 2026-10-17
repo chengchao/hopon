@@ -1,0 +1,22 @@
+a.log:[A 93a3] constructor
+a.log:[A ff97] constructor
+a.log:[A] build attach e3-toolu_01KgHDyBFoRg86WSG5CaGqNh
+a.log:[A 7a19] constructor
+a.log:[A] build attach e3-toolu_01KgHDyBFoRg86WSG5CaGqNh
+a.log:[A e755] constructor
+coder.log:[coder] e3-toolu_01KgHDyBFoRg86WSG5CaGqNh START Build a tiny snake game in a single HTML page with canvas (a
+coder.log:[wrangler:info] POST /jobs/e3-toolu_01KgHDyBFoRg86WSG5CaGqNh 200 OK (8ms)
+coder.log:[coder] e3-toolu_01KgHDyBFoRg86WSG5CaGqNh ATTACH at 29 s
+coder.log:[wrangler:info] POST /jobs/e3-toolu_01KgHDyBFoRg86WSG5CaGqNh 200 OK (13ms)
+coder.log:[wrangler:info] GET /jobs/e3-toolu_01KgHDyBFoRg86WSG5CaGqNh 200 OK (3ms)
+coder.log:[wrangler:info] GET /jobs/e3-toolu_01KgHDyBFoRg86WSG5CaGqNh 200 OK (7ms)
+coder.log:[wrangler:info] GET /jobs/e3-toolu_01KgHDyBFoRg86WSG5CaGqNh 200 OK (9ms)
+coder.log:[wrangler:info] GET /jobs/e3-toolu_01KgHDyBFoRg86WSG5CaGqNh 200 OK (4ms)
+coder.log:[wrangler:info] GET /jobs/e3-toolu_01KgHDyBFoRg86WSG5CaGqNh 200 OK (5ms)
+coder.log:[wrangler:info] GET /jobs/e3-toolu_01KgHDyBFoRg86WSG5CaGqNh 200 OK (7ms)
+coder.log:[wrangler:info] GET /jobs/e3-toolu_01KgHDyBFoRg86WSG5CaGqNh 200 OK (4ms)
+coder.log:[wrangler:info] GET /jobs/e3-toolu_01KgHDyBFoRg86WSG5CaGqNh 200 OK (6ms)
+coder.log:[wrangler:info] GET /jobs/e3-toolu_01KgHDyBFoRg86WSG5CaGqNh 200 OK (4ms)
+coder.log:[wrangler:info] GET /jobs/e3-toolu_01KgHDyBFoRg86WSG5CaGqNh 200 OK (5ms)
+coder.log:[wrangler:info] GET /jobs/e3-toolu_01KgHDyBFoRg86WSG5CaGqNh 200 OK (8ms)
+coder.log:[wrangler:info] GET /jobs/e3-toolu_01KgHDyBFoRg86WSG5CaGqNh 200 OK (7ms)

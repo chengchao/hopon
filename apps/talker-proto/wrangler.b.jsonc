@@ -1,0 +1,12 @@
+// PROTOTYPE (#128): Talker B, an Effect AI loop in a SQLite-backed Durable Object.
+{
+  "name": "talker-proto-b",
+  "main": "src/b.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "TALKER", "class_name": "TalkerB" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TalkerB"] }],
+  "vars": { "CODER_URL": "http://localhost:8790" },
+}
