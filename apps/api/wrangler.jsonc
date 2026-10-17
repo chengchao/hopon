@@ -26,6 +26,11 @@
   "vars": {
     "AI_MODEL": "@cf/moonshotai/kimi-k2.5",
   },
+  // PROTOTYPE for #126: the Talker stand-in (src/proto-talker.ts).
+  "durable_objects": {
+    "bindings": [{ "name": "TALKER_PROTO", "class_name": "TalkerProto" }],
+  },
+  "migrations": [{ "tag": "proto-v1", "new_sqlite_classes": ["TalkerProto"] }],
   "compatibility_flags": ["nodejs_compat"],
   // Repeated as CLOUDFLARE_ACCOUNT_ID in package.json's db:remote and deploy: on a login with several accounts, some
   // wrangler commands ignore this field when run non-interactively.

@@ -1,0 +1,13 @@
+# app (Metro)
+[ws] 03:28:02.629 closed (button)
+[ws] 03:28:02.763 connect (Authorization header) since=87
+[ws] 03:28:02.975 open in 229 ms
+[ws] 03:28:02.975 first message 229 ms after connect started
+[ws] 03:28:02.976 state {"latest":87,"status":"idle","turn":4}
+
+# worker (wrangler dev)
+[talker 03:28:02.631 3487] constructor (wake): 87 events, 2 sockets held
+[talker 03:28:02.634 3487] socket closed 1000 button
+[ws] upgrade since=87 ticket=no Authorization=present
+[talker 03:28:02.877 3487] socket accepted since=87, replayed 0, 2 held
+[wrangler:info] GET /api/proto/proto-1/ws 101 Switching Protocols (7ms)

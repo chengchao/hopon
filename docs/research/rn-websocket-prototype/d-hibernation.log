@@ -1,0 +1,29 @@
+# Every Durable Object constructor run and turn boundary across the session (wrangler dev --local), from both API runs.
+# A new instance id after a turn ended means the object hibernated and woke; one id per turn means it stayed awake.
+[talker 03:10:21.151 728f] constructor (wake): 0 events, 0 sockets held
+[talker 03:16:31.142 82b4] constructor (wake): 0 events, 0 sockets held
+[talker 03:16:31.175 82b4] socket accepted since=0, replayed 0, 1 held
+[talker 03:16:40.341 82b4] turn 1 start
+[talker 03:17:40.368 82b4] turn 1 end
+[talker 03:18:30.253 4d2c] constructor (wake): 22 events, 1 sockets held
+[talker 03:18:30.257 4d2c] turn 2 start
+[talker 03:18:39.906 4d2c] socket closed 1000 background
+[talker 03:19:30.069 4d2c] socket accepted since=32, replayed 11, 1 held
+[talker 03:19:30.282 4d2c] turn 2 end
+[talker 03:21:00.910 7bb3] constructor (wake): 44 events, 1 sockets held
+[talker 03:21:00.912 7bb3] socket closed 1000 background
+[talker 03:21:58.450 2864] constructor (wake): 44 events, 0 sockets held
+[talker 03:21:58.469 2864] socket accepted since=0, replayed 44, 1 held
+[talker 03:22:10.314 1961] constructor (wake): 44 events, 1 sockets held
+[talker 03:22:10.316 1961] turn 3 start
+[talker 03:23:32.200 1961] socket accepted since=48, replayed 17, 2 held
+[talker 03:25:58.512 142d] constructor (wake): 65 events, 0 sockets held
+[talker 03:25:58.571 142d] socket accepted since=65, replayed 0, 1 held
+[talker 03:26:16.920 23e2] constructor (wake): 65 events, 1 sockets held
+[talker 03:26:16.923 23e2] turn 4 start
+[talker 03:27:16.952 23e2] turn 4 end
+[talker 03:27:43.198 9c94] constructor (wake): 87 events, 1 sockets held
+[talker 03:27:43.227 9c94] socket accepted since=69, replayed 18, 2 held
+[talker 03:28:02.631 3487] constructor (wake): 87 events, 2 sockets held
+[talker 03:28:02.634 3487] socket closed 1000 button
+[talker 03:28:02.877 3487] socket accepted since=87, replayed 0, 2 held

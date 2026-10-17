@@ -1,0 +1,72 @@
+# app (Metro)
+[ws] 03:18:30.259 #23 t2 turn_started {}
+[ws] 03:18:30.291 POST turn {"started":true,"turn":2}
+[ws] 03:18:31.260 #24 t2 step {"step":1}
+[ws] 03:18:32.260 #25 t2 step {"step":2}
+[ws] 03:18:33.261 #26 t2 step {"step":3}
+[ws] 03:18:34.262 #27 t2 step {"step":4}
+[ws] 03:18:35.263 #28 t2 step {"step":5}
+[ws] 03:18:35.669 AppState inactive
+[ws] 03:18:36.269 #29 t2 step {"step":6}
+[ws] 03:18:37.266 #30 t2 step {"step":7}
+[ws] 03:18:38.268 #31 t2 step {"step":8}
+[ws] 03:18:39.269 #32 t2 step {"step":9}
+[ws] 03:18:39.566 AppState background
+[ws] 03:18:39.572 closed (background)
+[ws] 03:19:29.933 AppState active
+[ws] 03:19:29.999 ticket in 64 ms, connect since=32
+[ws] 03:19:30.091 open in 156 ms
+[ws] 03:19:30.092 first message 157 ms after connect started
+[ws] 03:19:30.092 state {"latest":43,"status":"running","turn":2}
+[ws] 03:19:30.093 #33 t2 step {"step":10}
+[ws] 03:19:30.094 #34 t2 step {"step":11}
+[ws] 03:19:30.094 #35 t2 step {"step":12}
+[ws] 03:19:30.095 #36 t2 step {"step":13}
+[ws] 03:19:30.095 #37 t2 step {"step":14}
+[ws] 03:19:30.096 #38 t2 step {"step":15}
+[ws] 03:19:30.096 #39 t2 step {"step":16}
+[ws] 03:19:30.097 #40 t2 step {"step":17}
+[ws] 03:19:30.097 #41 t2 step {"step":18}
+[ws] 03:19:30.098 #42 t2 step {"step":19}
+[ws] 03:19:30.099 #43 t2 step {"step":20}
+[ws] 03:19:30.312 tick (server latest #43)
+[ws] 03:19:30.313 #44 t2 turn_done {}
+
+# worker (wrangler dev)
+[talker 03:18:30.253 4d2c] constructor (wake): 22 events, 1 sockets held
+[talker 03:18:30.257 4d2c] turn 2 start
+[talker 03:18:30.257 4d2c] append #23 turn_started
+[wrangler:info] POST /api/proto/proto-1/turn 200 OK (15ms)
+[talker 03:18:31.258 4d2c] append #24 step
+[talker 03:18:32.259 4d2c] append #25 step
+[talker 03:18:33.259 4d2c] append #26 step
+[talker 03:18:34.260 4d2c] append #27 step
+[talker 03:18:35.261 4d2c] append #28 step
+[talker 03:18:36.263 4d2c] append #29 step
+[talker 03:18:37.265 4d2c] append #30 step
+[talker 03:18:38.266 4d2c] append #31 step
+[talker 03:18:39.267 4d2c] append #32 step
+[talker 03:18:39.906 4d2c] socket closed 1000 background
+[talker 03:18:40.268 4d2c] append #33 step
+[talker 03:18:45.257 4d2c] tick (latest #33)
+[talker 03:19:00.258 4d2c] tick (latest #33)
+[talker 03:19:15.260 4d2c] tick (latest #33)
+[talker 03:19:20.270 4d2c] append #34 step
+[talker 03:19:21.271 4d2c] append #35 step
+[talker 03:19:22.273 4d2c] append #36 step
+[talker 03:19:23.273 4d2c] append #37 step
+[talker 03:19:24.274 4d2c] append #38 step
+[talker 03:19:25.275 4d2c] append #39 step
+[talker 03:19:26.275 4d2c] append #40 step
+[talker 03:19:27.276 4d2c] append #41 step
+[talker 03:19:28.276 4d2c] append #42 step
+[talker 03:19:29.277 4d2c] append #43 step
+[wrangler:info] POST /api/proto/proto-1/ws-ticket 200 OK (11ms)
+[ws] upgrade since=32 ticket=yes Authorization=absent
+[talker 03:19:30.069 4d2c] socket accepted since=32, replayed 11, 1 held
+[wrangler:info] GET /api/proto/proto-1/ws 101 Switching Protocols (8ms)
+[talker 03:19:30.261 4d2c] tick (latest #43)
+[wrangler:info] GET /api/proto/slow 200 OK (60004ms)
+[talker 03:19:30.280 4d2c] coder answered: built
+[talker 03:19:30.281 4d2c] append #44 turn_done
+[talker 03:19:30.282 4d2c] turn 2 end

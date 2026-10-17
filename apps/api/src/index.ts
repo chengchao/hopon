@@ -319,6 +319,25 @@ const run = <A, E>(
 
 const app = new Hono<AppEnv>();
 
+// PROTOTYPE for #126 (docs/research/rn-websocket-prototype.md). Registered before the middleware, which would set
+// headers on the 101. A ticket is checked by the Durable Object; with none, an Authorization header (RN's
+// undocumented third WebSocket argument) is verified here instead, for test (e).
+app.get("/api/proto/:id/ws", async (c) => {
+  const auth = c.req.header("Authorization");
+  console.log(
+    `[ws] upgrade since=${c.req.query("since")} ticket=${c.req.query("ticket") ? "yes" : "no"} Authorization=${auth ? "present" : "absent"}`
+  );
+  const headers = new Headers(c.req.raw.headers);
+  headers.delete("X-Proto-Preauthorized");
+  const { owner } = await session(c.req.raw, c.env);
+  if (!c.req.query("ticket") && owner) {
+    headers.set("X-Proto-Preauthorized", "1");
+  }
+  return c.env.TALKER_PROTO.getByName(c.req.param("id")).fetch(
+    new Request(c.req.raw, { headers })
+  );
+});
+
 app.use(async (c, next) => {
   // oxlint-disable-next-line node/callback-return -- Hono middleware sets headers after the handler runs.
   await next();
@@ -1289,4 +1308,28 @@ app.get(`/api/games/${ID}/document`, (c) =>
   )
 );
 
+// PROTOTYPE for #126: a ticket and a fake turn (both behind the Clerk check on /api writes), and a slow endpoint
+// that stands in for the Coder.
+app.post("/api/proto/:id/ws-ticket", async (c) =>
+  c.json({
+    ticket: await c.env.TALKER_PROTO.getByName(c.req.param("id")).ticket(),
+  })
+);
+app.post("/api/proto/:id/turn", async (c) =>
+  c.json(
+    // Straight to wrangler dev, not through the blackhole proxy the app may be using.
+    await c.env.TALKER_PROTO.getByName(c.req.param("id")).startTurn(
+      "http://127.0.0.1:8787"
+    )
+  )
+);
+app.get("/api/proto/slow", async (c) => {
+  // oxlint-disable-next-line promise/avoid-new -- a plain timer.
+  await new Promise((resolve) => {
+    setTimeout(resolve, Number(c.req.query("ms")));
+  });
+  return c.text("built");
+});
+
+export { TalkerProto } from "./proto-talker.ts";
 export default app;

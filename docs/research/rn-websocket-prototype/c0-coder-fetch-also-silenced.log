@@ -1,0 +1,103 @@
+# app (Metro)
+[ws] 03:22:10.319 #45 t3 turn_started {}
+[ws] 03:22:10.363 POST turn {"started":true,"turn":3}
+[ws] 03:22:11.320 #46 t3 step {"step":1}
+[ws] 03:22:12.321 #47 t3 step {"step":2}
+[ws] 03:22:13.322 #48 t3 step {"step":3}
+[ws] 03:22:53.327 no message for 40 s during a running turn: lost
+[ws] 03:22:53.334 closed (silence)
+[ws] 03:22:53.336 reconnect #1 in 307 ms
+[ws] 03:22:53.703 connect failed: fetch failed: UnexpectedException: The network connection was lost. (at ExpoModulesCore/Promise.swift:56)
+[ws] 03:22:53.703 reconnect #2 in 350 ms
+[ws] 03:22:54.068 connect failed: fetch failed: UnexpectedException: The network connection was lost. (at ExpoModulesCore/Promise.swift:56)
+[ws] 03:22:54.069 reconnect #3 in 2432 ms
+[ws] 03:22:56.513 connect failed: fetch failed: UnexpectedException: The network connection was lost. (at ExpoModulesCore/Promise.swift:56)
+[ws] 03:22:56.513 reconnect #4 in 2335 ms
+[ws] 03:22:58.861 connect failed: fetch failed: UnexpectedException: The network connection was lost. (at ExpoModulesCore/Promise.swift:56)
+[ws] 03:22:58.862 reconnect #5 in 7132 ms
+[ws] 03:23:06.010 connect failed: fetch failed: UnexpectedException: The network connection was lost. (at ExpoModulesCore/Promise.swift:56)
+[ws] 03:23:06.010 reconnect #6 in 26158 ms
+[ws] 03:23:32.188 ticket in 17 ms, connect since=48
+[ws] 03:23:32.227 open in 56 ms
+[ws] 03:23:32.228 first message 57 ms after connect started
+[ws] 03:23:32.228 state {"latest":65,"status":"running","turn":3}
+[ws] 03:23:32.229 #49 t3 step {"step":4}
+[ws] 03:23:32.229 #50 t3 step {"step":5}
+[ws] 03:23:32.229 #51 t3 step {"step":6}
+[ws] 03:23:32.230 #52 t3 step {"step":7}
+[ws] 03:23:32.230 #53 t3 step {"step":8}
+[ws] 03:23:32.230 #54 t3 step {"step":9}
+[ws] 03:23:32.231 #55 t3 step {"step":10}
+[ws] 03:23:32.231 #56 t3 step {"step":11}
+[ws] 03:23:32.231 #57 t3 step {"step":12}
+[ws] 03:23:32.232 #58 t3 step {"step":13}
+[ws] 03:23:32.232 #59 t3 step {"step":14}
+[ws] 03:23:32.232 #60 t3 step {"step":15}
+[ws] 03:23:32.232 #61 t3 step {"step":16}
+[ws] 03:23:32.233 #62 t3 step {"step":17}
+[ws] 03:23:32.233 #63 t3 step {"step":18}
+[ws] 03:23:32.233 #64 t3 step {"step":19}
+[ws] 03:23:32.234 #65 t3 step {"step":20}
+[ws] 03:23:40.325 tick (server latest #65)
+[ws] 03:23:55.327 tick (server latest #65)
+[ws] 03:24:10.329 tick (server latest #65)
+[ws] 03:24:25.330 tick (server latest #65)
+[ws] 03:24:40.332 tick (server latest #65)
+[ws] 03:24:55.333 tick (server latest #65)
+[ws] 03:25:10.335 tick (server latest #65)
+[ws] 03:25:25.337 tick (server latest #65)
+[ws] 03:25:40.338 tick (server latest #65)
+
+# proxy
+[proxy 03:22:13.587] dark: 3 open sockets silenced, new connections reset
+[proxy 03:22:53.666] reset a new connection
+[proxy 03:22:54.063] reset a new connection
+[proxy 03:22:56.509] reset a new connection
+[proxy 03:22:58.855] reset a new connection
+[proxy 03:23:06.004] reset a new connection
+[proxy 03:23:13.661] light: new connections accepted
+
+# worker (wrangler dev)
+[talker 03:22:10.314 1961] constructor (wake): 44 events, 1 sockets held
+[talker 03:22:10.316 1961] turn 3 start
+[talker 03:22:10.317 1961] append #45 turn_started
+[wrangler:info] POST /api/proto/proto-1/turn 200 OK (13ms)
+[talker 03:22:11.318 1961] append #46 step
+[talker 03:22:12.319 1961] append #47 step
+[talker 03:22:13.321 1961] append #48 step
+[talker 03:22:14.323 1961] append #49 step
+[talker 03:22:15.324 1961] append #50 step
+[talker 03:22:16.326 1961] append #51 step
+[talker 03:22:17.327 1961] append #52 step
+[talker 03:22:18.328 1961] append #53 step
+[talker 03:22:19.330 1961] append #54 step
+[talker 03:22:20.331 1961] append #55 step
+[talker 03:22:25.319 1961] tick (latest #55)
+[talker 03:22:40.321 1961] tick (latest #55)
+[talker 03:22:55.322 1961] tick (latest #55)
+[talker 03:23:00.332 1961] append #56 step
+[talker 03:23:01.333 1961] append #57 step
+[talker 03:23:02.334 1961] append #58 step
+[talker 03:23:03.335 1961] append #59 step
+[talker 03:23:04.335 1961] append #60 step
+[talker 03:23:05.338 1961] append #61 step
+[talker 03:23:06.339 1961] append #62 step
+[talker 03:23:07.341 1961] append #63 step
+[talker 03:23:08.341 1961] append #64 step
+[talker 03:23:09.342 1961] append #65 step
+[talker 03:23:10.323 1961] tick (latest #65)
+[wrangler:info] GET /api/proto/slow 200 OK (60004ms)
+[talker 03:23:25.324 1961] tick (latest #65)
+[wrangler:info] POST /api/proto/proto-1/ws-ticket 200 OK (8ms)
+[ws] upgrade since=48 ticket=yes Authorization=absent
+[talker 03:23:32.200 1961] socket accepted since=48, replayed 17, 2 held
+[wrangler:info] GET /api/proto/proto-1/ws 101 Switching Protocols (7ms)
+[talker 03:23:40.324 1961] tick (latest #65)
+[talker 03:23:55.325 1961] tick (latest #65)
+[talker 03:24:10.328 1961] tick (latest #65)
+[talker 03:24:25.329 1961] tick (latest #65)
+[talker 03:24:40.330 1961] tick (latest #65)
+[talker 03:24:55.332 1961] tick (latest #65)
+[talker 03:25:10.334 1961] tick (latest #65)
+[talker 03:25:25.336 1961] tick (latest #65)
+[talker 03:25:40.336 1961] tick (latest #65)
