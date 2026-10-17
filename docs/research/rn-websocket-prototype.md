@@ -6,7 +6,7 @@ A throwaway spike on branch `prototype/rn-websocket`, for map #111's transport d
 
 **The transport decision holds:** a WebSocket with the Hibernation API, reconnecting with `since=N`, a tick every 15 s, a 40 s silence rule, POSTs for commands. Every check passed with no gap and no duplicate. The prototype adds four requirements to the spec:
 
-1. Cap the reconnect backoff low while a turn is running (about 5 s), or retry at once when the network comes back.
+1. Retry at once when the network comes back (NetInfo) or the app returns to `active`, and cap the reconnect backoff at about 5 s while a turn is running.
 2. The Talker enforces its turn limit with a timer that aborts the Coder call.
 3. The Talker prunes sockets that went silent without closing.
 4. The connect attempt gets a timeout.
@@ -45,7 +45,7 @@ A throwaway spike on branch `prototype/rn-websocket`, for map #111's transport d
 
 ## Findings for the spec
 
-- **The backoff cap is too high for a running turn.** In (c) the network came back at 03:27:20.3, but the app sat in a 28.7 s wait and reconnected at 03:27:43.2: 23 s of avoidable delay (the first run had 18.5 s). During a turn, cap the backoff at about 5 s, or reset it when the network returns (NetInfo) or on `active`. The ticket POST is cheap, so a few extra attempts cost little.
+- **The backoff cap is too high for a running turn.** In (c) the network came back at 03:27:20.3, but the app sat in a 28.7 s wait and reconnected at 03:27:43.2: 23 s of avoidable delay (the first run had 18.5 s). Do both: reset the backoff and retry at once when NetInfo reports the network back or AppState goes `active` (about 160 ms, as in (b)), and cap it at about 5 s during a turn for what NetInfo misses (a captive portal, a server-side outage). Between turns nobody is waiting, so the 30 s cap can stay. Replay means a late reconnect loses nothing; it only leaves the chat stale while someone watches. A retry is one ticket POST and an upgrade, and jitter still spreads retries out, so the low cap is cheap.
 - **The Talker must enforce its own turn deadline.** In the first run of (c) ([c0](rn-websocket-prototype/c0-coder-fetch-also-silenced.log)), the Durable Object's stand-in Coder fetch also went through the proxy, so it was silenced too. The fetch never settled, and the turn never ended: it ticked every 15 s until the API was restarted. That was a test-setup accident, and the rerun sent the Coder fetch straight to `:8787`. But it is exactly what a lost Coder response does. The map's 5-minute turn limit has to be an abort timer on the Coder call that appends `turn_failed`, not just a count.
 - **Silent dead sockets stay in `getWebSockets()`.** After (c), the Durable Object held 2 sockets: the silenced one never closed, and it even survived hibernation. Broadcasting to it is harmless at this scale, but it grows with every lost connection. Prune it: `setWebSocketAutoResponse` with an app ping, and close sockets whose `getWebSocketAutoResponseTimestamp` is old. Or close all sockets a while after `turn_done`, since the app reconnects with `since` anyway.
 - **A connect attempt needs a timeout.** React Native's `fetch` has none. Here new connections were reset, so the 10 s watchdog never fired. On a real dead keep-alive connection, though, the ticket POST could hang forever.
