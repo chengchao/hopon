@@ -1,0 +1,82 @@
+{
+  "fruit-catcher/a-claude-haiku-5-5": [
+    3,
+    3
+  ],
+  "fruit-catcher/a-claude-sonnet-5-5": [
+    3,
+    3
+  ],
+  "fruit-catcher/b-claude-haiku-5-5": [
+    4,
+    4
+  ],
+  "fruit-catcher/b-claude-sonnet-5-5": [
+    4,
+    4
+  ],
+  "gnome-whack/a-claude-haiku-5-5": [
+    3,
+    4
+  ],
+  "gnome-whack/a-claude-sonnet-5-5": [
+    3,
+    4
+  ],
+  "gnome-whack/b-claude-haiku-5-5": [
+    4,
+    5
+  ],
+  "gnome-whack/b-claude-sonnet-5-5": [
+    4,
+    3
+  ],
+  "moon-cat/a-claude-haiku-5-5": [
+    4,
+    4
+  ],
+  "moon-cat/a-claude-sonnet-5-5": [
+    4,
+    4
+  ],
+  "moon-cat/b-claude-haiku-5-5": [
+    4,
+    5
+  ],
+  "moon-cat/b-claude-sonnet-5-5": [
+    4,
+    4
+  ],
+  "neon-snake/a-claude-haiku-5-5": [
+    3,
+    3
+  ],
+  "neon-snake/a-claude-sonnet-5-5": [
+    4,
+    3
+  ],
+  "neon-snake/b-claude-haiku-5-5": [
+    4,
+    4
+  ],
+  "neon-snake/b-claude-sonnet-5-5": [
+    4,
+    4
+  ],
+  "ocean-memory/a-claude-haiku-5-5": [
+    5,
+    4
+  ],
+  "ocean-memory/a-claude-sonnet-5-5": [
+    3,
+    4
+  ],
+  "ocean-memory/b-claude-haiku-5-5": [
+    4,
+    4
+  ],
+  "ocean-memory/b-claude-sonnet-5-5": [
+    3,
+    4
+  ]
+}

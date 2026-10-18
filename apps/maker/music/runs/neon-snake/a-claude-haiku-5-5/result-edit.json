@@ -1,0 +1,16 @@
+{
+  "arm": "a",
+  "game": "neon-snake",
+  "label": "edit",
+  "model": "claude-haiku-5-5",
+  "modelUsd": 0.0005,
+  "patches": 1,
+  "reply": "The music now runs at 150 BPM instead of 124, so the loop is shorter, about 26 seconds. The playtest passed with no errors, and nothing else in the game changed.",
+  "runs": 1,
+  "turnSeconds": 9.3,
+  "writes": 0,
+  "bytesAdded": 1124,
+  "peak": 1.1,
+  "renderMs": 295,
+  "seconds": 25.6
+}

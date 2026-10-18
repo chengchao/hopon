@@ -1,0 +1,16 @@
+{
+  "arm": "a",
+  "game": "fruit-catcher",
+  "label": "first",
+  "model": "claude-haiku-5-5",
+  "modelUsd": 0.0037,
+  "patches": 0,
+  "reply": "I added a looping bouncy chiptune song at 130 bpm (about 30 seconds), with a kick, hi-hats, a bouncing bass, and a lead melody. The playtest runs without errors. Nothing else in the game changed. The music starts on the first tap.",
+  "runs": 2,
+  "turnSeconds": 30.9,
+  "writes": 1,
+  "bytesAdded": 1355,
+  "peak": 0.99,
+  "renderMs": 325,
+  "seconds": 28.7
+}

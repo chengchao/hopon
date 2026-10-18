@@ -1,0 +1,16 @@
+{
+  "arm": "a",
+  "game": "gnome-whack",
+  "label": "first",
+  "model": "claude-haiku-5-5",
+  "modelUsd": 0.0039,
+  "patches": 0,
+  "reply": "I added a looping garden polka to Gnome Whack: bouncy oom-pah bass, a lead melody, and a light hat and kick at 150 bpm, about 26 seconds per loop. The playtest passed with no errors, and I left the rest of the game unchanged. The music starts on the first tap.",
+  "runs": 2,
+  "turnSeconds": 29.6,
+  "writes": 1,
+  "bytesAdded": 1720,
+  "peak": 1.21,
+  "renderMs": 314,
+  "seconds": 25.6
+}

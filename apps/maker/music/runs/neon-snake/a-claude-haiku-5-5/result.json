@@ -1,0 +1,16 @@
+{
+  "arm": "a",
+  "game": "neon-snake",
+  "label": "first",
+  "model": "claude-haiku-5-5",
+  "modelUsd": 0.0048,
+  "patches": 0,
+  "reply": "I added a driving synthwave loop to Neon Snake: a bass line, arpeggiated lead, kick, hi-hat and snare at 124 BPM, about 31 seconds before it repeats. The playtest passed with no errors. The game is untouched apart from the appended song. The music starts on the first tap.",
+  "runs": 2,
+  "turnSeconds": 39.8,
+  "writes": 1,
+  "bytesAdded": 1124,
+  "peak": 1.1,
+  "renderMs": 377,
+  "seconds": 31
+}
