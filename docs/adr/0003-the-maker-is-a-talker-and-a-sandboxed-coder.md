@@ -34,11 +34,11 @@ The Creator talks to one Maker. Inside, it is two agents with a narrow contract 
 ## Considered
 
 - **One agent: pi on a Node server, the design before this one.** Simpler, one prompt to tune. Splitting gives the conversation a home that is free while idle and always responsive, lets the Coder be a restartable job runner that never reads the Creator's words, and lets each half use a different model.
-- **An Effect AI loop of our own** for the Talker (`effect/ai` `LanguageModel` and `Toolkit`, a numbered event log replayed by `since=N`). It survived a restart mid-build and re-attached to the job too, was half the bundle and stayed in the API's style, but it is more code of ours (337 lines against 157) on an ecosystem too small to lean on; Cloudflare and pi own the run instead. It stays on `prototype/talker-framework` as the fallback.
+- **An Effect AI loop of our own** for the Talker (`effect/ai` `LanguageModel` and `Toolkit`, a numbered event log replayed by `since=N`). It survived a restart mid-build and re-attached to the job too, was half the bundle and stayed in the API's style, but it is more code of ours (337 lines against 157) on an ecosystem too small to lean on; Cloudflare and pi own the run instead.
 - **Vercel AI SDK** for the Talker. Runs in a Durable Object with only `nodejs_compat`, but it is another loop of our own.
 - **Claude Agent SDK in the sandbox.** The best-tuned harness, but it must run where the shell is, so a key and the transcript sit in the box, and it is Claude-shaped. Kept as a reference for skills and evals.
 - **pi inside the sandbox.** The same key-in-box and state-in-box costs, plus a runner per box. pi's `operations` make it unnecessary.
-- **Our own loop with one `run_node` tool** instead of pi's tools. Spike A built it: 3 turns a game by construction and slightly cheaper. It is the fallback if pi's tool set keeps changing under us (1.0.4 to 1.3.0 in ten days).
+- **Our own loop with one `run_node` tool** instead of pi's tools. Spike A built it: 3 turns a game by construction and slightly cheaper.
 - **Docker on a server we run** instead of E2B. Cheaper at volume, but a container is not a VM boundary for code from a public prompt without gVisor or Kata, and pause, egress policy and capacity become ours.
 - **Fly, Fargate, Cloud Run** for the Coder. All work; each adds a public endpoint, a shared secret and a second deploy. App Runner and Lambda can't hold a 5-minute turn.
 - **SSE** for events. It works on iOS through `expo/fetch`, but Cloudflare recommends WebSockets with hibernation for Durable Objects, React Native has `WebSocket` built in, and an open SSE stream bills the object's duration.
@@ -58,8 +58,8 @@ The Creator talks to one Maker. Inside, it is two agents with a narrow contract 
 
 ## Revisit when
 
-- pi's `grep` and other tools take `operations`, or its tool set stops changing between minor versions (then drop the `run_node` fallback), or
+- pi's `grep` takes `operations`, or
 - the eval shows a cheaper model matching Sonnet's quality through our own loop but not through pi's tools, or
-- a PiHarness or pi-durable upgrade breaks resume after eviction, or snapshots grow too large to resend on every reconnect (then the Effect AI loop on the prototype branch), or
+- a PiHarness or pi-durable upgrade breaks resume after eviction, or snapshots grow too large to resend on every reconnect, or
 - E2B's paused-sandbox pricing or reliability makes "pause between turns" worse than "restore from R2 every turn", or
 - Lyria leaves preview with different terms, or a music API offers clear commercial rights with loopable output.
