@@ -4,7 +4,20 @@ Prototype for [#128](https://github.com/chengchao/hopon/issues/128), part of map
 
 **Question:** The Talker is one SQLite-backed Durable Object per Draft, hosted with Effect, with one `build(spec)` tool that calls the Coder. Should its agent loop be pi-durable through Cloudflare's `PiHarness` (A) or our own step loop over `effect/ai` (B)?
 
-**Short answer: B, the Effect AI loop.** Both survived a dev-server restart mid-build: each turn finished on its own and re-attached to the same Coder job (one start, one attach). Both handle steer and Stop the same way, and both reach Sonnet 5.5 and Haiku 5.5. The difference is everything around the loop. B _is_ the transport #111 already decided: numbered log, `since=N`, ticks, `turn_done`/`turn_failed`, and hibernation between turns. A gives pi-shaped snapshots with no cursor. A also takes over the object's handlers from our Effect hosting, and bundles to 3.2 MiB raw as a plain Durable Object, or 5.3 MiB on the `Agent` class the docs lead with, against B's 1.5 MiB. Hibernation is _not_ a difference: with pi's defaults, A stays awake up to 10 minutes after a conversation goes idle, but `contextRetentionMs: 0` and `documentRetentionMs: 0` make it hibernate within 40 s (see §3; an earlier version of this doc said it never hibernated). B costs about 180 more lines of code we own. The hard parts of those lines (resume after eviction, Stop cleanup) are now written and tested here.
+**Decision: pi-durable through PiHarness, on the `Agent` class**, with `contextRetentionMs: 0` and `documentRetentionMs: 0`, and snapshot-on-connect as the transport (§8). The owner decided against the Effect AI loop because its ecosystem is too small, and chose to let Cloudflare and pi own the run.
+
+How we got there:
+
+- **First round** (A, plain DO, vs B, Effect AI loop): both survived a restart mid-build (each turn finished on its own and re-attached to the same Coder job, one start and one attach), handled steer and Stop the same way, and reached Sonnet 5.5 and Haiku 5.5. I recommended B, mostly because it already is #111's numbered-log transport with `since=N`, and pi has no replay cursor.
+- **Follow-up 1:** that recommendation also leaned on "A never hibernates", which was wrong. pi's two 10-minute retention timers kept the object awake; with both at 0 it hibernates within 40 s (§3). A2 ran the same Talker on the `Agent` class, as the docs lead with, and recovered the same way.
+- **Follow-up 2** (§8): A2 with retention 0 and an app-style client that keeps its view only from pi's snapshot and live batches. After a 20 s absence, a restart mid-build, 40 s of hibernation and a Stop, the client's view matched the server's transcript exactly every time. Retention 0 adds no measurable latency to a warm turn.
+
+What we accept with pi:
+
+- PiHarness is beta, so pin exact versions and re-test the restart path on every upgrade.
+- Effect runs inside `Agent`'s handlers rather than owning the object.
+- The bundle is 965 KiB gzip, so give the Talker its own Worker if the API's cold start suffers.
+- Haiku 5.5 needs a fetch shim until the gateway bills it.
 
 ## Setup
 
@@ -14,6 +27,7 @@ Prototype for [#128](https://github.com/chengchao/hopon/issues/128), part of map
 - **A:** a plain `DurableObject` with `Lifecycle.install(this).use(harness).use(webSockets)`. `PiHarness` opens `Harness.open` with `createAI({ binding: env.AI })` as the provider (Sonnet), plus pi-ai's own `anthropicProvider()` for Haiku (below). pi is wrapped as an Effect service (`Pi`, one `Effect.tryPromise` per method), and `onRequest` runs an Effect. `build` is a `ToolRegistration` with `replay: "safe"` and the job id kept in `api.memo("jobId", …)`. The socket gets `session.events()`: a snapshot, then batches.
 - **B:** a plain `DurableObject` with a `ManagedRuntime` per object (`SqliteClient.layer({ db: ctx.storage.sql })`, `FetchHttpClient.layer`, `Toolkit.toLayer`); `fetch` runs an Effect. Each step is `LanguageModel.generateText({ disableToolCallResolution: true })`. The history is persisted as `Prompt` JSON after every model call and every tool round, and tools run through `toolkit.handle`. Limits: 12 steps, 5 minutes as `Effect.timeout`. Stop is `Fiber.interrupt`, a tick goes out every 15 s, and the event log is numbered rows replayed with `since=N`. A 30 s alarm heartbeat resumes a turn whose fiber died. The job id is `<draft>-<toolCallId>`.
 - **A2** (follow-up): the same Talker as A on the docs' main path, `class TalkerAgent extends Agent` with `this.lifecycle.use(this.harness)` (`src/a2.ts`, :8793; Sonnet only). `Agent` brings the WebSocket handling (`onConnect`/`onClose`, hibernation), `shouldSendProtocolMessages() { return false }` keeps the Agent protocol off the socket, and the Worker routes with `getAgentByName`. `PI_RETENTION_MS` sets pi's `contextRetentionMs` and `documentRetentionMs`; `wrangler.a2r0.jsonc` (:8794) runs it with both at 0.
+- **Follow-up 2:** A2 also sends a `tick` every 15 s while pi's session is busy (re-armed in `onStart` after a wake). `src/view-client.mjs` is the app side of snapshot-on-connect: it rebuilds its whole view from each snapshot, patches it from batches, derives `turn_done`/`turn_failed` from pi's submission records (`done` / `unanswered`), applies the 5 s backoff cap and the 40 s silence rule, and can dump its view for comparison with the server's transcript (`scripts/snap.sh`, `scripts/verify.py`, `scripts/lat.sh`).
 - `src/client.mjs` is `prototype/rn-websocket`'s client logic (`ws-test.tsx`) in Node. It applies events by seq, flagging duplicates and gaps, reconnects with jittered backoff capped at 5 s, and applies the 40 s silence rule. `kill -USR1` makes it go away for 20 s.
 - Models: Sonnet 5.5 and Haiku 5.5 through the account's AI Gateway (`default`, authenticated, Unified Billing), keys in `.dev.vars` copied from spike A.
 
@@ -84,26 +98,43 @@ Each script started a build turn with no client attached, killed `wrangler dev` 
 
 Non-blank, non-comment lines: `a.ts` 157, `b.ts` 337 (the fake Coder 60 and the client 77 are shared). B's extra ~180 lines are the step loop, the event log and its replay, the resume heartbeat and the Stop cleanup. A gets those from pi, apart from the log, which #111's transport still needs (~60 more lines in A). Both carry about 30–40 lines of Haiku rewrites that go away later.
 
+### 8. Snapshot-on-connect on A2, retention 0 (follow-up 2)
+
+`scripts/snap.sh a2r0 v2` (`snap-run.log`, `snap-view-client.log`) runs four steps with one client attached throughout. After each step it compares the client's view with `GET /messages`:
+
+| Step | What the client saw | View vs server |
+| --- | --- | --- |
+| 1. Build; client away 20 s at +5 s; steer at +15 s | Back after 20 s: one **3,540-byte** snapshot 20 ms after connecting, holding 3 entries, the build running at `progress 25/60`, and 1 queued steer. Then live progress; the steer joined after the tool round; one run answered both messages (`turn_done` ×2). | **OK**, 8 of 8 entries |
+| 2. Build; dev server restarted at +20 s | Socket dropped (1006); the client retried with backoff and got a **8,493-byte** snapshot ~8 s after the restart, build running at `progress 27/60`. Lifecycle resumed the run, `build` re-attached to the same job, `turn_done`. | **OK**, 12 of 12 |
+| 3. 40 s idle, socket held, then a short turn | The object hibernated. A new instance woke on the POST, `onStart` pushed a fresh **10,022-byte** snapshot to the held socket, then the run streamed and ended `turn_done`. | **OK**, 14 of 14 |
+| 4. Build; Stop at +15 s | Build aborted in <0.5 s, `turn_failed: aborted`. | **OK**, 17 of 17 |
+
+- **Nothing missed:** after an absence, a restart and a hibernation, the view held exactly the server's entries every time. What a client that was away doesn't get is the individual events in between (here, ~20 progress lines). It gets where things stand.
+- **Snapshot size** grows with the conversation: 254 B empty, about 3.5 KB after one build, about 10 KB after four turns. A build turn adds roughly 2.5–5 KB, because the retained tool output and the system entry are in it. Every reconnect re-sends that; at 30 build turns it would be on the order of 100 KB.
+- **Ticks:** the 15 s tick is ours. pi's own batches came every second during the build (tool output), but a long model call is silent, so #111's 40 s rule needs the tick. It didn't fire falsely in any step.
+- **Turn outcome** comes from pi's `submission` records: `done` → `turn_done`, `unanswered` → `turn_failed` with pi's reason (`aborted` on Stop). A steer is its own submission, so one run can end with two `turn_done`.
+- **Retention 0 latency** (`lat.log`, POST to pi's `run_start`): 34–41 ms with defaults and 33–38 ms with retention 0 on warm turns 5 s apart, so reloading the conversation from SQLite costs nothing measurable. After 45 s idle (hibernated) it was 51–67 ms: waking the object and opening pi again adds ~15–30 ms.
+- A view built this way needs only one path: draw the snapshot, apply batches. The app works with pi's records (`pi.user`, `pi.assistant`, `pi.tool-result`, tool slots), not our own event types.
+
 ## What this did not cover
 
 - Production: only `wrangler dev` (local workerd, remote AI binding). No real deploy mid-turn, no production eviction or hibernation timing, no billing check.
 - Retention 0 was run on A2 (`Agent`) only; the plain-DO A uses the same pi scheduler, so it should behave the same, but that wasn't run. Exactly when the default-retention object went to sleep between 150 s and 660 s wasn't pinned down.
 - No real Coder (Container), no real app (the Node client stands in for `ws-test.tsx`), no auth or tickets.
-- B without token streaming; A without our numbered log.
+- B without token streaming. A2 ran Sonnet only; A's Haiku shim should carry over unchanged but wasn't run on A2. The snapshot client is Node, not the RN app.
 - pi's `sessions.fork`, compaction and subagents were not exercised.
 
 ## Recommendation
 
-Build the Talker as the **Effect AI loop** (B):
+Build the Talker on **pi-durable through PiHarness, on the `Agent` class** (`src/a2.ts`):
 
-- Keep #111's transport as decided: the numbered event log in DO SQLite via `@effect/sql-sqlite-do`, `since=N`, a 15 s tick, `turn_done`/`turn_failed`, hibernation between turns. B is that transport; A would need it built on top of pi's events. The case for B rests on that, on Effect hosting, and on bundle size. Hibernation isn't a reason: A gets it with pi's two retention settings at 0.
-- Port the loop from `apps/talker-proto/src/b.ts`, keeping what the prototype paid for:
-  - persist the history after every model call and every tool round;
-  - a 30 s alarm heartbeat that resumes a turn with no fiber;
-  - Coder job ids derived from the tool call id, so a rerun re-attaches;
-  - `Effect.onExit` (not `matchCauseEffect`) to end a turn;
-  - close open tool calls with a result on Stop;
-  - the step cap and the 5-minute `Effect.timeout` measured from the stored turn start, so a resumed turn keeps its budget.
-- Test those paths (restart mid-model-call, restart mid-tool, Stop mid-tool, steer mid-tool).
-- Keep the Haiku 5.5 rewrites in one `transformClient` and delete them when the gateway bills Haiku 5.5. Switch steps to `streamText` if token streaming turns out to matter.
-- If pi-durable is revisited (PiHarness out of beta, or if its recovery and inbox, the best part of A, turn out worth the transport work), host it as a plain DO rather than `Agent` (577 vs 965 KiB gzip) and set `contextRetentionMs: 0` and `documentRetentionMs: 0`.
+- `Harness.open(storage, { models, registry, settings: { contextRetentionMs: 0, documentRetentionMs: 0 } }, context)`, so the object hibernates between turns. Retention 0 cost nothing measurable.
+- **Transport:** snapshot-on-connect instead of #111's `since=N` log. On connect the socket gets pi's snapshot, then live batches. The app redraws from the snapshot. The Talker adds a 15 s tick while busy. `turn_done`/`turn_failed` come from pi's submission records. Keep #126's client rules (5 s backoff cap, 40 s silence, close on `background`). Messages and Stop stay POSTs.
+- **`onStart`** re-attaches every held socket to a fresh pi stream and re-arms the tick, since pi's streams live in memory.
+- **`build`** is a `ToolRegistration` with `replay: "safe"` and the job id in `api.memo` (`<draft>-<callId>`), so a rerun after an eviction re-attaches. It honours `context.abortSignal` and cancels the Coder job on abort.
+- **Models:** Sonnet 5.5 through `createAI({ binding: env.AI })`. Haiku 5.5 through pi-ai's `anthropicProvider()` and the four-rewrite fetch shim from `src/a.ts`, deleted when the gateway bills Haiku 5.5.
+- **Effect hosting:** pi as a `Context.Service` (one `Effect.tryPromise` per method); `onRequest` and `onConnect` run Effects.
+- Pin `agents`, `@earendil-works/pi-durable` and `@earendil-works/pi-ai` exactly, and keep the restart-mid-build, Stop-mid-build and hibernation checks (`scripts/evict.sh`, `scripts/snap.sh`) as the upgrade test. Put the Talker in its own Worker if 965 KiB gzip shows up in the API's cold starts.
+- Decide later whether Stop should read differently to the model: pi records "Tool build was aborted", and the model then retried on its own. A pi hook could word it as "Stopped by the Creator".
+
+The Effect AI loop (`src/b.ts`) stays on the branch as the fallback; §1–§7 list what it took.

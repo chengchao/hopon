@@ -1,0 +1,4 @@
+# POST -> pi run_start (scripts/lat.sh), four short turns per run
+a2   (pi defaults, 10 min retention), 5 s apart:  41, 34, 35, 34 ms
+a2r0 (retention 0), 5 s apart:                    38, 34, 33, 38 ms
+a2r0 (retention 0), 45 s apart (hibernated):      34 (fresh Draft), 51, 67, 52 ms

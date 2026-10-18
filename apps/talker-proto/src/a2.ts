@@ -94,6 +94,25 @@ export class TalkerAgent extends Agent<Env> {
   });
   runtime = ManagedRuntime.make(piLayer(this.harness));
   streams = new Map<string, AgentEventStream>();
+  ticker: ReturnType<typeof setInterval> | undefined;
+
+  // #111's liveness rule: while a run is going, every socket hears something at least every 15 s. pi's own batches
+  // don't guarantee that (a long model call is silent), so this ticks until pi says the session is idle.
+  tick() {
+    if (this.ticker) {
+      return;
+    }
+    this.ticker = setInterval(async () => {
+      if (!(await this.harness.session().busy())) {
+        clearInterval(this.ticker);
+        this.ticker = undefined;
+        return;
+      }
+      for (const connection of this.getConnections()) {
+        connection.send(JSON.stringify({ type: "tick" }));
+      }
+    }, 15_000);
+  }
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -182,9 +201,14 @@ export class TalkerAgent extends Agent<Env> {
     for (const connection of this.getConnections()) {
       await this.runtime.runPromise(this.attach(connection));
     }
+    // A run Lifecycle resumed after an eviction needs its ticks back.
+    if (await this.harness.session().busy()) {
+      this.tick();
+    }
   }
 
   onRequest(request: Request) {
+    const self = this;
     const url = new URL(request.url);
     return this.runtime.runPromise(
       Effect.gen(function* () {
@@ -207,7 +231,9 @@ export class TalkerAgent extends Agent<Env> {
               ...(yield* pi.steer(body.text, operationId)),
             });
           }
-          return Response.json(yield* pi.submit(body.text, operationId));
+          const receipt = yield* pi.submit(body.text, operationId);
+          self.tick();
+          return Response.json(receipt);
         }
         return new Response("not found", { status: 404 });
       })

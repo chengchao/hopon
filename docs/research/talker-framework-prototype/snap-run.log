@@ -1,0 +1,13 @@
+20:15:26 POST 1792293326948 Make me a tiny snake game with neon colors.
+20:15:36 client away 20 s
+20:15:46 POST 1792293346189 Actually, make the snake orange instead of green.
+20:17:40 1 away+steer: VIEW OK: view 8 entries, server 8, missing [], extra [], running=False, outcomes=['turn_done', 'turn_done']
+20:17:41 POST 1792293461064 Now add a second level with walls.
+20:18:04 RESTART
+a2r0 up
+20:18:49 2 restart: VIEW OK: view 12 entries, server 12, missing [], extra [], running=False, outcomes=['turn_done', 'turn_done', 'turn_done']
+20:19:29 POST 1792293569745 Say bye in three words.
+20:19:33 3 idle 40 s: VIEW OK: view 14 entries, server 14, missing [], extra [], running=False, outcomes=['turn_done', 'turn_done', 'turn_done', 'turn_done']
+20:19:34 POST 1792293574043 Make the snake faster.
+20:19:50 STOP
+20:19:52 4 stop: VIEW OK: view 17 entries, server 17, missing [], extra [], running=False, outcomes=['turn_done', 'turn_done', 'turn_done', 'turn_done', 'turn_failed: aborted']
