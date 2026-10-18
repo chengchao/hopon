@@ -38,6 +38,9 @@ export const buildRuntime = async () => {
     ...ENGINE_FILES.map((file) =>
       readFileSync(path.join(engine, file), "utf-8")
     ),
+    // ZzFXM's player assigns an undeclared global and reads zzfxR, which strict mode needs declared.
+    "var zzfxM, zzfxR = audioDefaultSampleRate;",
+    readFileSync(path.join(image, "zzfxm.js"), "utf-8"),
     readFileSync(path.join(image, "scaffold.js"), "utf-8"),
   ].join("\n");
   const { code } = await transform(source, { minify: true, target: "es2022" });

@@ -9,7 +9,10 @@
     "template": "node --env-file-if-exists=.env image/build.ts",
     "test": "node --test",
     "typecheck": "tsc --noEmit",
-    "eval": "node --env-file-if-exists=.env src/eval.ts"
+    "eval": "node --env-file-if-exists=.env src/eval.ts",
+    "music": "node --env-file-if-exists=.env music/run.ts",
+    "music:page": "node music/page.ts",
+    "music:listen": "node music/page.ts && python3 -m http.server 8129 -d music/out"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.2.0",

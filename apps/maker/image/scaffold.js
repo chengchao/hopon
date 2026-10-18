@@ -19,6 +19,9 @@ const hopon = {
     setPaused(true);
   },
   hint: "Tap to start",
+  // A ZzFXM song ([instruments, patterns, sequence, bpm]) the game may set; rendered on the first tap, then looped.
+  music: undefined,
+  musicRenderMs: 0,
   score: 0,
   state: "start",
   title: "",
@@ -41,6 +44,21 @@ const hoponCall = (hook) => {
 
 const hoponTapped = () =>
   mouseWasPressed(0) || keyWasPressed("Space") || keyWasPressed("Enter");
+
+let hoponMusicChannels;
+let hoponMusicNode;
+// Called every frame in play: the audio context may still be resuming from the tap, so playSamples can return nothing.
+const hoponStartMusic = () => {
+  if (!hopon.music || hoponMusicNode) {
+    return;
+  }
+  if (!hoponMusicChannels) {
+    const started = performance.now();
+    hoponMusicChannels = zzfxM(...hopon.music);
+    hopon.musicRenderMs = Math.round(performance.now() - started);
+  }
+  hoponMusicNode = playSamples(hoponMusicChannels, 0.6, 1, 0, true);
+};
 
 const hoponBegin = () => {
   engineObjectsDestroy();
@@ -74,6 +92,9 @@ addEventListener("load", () => {
     () => hoponCall("gameUpdate"),
     () => {
       hoponCall("gameUpdatePost");
+      if (hopon.state === "play") {
+        hoponStartMusic();
+      }
       if (hopon.state !== "play" && hoponTapped()) {
         if (hopon.state === "over") {
           hoponBegin();

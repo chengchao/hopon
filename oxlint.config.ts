@@ -10,6 +10,10 @@ export default defineConfig({
     ".agents/**",
     ".claude/**",
     "repos/**",
+    // Music-source prototype (#129): vendored ZzFXM player, and model-written games, songs and synth scripts.
+    "apps/maker/image/zzfxm.js",
+    "apps/maker/music/games/**",
+    "apps/maker/music/runs/**",
   ],
   rules: {
     // Effect idioms: `Effect.gen(function* () {...})` bodies stay anonymous, `Schema.TaggedError<T>()(...)` builds
