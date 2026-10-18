@@ -2,7 +2,7 @@
 # stop.sh <a|b> <draft>: build turn, Stop 15 s into the build, wait 40 s (past an alarm), then a follow-up turn.
 S=${0:A:h}/../.logs; mkdir -p $S
 cd ${0:A:h}/..
-typeset -A port; port=(a 8791 b 8792); P=localhost:$port[$1]/d/$2
+typeset -A port; port=(a 8791 b 8792 a2 8793 a2r0 8794); P=localhost:$port[$1]/d/$2
 node src/client.mjs $1 $2 > $S/client-$1-$2.log 2>&1 & CLIENT=$!
 sleep 1; curl -s -X POST $P/message -d '{"text":"Make me a tiny snake game with neon colors."}'; echo
 until grep -q " $2-.* START" $S/coder.log; do sleep 0.5; done; job=$(grep " $2-.* START" $S/coder.log | tail -1 | awk '{print $2}')

@@ -2,7 +2,7 @@
 # evict.sh <a|b> <draft> : start a build turn, restart the dev server 20 s into the build with no client attached,
 # then wait (no requests to the Talker) and report what the Coder saw.
 S=${0:A:h}/../.logs; mkdir -p $S
-typeset -A port; port=(a 8791 b 8792)
+typeset -A port; port=(a 8791 b 8792 a2 8793 a2r0 8794)
 echo "$(date +%T) POST message"; curl -s -X POST localhost:$port[$1]/d/$2/message -d '{"text":"Make me a tiny snake game with neon colors.","model":"sonnet"}'; echo
 until grep -q "$2-" $S/coder.log && grep "$2-" $S/coder.log | grep -q START; do sleep 1; done
 job=$(grep "$2-" $S/coder.log | grep START | tail -1 | awk '{print $2}'); echo "$(date +%T) job $job started"

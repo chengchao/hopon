@@ -1,0 +1,11 @@
+18:57:39 message after 660 s idle
+{"operationId":"a65a9f30-bf53-4991-bace-76157ffd27c9","session":"1","accepted":true}
+01:46:39.569 connect (snapshot)
+01:46:39.599 first message 79 ms
+01:46:39.599 SNAPSHOT entries=3 (new since last view: 3) run=false tools=[] inbox=0 partial=false
+01:57:39.455 SNAPSHOT entries=3 (new since last view: 0) run=false tools=[] inbox=0 partial=false
+01:57:39.471 pi message_end "Say bye in three words."
+01:57:39.471 pi run_start ""
+01:57:42.188 pi message_end [{"type":"text","text":"Goodbye for now!"}]
+01:57:42.188 pi run_end ""
+01:57:47.497 last #0 dup 0 gap 0

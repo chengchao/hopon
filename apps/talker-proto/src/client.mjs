@@ -5,7 +5,9 @@
 // Reconnects with jittered backoff capped at 5 s; 40 s without a message during a running turn counts as lost.
 // `kill -USR1 <pid>` drops the socket for 20 s ("away"), to check what a client that was away misses.
 const [, , mode, draft = "proto"] = process.argv;
-const base = `ws://localhost:${mode === "a" ? 8791 : 8792}/d/${draft}/ws`;
+const port = { a: 8791, a2: 8793, a2r0: 8794, b: 8792 }[mode];
+const base = `ws://localhost:${port}/d/${draft}/ws`;
+const isA = mode !== "b";
 const s = { attempt: 0, away: false, dup: 0, gap: 0, last: 0, running: false, seen: new Set(), silence: undefined, ws: undefined };
 const log = (line) => console.log(`${new Date().toISOString().slice(11, 23)} ${line}`);
 
@@ -52,7 +54,7 @@ function onA(m) {
     log(`SNAPSHOT entries=${e.entries.length} (new since last view: ${fresh.length}) run=${Boolean(e.run)} tools=[${tools}] inbox=${e.inbox.length} partial=${Boolean(e.generation?.message)}`);
     return;
   }
-  if (m.type === "tick") return log("tick");
+  if (m.type !== "batch") return log(`other frame ${m.type}`);
   for (const ev of m.data) {
     if (ev.type === "run_start") s.running = true;
     if (ev.type === "run_end") s.running = false;
@@ -65,14 +67,14 @@ function onA(m) {
 function connect() {
   if (s.ws || s.away) return;
   const started = Date.now();
-  const ws = new WebSocket(mode === "a" ? base : `${base}?since=${s.last}`);
+  const ws = new WebSocket(isA ? base : `${base}?since=${s.last}`);
   s.ws = ws;
-  log(`connect ${mode === "a" ? "(snapshot)" : `since=${s.last}`}`);
+  log(`connect ${isA ? "(snapshot)" : `since=${s.last}`}`);
   let first = true;
   ws.onmessage = (event) => {
     if (first) ((first = false), (s.attempt = 0), log(`first message ${Date.now() - started} ms`));
     const m = JSON.parse(String(event.data));
-    (mode === "a" ? onA : onB)(m);
+    (isA ? onA : onB)(m);
     arm();
   };
   ws.onclose = (event) => ((s.ws = undefined), log(`socket closed ${event.code}`), later());

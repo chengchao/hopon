@@ -2,7 +2,7 @@
 # mem.sh <a|b>: restart, then the dev server's workerd RSS after module load, after one Draft's short turn, after
 # five more Drafts (each a separate Durable Object in the same isolate).
 S=${0:A:h}/../.logs; mkdir -p $S
-typeset -A port; port=(a 8791 b 8792)
+typeset -A port; port=(a 8791 b 8792 a2 8793 a2r0 8794)
 ${0:A:h}/up.sh $1 > /dev/null; sleep 3; curl -s localhost:$port[$1]/ > /dev/null; sleep 2
 pid=$(lsof -nP -iTCP:$port[$1] -sTCP:LISTEN -t | head -1)
 rss() { echo "$(( $(ps -o rss= -p $pid) / 1024 )) MiB"; }

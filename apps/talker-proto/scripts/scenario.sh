@@ -3,7 +3,7 @@
 # a steer arrives at +15 s; after turn 1 ends, turn 2 builds and Stop arrives at +15 s into its build.
 S=${0:A:h}/../.logs; mkdir -p $S
 cd ${0:A:h}/..
-typeset -A port; port=(a 8791 b 8792)
+typeset -A port; port=(a 8791 b 8792 a2 8793 a2r0 8794)
 P=localhost:$port[$1]/d/$2
 node src/client.mjs $1 $2 > $S/client-$1-$2.log 2>&1 &
 CLIENT=$!

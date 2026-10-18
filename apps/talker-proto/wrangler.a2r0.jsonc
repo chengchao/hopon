@@ -1,0 +1,14 @@
+// PROTOTYPE (#128): Talker A2, pi-durable through PiHarness on the Agent class, as the PiHarness docs' main example.
+// Same as wrangler.a2.jsonc with pi retention 0 (context and documents dropped as soon as a conversation is idle).
+{
+  "name": "talker-proto-a2r0",
+  "main": "src/a2.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "ai": { "binding": "AI", "remote": true },
+  "durable_objects": {
+    "bindings": [{ "name": "TALKER", "class_name": "TalkerAgent" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TalkerAgent"] }],
+  "vars": { "CODER_URL": "http://localhost:8790", "PI_RETENTION_MS": "0" },
+}
