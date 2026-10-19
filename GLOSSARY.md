@@ -1,10 +1,10 @@
 # hopon
 
-Make a small game from one sentence, then swipe a feed to discover and play other people's games.
+Make a small game by talking to the Maker, then swipe a feed to discover and play other people's games.
 
 ## Language
 
-**Game**: A small playable HTML game made from one sentence. It is a **Draft** until its **Creator** publishes it. _Avoid_: Microgame, app, post
+**Game**: A small playable HTML game a **Creator** makes by talking to the **Maker**. It is a **Draft** until its **Creator** publishes it. _Avoid_: Microgame, app, post
 
 **Draft**: A **Game** that only its **Creator** can see and play.
 
@@ -30,4 +30,8 @@ Make a small game from one sentence, then swipe a feed to discover and play othe
 
 **Ban**: The **Operator**'s act of shutting a person out of hopon: they can no longer sign in, and all their published **Games** and **Comments** are **Deleted**. Only the **Operator** bans, never automatically, and can lift a ban, which lets the person sign in again but brings nothing back. _Avoid_: Eject, suspend, lock
 
-**Screening**: The automatic check that refuses text breaking hopon's **Rules** before anyone else can see it: the sentence a **Game** is made from, a **Game**'s title and description when it is published, a **Comment**, and the **Handle** shown on them. Refused text is never kept; the person changes it and tries again. Unlike a **Report**, nobody reviews it. _Avoid_: Filter, moderation
+**Screening**: The automatic check that refuses text breaking hopon's **Rules** before anyone else can see it: every message to the **Maker**, a **Game**'s title and description when it is published, a **Comment**, and the **Handle** shown on them. Refused text is never kept; the person changes it and tries again. Unlike a **Report**, nobody reviews it. _Avoid_: Filter, moderation
+
+**Maker**: The agent behind the Make tab that a **Creator** talks to. It makes a **Draft** from the first message, plays it, fixes it, gives it sound, and changes it with each message after, until the **Creator** publishes it. _Avoid_: Assistant, bot, generator, AI
+
+**Revision**: One state of a **Draft**, kept after each of the **Maker**'s turns, that the **Creator** can go back to. Publishing freezes one **Revision** as the **Game**. _Avoid_: Version, snapshot, checkpoint
