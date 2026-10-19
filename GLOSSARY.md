@@ -16,7 +16,7 @@ Make a small game by talking to the Maker, then swipe a feed to discover and pla
 
 **Comment**: A short plain-text note a signed-in person leaves on a published **Game**. Comments form one flat list per **Game**, with no replies, and the person who wrote it, the **Game**'s **Creator** or the **Operator** can **Delete** it. _Avoid_: Reply, message, review
 
-**Delete**: Permanently take away a published **Game** or a **Comment**, so nobody can see it again. Deleting a **Game** also takes away its likes, **Comments** and **Saves**. The **Creator** or the **Operator** deletes a **Game**; there is no hiding it and bringing it back. _Avoid_: Remove, unpublish, take down
+**Delete**: Permanently take away a **Draft**, a published **Game** or a **Comment**, so nobody can see it again. Deleting a **Draft** also takes away its chat with the **Maker** and its **Revisions**; deleting a **Game** also takes away its likes, **Comments** and **Saves**. The **Creator** deletes a **Draft**; the **Creator** or the **Operator** deletes a **Game**; there is no hiding it and bringing it back. _Avoid_: Remove, unpublish, take down
 
 **Operator**: The person who runs hopon, deletes **Games** and **Comments** that break its **Rules**, and **Bans** the people who post them. They do it from a password-protected web page outside the app; in the app the Operator is an ordinary person. _Avoid_: Admin, moderator
 
@@ -34,4 +34,4 @@ Make a small game by talking to the Maker, then swipe a feed to discover and pla
 
 **Maker**: The agent behind the Make tab that a **Creator** talks to. It makes a **Draft** from the first message, plays it, fixes it, gives it sound, and changes it with each message after, until the **Creator** publishes it. _Avoid_: Assistant, bot, generator, AI
 
-**Revision**: One state of a **Draft**, kept after each of the **Maker**'s turns, that the **Creator** can go back to. Publishing freezes one **Revision** as the **Game**. _Avoid_: Version, snapshot, checkpoint
+**Revision**: One state of a **Draft**, made by each of the **Maker**'s turns that changes the game. A **Draft** is always its latest **Revision**; there is no going back to an earlier one. Publishing freezes the latest **Revision** as the **Game**. _Avoid_: Version, snapshot, checkpoint
