@@ -5,8 +5,11 @@
 import { createModels, createProvider } from "@earendil-works/pi-ai";
 import type { Api, Model, MutableModels } from "@earendil-works/pi-ai";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
+import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import { cloudflareAIGatewayProvider } from "@earendil-works/pi-ai/providers/cloudflare-ai-gateway";
+import { cloudflareAIGatewayAuth } from "@earendil-works/pi-ai/providers/cloudflare-auth";
+import { cloudflareStreams } from "@earendil-works/pi-ai/providers/cloudflare-stream";
 
 const CF_REST = "cloudflare-rest";
 const restBaseUrl = () =>
@@ -111,7 +114,15 @@ export const resolve = (id: string) => {
   return model;
 };
 
-// pi-durable's model registry (the Talker): the same four routes.
+// pi-durable resolves {provider, modelId} against each provider's catalog, and the gateway's doesn't list Kimi K3, so
+// the Talker gets it from a provider of its own with the same streams and auth.
+const CF_COMPAT = "cloudflare-compat";
+export const talkerModelRef = (model: Model<Api>) => ({
+  modelId: model.id,
+  provider: model.id === "moonshotai/kimi-k3" ? CF_COMPAT : model.provider,
+});
+
+// pi-durable's model registry (the Talker, the judge): the same routes.
 export const createRegistry = (): MutableModels => {
   shimCloudflareMessages();
   const models = createModels();
@@ -131,6 +142,14 @@ export const createRegistry = (): MutableModels => {
       },
       id: CF_REST,
       models: [haiku()],
+    })
+  );
+  models.setProvider(
+    createProvider({
+      api: cloudflareStreams(openAICompletionsApi()),
+      auth: { apiKey: cloudflareAIGatewayAuth() },
+      id: CF_COMPAT,
+      models: [{ ...CANDIDATES["kimi-k3"](), provider: CF_COMPAT }],
     })
   );
   return models;

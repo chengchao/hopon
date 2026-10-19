@@ -15,7 +15,7 @@ import {
 import type { AgentEvent } from "@earendil-works/pi-durable";
 
 import type { Spec } from "./coder.ts";
-import { createRegistry, resolve } from "./models.ts";
+import { createRegistry, resolve, talkerModelRef } from "./models.ts";
 
 export const TALKER_PROMPT = `You are the Maker in hopon. The Creator chats with you to make a small game for their phone, and you have it built with the build tool.
 
@@ -97,7 +97,7 @@ export const openTalker = async ({ modelId, build }: TalkerOptions) => {
   );
   const root = await harness.root(context, {
     agent: {
-      model: { modelId: model.id, provider: model.provider },
+      model: talkerModelRef(model),
       thinkingLevel: "low",
     },
   });
