@@ -1,0 +1,4 @@
+out/
+.env
+image/runtime.js
+image/littlejs.d.ts
