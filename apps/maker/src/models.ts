@@ -1,13 +1,13 @@
-// The eval's candidates and judge (#115), as pi-ai models. Claude goes through the Cloudflare AI Gateway, except Haiku
-// 5.5, which Unified Billing doesn't serve yet: it goes to Cloudflare's REST /ai/v1/messages. DeepSeek and Kimi go to
-// their own APIs with their own keys.
+// The eval's candidates and judge (#115), as pi-ai models. Claude and Kimi go through the Cloudflare AI Gateway on
+// Unified Billing, except Haiku 5.5, which it doesn't serve yet: that goes to Cloudflare's REST /ai/v1/messages.
+// DeepSeek V4.1 Flash is not on Unified Billing (the gateway's deepseek route needs DeepSeek's own key) and Workers
+// AI's DeepSeek V4 Flash has no vision, so it goes to DeepSeek's API with DEEPSEEK_API_KEY.
 import { createModels, createProvider } from "@earendil-works/pi-ai";
 import type { Api, Model, MutableModels } from "@earendil-works/pi-ai";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import { cloudflareAIGatewayProvider } from "@earendil-works/pi-ai/providers/cloudflare-ai-gateway";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
-import { moonshotaiProvider } from "@earendil-works/pi-ai/providers/moonshotai";
 
 const CF_REST = "cloudflare-rest";
 const restBaseUrl = () =>
@@ -67,7 +67,15 @@ export const CANDIDATES = {
     getBuiltinModel("cloudflare-ai-gateway", "claude-sonnet-5-5") as Model<Api>,
   "deepseek-flash": () =>
     getBuiltinModel("deepseek", "deepseek-flash") as Model<Api>,
-  "kimi-k3": () => getBuiltinModel("moonshotai", "kimi-k3") as Model<Api>,
+  // Moonshot's descriptor (prices, reasoning, compat) on the gateway's OpenAI-compatible route, which serves it on
+  // Unified Billing (checked 2026-10-19: keySource "Unified", images in tool results, reasoning_effort low).
+  "kimi-k3": (): Model<Api> => ({
+    ...(getBuiltinModel("moonshotai", "kimi-k3") as Model<Api>),
+    baseUrl:
+      "https://gateway.ai.cloudflare.com/v1/{CLOUDFLARE_ACCOUNT_ID}/{CLOUDFLARE_GATEWAY_ID}/compat",
+    id: "moonshotai/kimi-k3",
+    provider: "cloudflare-ai-gateway",
+  }),
 } as const;
 export type Candidate = keyof typeof CANDIDATES;
 export const isCandidate = (id: string): id is Candidate => id in CANDIDATES;
@@ -84,7 +92,6 @@ const KEYS: Record<string, string[]> = {
     "CLOUDFLARE_GATEWAY_ID",
   ],
   deepseek: ["DEEPSEEK_API_KEY"],
-  moonshotai: ["MOONSHOT_API_KEY"],
 };
 export const apiKey = (model: Model<Api>) =>
   process.env[KEYS[model.provider]?.[0] ?? ""] ?? "";
@@ -114,7 +121,6 @@ export const createRegistry = (): MutableModels => {
   const models = createModels();
   models.setProvider(cloudflareAIGatewayProvider());
   models.setProvider(deepseekProvider());
-  models.setProvider(moonshotaiProvider());
   models.setProvider(
     createProvider({
       api: anthropicMessagesApi(),
