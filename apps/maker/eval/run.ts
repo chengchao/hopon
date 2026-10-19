@@ -2,6 +2,7 @@
 // needs keys (apps/maker/.env). See eval/README.md.
 import {
   copyFileSync,
+  rmSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -96,6 +97,24 @@ const versions = () =>
 const line = (record: CoderRecord) =>
   `${record.model} ${record.job}#${record.run}: ${record.pass ? "pass" : "FAIL"} green=${record.finalGreen} steps=${record.steps} $${record.cost.toFixed(4)} ${record.seconds.toFixed(0)}s${record.reason ? ` (${record.reason})` : ""}`;
 
+// The gateway refuses requests when Unified Billing runs short (402). Such a run says nothing about the model: its
+// result is discarded, and the sweep stops so nothing else is spent into a refusal. The next sweep reruns it.
+const BILLING = /Insufficient unified billing/u;
+let billingStopped = false;
+const refusedForBilling = (dir: string, record: unknown) => {
+  if (!BILLING.test(JSON.stringify(record))) {
+    return false;
+  }
+  rmSync(dir, { force: true, recursive: true });
+  if (!billingStopped) {
+    billingStopped = true;
+    console.log(
+      "BILLING: the gateway refused a request (402); stopping the sweep"
+    );
+  }
+  return true;
+};
+
 const sweepCoder = async (
   jobs: CoderJob[],
   modelIds: string[],
@@ -115,6 +134,9 @@ const sweepCoder = async (
           modelId,
           `${job.id}-${run + 1}`
         );
+        if (billingStopped) {
+          return null;
+        }
         if (existsSync(path.join(dir, "result.json"))) {
           return JSON.parse(
             readFileSync(path.join(dir, "result.json"), "utf-8")
@@ -129,6 +151,9 @@ const sweepCoder = async (
             modelId,
             run: run + 1,
           });
+          if (refusedForBilling(dir, record)) {
+            return null;
+          }
           console.log(line(record));
           return record;
         } catch (error) {
@@ -373,10 +398,13 @@ const commands: Record<string, () => Promise<void> | void> = {
             modelId,
             `${chat.id}-${run + 1}`
           );
-          if (existsSync(path.join(dir, "result.json"))) {
+          if (billingStopped || existsSync(path.join(dir, "result.json"))) {
             return;
           }
           const record = await runTalker({ chat, dir, modelId, run: run + 1 });
+          if (refusedForBilling(dir, record)) {
+            return;
+          }
           console.log(
             `${modelId} ${chat.id}#${run + 1}: ${record.pass ? "pass" : "FAIL"} behaviour=${record.behaviourOk} brevity=${record.brevityOk} $${record.cost.toFixed(4)}`
           );

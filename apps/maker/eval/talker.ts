@@ -113,6 +113,11 @@ const playTurn = async (talker: Talker, stub: Stub, turn: ChatTurn) => {
     replyMs: ms - stub.buildMs,
     status: settled.status,
     steer: turn.steer,
+    // Why an input went unanswered (a model error, a refused request), for the report and the billing stop.
+    unanswered:
+      settled.status === "done"
+        ? undefined
+        : JSON.stringify(settled).slice(0, 500),
     words: reply.split(/\s+/u).filter(Boolean).length,
   };
 };
