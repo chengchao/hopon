@@ -8,7 +8,6 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
@@ -65,15 +64,24 @@ const pool = async <T>(tasks: (() => Promise<T>)[], size: number) => {
   return results;
 };
 
-const versions = () => {
-  const require = createRequire(import.meta.url);
-  const version = (name: string) =>
-    (
-      JSON.parse(
-        readFileSync(require.resolve(`${name}/package.json`), "utf-8")
-      ) as { version: string }
-    ).version;
-  return Object.fromEntries(
+const version = (name: string) =>
+  (
+    JSON.parse(
+      readFileSync(
+        path.join(
+          import.meta.dirname,
+          "..",
+          "node_modules",
+          name,
+          "package.json"
+        ),
+        "utf-8"
+      )
+    ) as { version: string }
+  ).version;
+
+const versions = () =>
+  Object.fromEntries(
     [
       "@earendil-works/pi-ai",
       "@earendil-works/pi-coding-agent",
@@ -84,7 +92,6 @@ const versions = () => {
       "typescript",
     ].map((name) => [name, version(name)])
   );
-};
 
 const line = (record: CoderRecord) =>
   `${record.model} ${record.job}#${record.run}: ${record.pass ? "pass" : "FAIL"} green=${record.finalGreen} steps=${record.steps} $${record.cost.toFixed(4)} ${record.seconds.toFixed(0)}s${record.reason ? ` (${record.reason})` : ""}`;
