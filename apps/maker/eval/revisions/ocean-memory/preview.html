@@ -1,0 +1,126 @@
+<!doctype html>
+<html><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+body{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:linear-gradient(#0a2a5e,#031433);color:#fff;font:20px system-ui,sans-serif;touch-action:manipulation}
+h1{margin:0;font-size:28px}
+#grid{display:grid;grid-template-columns:repeat(4,1fr);gap:2.5vw;width:88vw;max-width:420px}
+.card{aspect-ratio:1;border:0;border-radius:12px;background:#e8cf94;font-size:9vw;display:flex;align-items:center;justify-content:center;padding:0;box-shadow:0 3px 0 #b39a5e}
+.card.up{background:#fff}
+.card.done{background:#bdf5d0}
+#msg{min-height:30px;font-weight:700}
+#again{display:none;min-height:52px;padding:0 24px;border:0;border-radius:14px;background:#ffd23f;font:inherit;font-weight:700}
+</style></head>
+<body>
+<h1>🌊 Ocean Memory</h1>
+<div id="info">Moves 0</div>
+<div id="grid"></div>
+<div id="msg"></div>
+<button id="again">Play again</button>
+<script>// hopon's plain-DOM scaffold, served at /dom.js before game.js. It only keeps the score and the game's state, which
+// the playtest reads; the game draws its own screens. The frame counter is the playtest's clock: it stops when the
+// page's main thread hangs.
+/* oxlint-disable no-unused-vars -- globals for game.js */
+const hopon = {
+  addScore(points = 1) {
+    if (hopon.state === "play") {
+      hopon.score += points;
+    }
+  },
+  best: 0,
+  gameOver(won = false) {
+    if (hopon.state !== "play") {
+      return;
+    }
+    hopon.state = "over";
+    hopon.won = won;
+    hopon.best = Math.max(hopon.best, hopon.score);
+  },
+  restart() {
+    hopon.score = 0;
+    hopon.won = false;
+    hopon.state = "play";
+  },
+  score: 0,
+  state: "play",
+  won: false,
+};
+
+let hoponFrames = 0;
+const hoponTick = () => {
+  hoponFrames += 1;
+  requestAnimationFrame(hoponTick);
+};
+requestAnimationFrame(hoponTick);
+const hoponClock = () => hoponFrames / 60;
+</script>
+<script>const EMOJI = ["\u{1F41F}", "\u{1F419}", "\u{1F980}", "\u{1F40B}", "\u{1F422}", "\u{1F988}", "\u{1FABC}", "\u{1F434}"];
+const gridEl = document.getElementById("grid");
+const infoEl = document.getElementById("info");
+const msgEl = document.getElementById("msg");
+const againEl = document.getElementById("again");
+let moves = 0;
+let found = 0;
+let first = null;
+let locked = false;
+function build() {
+  const deck = [...EMOJI, ...EMOJI].sort(() => Math.random() - 0.5);
+  gridEl.replaceChildren(
+    ...deck.map((e) => {
+      const b = document.createElement("button");
+      b.className = "card";
+      b.dataset.e = e;
+      b.textContent = "\u{1F41A}";
+      b.addEventListener("click", () => flip(b));
+      return b;
+    })
+  );
+}
+function show(b, up) {
+  b.classList.toggle("up", up);
+  b.textContent = up ? b.dataset.e : "\u{1F41A}";
+}
+function flip(b) {
+  if (locked || b === first || b.classList.contains("done")) return;
+  show(b, true);
+  if (!first) {
+    first = b;
+    return;
+  }
+  const a = first;
+  first = null;
+  moves++;
+  infoEl.textContent = "Moves " + moves;
+  if (a.dataset.e === b.dataset.e) {
+    a.classList.add("done");
+    b.classList.add("done");
+    hopon.addScore(1);
+    found++;
+    if (found === EMOJI.length) {
+      msgEl.textContent = `You won in ${moves} moves! \u{1F389}`;
+      againEl.style.display = "block";
+      hopon.gameOver(true);
+    }
+  } else {
+    locked = true;
+    setTimeout(() => {
+      show(a, false);
+      show(b, false);
+      locked = false;
+    }, 800);
+  }
+}
+againEl.addEventListener("click", () => {
+  hopon.restart();
+  moves = 0;
+  found = 0;
+  first = null;
+  locked = false;
+  infoEl.textContent = "Moves 0";
+  msgEl.textContent = "";
+  againEl.style.display = "none";
+  build();
+});
+build();
+</script>
+</body></html>

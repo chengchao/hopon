@@ -5,6 +5,7 @@ pre-commit:
     - ".agents/**"
     - ".claude/**"
     - "repos/**"
+    - "apps/maker/eval/revisions/**"
     - "**/migrations/**"
     - "**/worker-configuration.d.ts"
     - "skills-lock.json"

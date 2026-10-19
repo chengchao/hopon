@@ -10,6 +10,8 @@ export default defineConfig({
     ".agents/**",
     ".claude/**",
     "repos/**",
+    // Model-written games, frozen byte for byte as the eval's starting Revisions.
+    "apps/maker/eval/revisions/**",
     "skills-lock.json",
   ],
 });
