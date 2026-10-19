@@ -1,4 +1,5 @@
-// The eval's judge (#115): Opus 5.5 through the gateway at default thinking, scoring 1–5 with a one-line reason each.
+// The eval's judge (#115): Opus 5.5 through the gateway at default thinking (adaptive, effort high: pi sends
+// "disabled" without a level, which Opus 5.5 rejects), scoring 1–5 with a one-line reason each.
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 
 import type { PlaytestResult, Spec } from "../src/coder.ts";
@@ -14,10 +15,17 @@ export interface Score {
 const SCALE = `Score each item 1–5: 5 = fully, 4 = yes with small flaws, 3 = partly, 2 = barely, 1 = not at all. Answer with only a JSON object, no prose around it.`;
 
 const ask = async (system: string, content: (TextContent | ImageContent)[]) => {
-  const message = await models.completeSimple(JUDGE(), {
-    messages: [{ content, role: "user", timestamp: Date.now() }],
-    systemPrompt: system,
-  });
+  const message = await models.completeSimple(
+    JUDGE(),
+    {
+      messages: [{ content, role: "user", timestamp: Date.now() }],
+      systemPrompt: system,
+    },
+    { reasoning: "high" }
+  );
+  if (message.stopReason === "error") {
+    throw new Error(message.errorMessage ?? "judge request failed");
+  }
   const text = message.content
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("");
