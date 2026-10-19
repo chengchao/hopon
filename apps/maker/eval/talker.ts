@@ -51,18 +51,38 @@ const playTurn = async (talker: Talker, stub: Stub, turn: ChatTurn) => {
         stub.steer = undefined;
       }
     : undefined;
-  let text = "";
+  // The reply is every assistant message of the turn, read from its committed entry: partials arrive as deltas or
+  // as whole blocks, depending on commit timing. First token: the first streamed change of any kind (thinking too);
+  // first visible: the first text or tool call, what the app can show.
+  const texts: string[] = [];
   let firstToken: number | undefined;
+  let firstVisible: number | undefined;
   const unlisten = talker.listen((event) => {
-    if (event.type !== "message_update") {
-      return;
-    }
-    for (const change of event.changes) {
-      if (change.type === "text_delta" || change.type === "toolcall_start") {
-        firstToken ??= Date.now();
+    if (event.type === "message_update") {
+      firstToken ??= Date.now();
+      const visible = event.changes.some(
+        (change) =>
+          change.type === "text_delta" ||
+          change.type === "toolcall_start" ||
+          ((change.type === "block" || change.type === "text_start") &&
+            change.block.type !== "thinking")
+      );
+      if (visible) {
+        firstVisible ??= Date.now();
       }
-      if (change.type === "text_delta") {
-        text += change.delta;
+    } else if (
+      event.type === "message_end" &&
+      event.entry.kind === "pi.assistant"
+    ) {
+      const [message] = event.entry.model ?? [];
+      if (message?.role === "assistant") {
+        firstToken ??= Date.now();
+        firstVisible ??= Date.now();
+        texts.push(
+          message.content
+            .flatMap((part) => (part.type === "text" ? [part.text] : []))
+            .join("")
+        );
       }
     }
   });
@@ -71,7 +91,7 @@ const playTurn = async (talker: Talker, stub: Stub, turn: ChatTurn) => {
   const settled = await talker.turn(turn.text);
   const ms = Date.now() - started;
   unlisten();
-  const reply = text.trim();
+  const reply = texts.join("\n").trim();
   const { builds } = stub;
   return {
     builds,
@@ -80,6 +100,8 @@ const playTurn = async (talker: Talker, stub: Stub, turn: ChatTurn) => {
     cost: totalCost(await talker.usage()) - costBefore,
     creator: turn.text,
     firstTokenMs: firstToken === undefined ? undefined : firstToken - started,
+    firstVisibleMs:
+      firstVisible === undefined ? undefined : firstVisible - started,
     mentionOk: turn.briefMentions
       ? builds.some((spec) =>
           `${spec.title} ${spec.brief}`

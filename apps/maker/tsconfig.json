@@ -12,5 +12,6 @@
     "erasableSyntaxOnly": true,
     "types": ["node"]
   },
-  "include": ["src", "eval", "image/*.ts"]
+  "include": ["src", "eval", "image/*.ts"],
+  "exclude": ["eval/revisions"]
 }
