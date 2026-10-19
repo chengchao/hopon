@@ -316,16 +316,11 @@ const commands: Record<string, () => Promise<void> | void> = {
     }
     console.log(markdown);
   },
-  // DeepSeek and Kimi before the full sweep: the 5 spike jobs once, no judge. A model passes when images in tool
+  // Kimi before the full sweep: the 5 spike jobs once, no judge. A model passes when images in tool
   // results work (every run sent screenshots and no request failed) and its median turn is ≤ 120 s.
   smoke: async () => {
     const jobs = CODER_JOBS.filter((job) => SMOKE_JOBS.includes(job.id));
-    const records = await sweepCoder(
-      jobs,
-      models(["deepseek-flash", "kimi-k3"]),
-      1,
-      false
-    );
+    const records = await sweepCoder(jobs, models(["kimi-k3"]), 1, false);
     for (const [model, runs = []] of Object.entries(
       Object.groupBy(records, (record) => record.model)
     )) {

@@ -1,13 +1,12 @@
 // The eval's candidates and judge (#115), as pi-ai models. Claude and Kimi go through the Cloudflare AI Gateway on
 // Unified Billing, except Haiku 5.5, which it doesn't serve yet: that goes to Cloudflare's REST /ai/v1/messages.
-// DeepSeek V4.1 Flash is not on Unified Billing (the gateway's deepseek route needs DeepSeek's own key) and Workers
-// AI's DeepSeek V4 Flash has no vision, so it goes to DeepSeek's API with DEEPSEEK_API_KEY.
+// DeepSeek V4.1 Flash was dropped by the owner (2026-10-19): it isn't on Unified Billing, and Workers AI's DeepSeek V4
+// Flash has no vision.
 import { createModels, createProvider } from "@earendil-works/pi-ai";
 import type { Api, Model, MutableModels } from "@earendil-works/pi-ai";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import { cloudflareAIGatewayProvider } from "@earendil-works/pi-ai/providers/cloudflare-ai-gateway";
-import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 
 const CF_REST = "cloudflare-rest";
 const restBaseUrl = () =>
@@ -65,8 +64,6 @@ export const CANDIDATES = {
   "claude-haiku-5-5": haiku,
   "claude-sonnet-5-5": () =>
     getBuiltinModel("cloudflare-ai-gateway", "claude-sonnet-5-5") as Model<Api>,
-  "deepseek-flash": () =>
-    getBuiltinModel("deepseek", "deepseek-flash") as Model<Api>,
   // Moonshot's descriptor (prices, reasoning, compat) on the gateway's OpenAI-compatible route, which serves it on
   // Unified Billing (checked 2026-10-19: keySource "Unified", images in tool results, reasoning_effort low).
   "kimi-k3": (): Model<Api> => ({
@@ -91,7 +88,6 @@ const KEYS: Record<string, string[]> = {
     "CLOUDFLARE_ACCOUNT_ID",
     "CLOUDFLARE_GATEWAY_ID",
   ],
-  deepseek: ["DEEPSEEK_API_KEY"],
 };
 export const apiKey = (model: Model<Api>) =>
   process.env[KEYS[model.provider]?.[0] ?? ""] ?? "";
@@ -120,7 +116,6 @@ export const createRegistry = (): MutableModels => {
   shimCloudflareMessages();
   const models = createModels();
   models.setProvider(cloudflareAIGatewayProvider());
-  models.setProvider(deepseekProvider());
   models.setProvider(
     createProvider({
       api: anthropicMessagesApi(),

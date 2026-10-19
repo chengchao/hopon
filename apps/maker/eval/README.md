@@ -11,7 +11,7 @@ The suite #115 defines, kept here and run by hand on a model or framework upgrad
 ```bash
 pnpm -F maker template                                 # once, or after changing image/
 pnpm -F maker eval freeze                              # the edits' starting Revisions, if missing
-pnpm -F maker eval smoke                               # DeepSeek and Kimi: 5 jobs, images in tool results, median ≤ 120 s
+pnpm -F maker eval smoke                               # Kimi: 5 jobs, images in tool results, median ≤ 120 s
 pnpm -F maker eval coder --models a,b [--runs 3] [--jobs id,id] [--concurrency 6] [--sweep name]
 pnpm -F maker eval talker --models a,b [--runs 3] [--chats id,id]
 pnpm -F maker eval blind                               # 20 runs for the owner to score, without model names
@@ -19,7 +19,7 @@ pnpm -F maker eval calibrate < scores.json             # the blind page's scores
 pnpm -F maker eval report                              # report.md, report.json, contact-sheet.png in out/<sweep>/
 ```
 
-A sweep resumes: runs with a `result.json` under `out/<sweep>/` are skipped. Models: `claude-haiku-5-5`, `claude-sonnet-5-5`, `deepseek-flash`, `kimi-k3`, all at reasoning "low".
+A sweep resumes: runs with a `result.json` under `out/<sweep>/` are skipped. Models: `claude-haiku-5-5`, `claude-sonnet-5-5`, `kimi-k3` (DeepSeek dropped by the owner), all at reasoning "low".
 
 **A Coder run passes** when its last playtest is green, the eval's own playtests of the final game are green (the Coder's last inputs replayed, then a fixed 10 s random script), music jobs render a 20–40 s loop, it stayed within 12 steps and 4½ minutes, and the judge (Opus 5.5) scores ≥ 4 on "reads as the spec" and "playable" (and "did what was asked" for edits). **A Talker chat passes** when every turn scores ≥ 4 on "understood" and, with a build, "spec", every reply is ≤ 60 words with no code, and the chat's builds match the script (the off-limits request declined, the vague one built, the steer carried into the next build).
 
