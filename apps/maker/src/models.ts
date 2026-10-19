@@ -67,6 +67,19 @@ export const CANDIDATES = {
   "claude-haiku-5-5": haiku,
   "claude-sonnet-5-5": () =>
     getBuiltinModel("cloudflare-ai-gateway", "claude-sonnet-5-5") as Model<Api>,
+  // Added at the owner's ask: DeepSeek on Workers AI through the gateway. It has no image input, so the Coder gives
+  // it Haiku's description of the playtest screenshots instead (src/coder.ts).
+  "deepseek-v4-flash": () =>
+    getBuiltinModel(
+      "cloudflare-ai-gateway",
+      "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731"
+    ) as Model<Api>,
+  // Added after #115 at the owner's ask: a cheaper Kimi with vision, on Workers AI through the gateway.
+  "kimi-k2.6": () =>
+    getBuiltinModel(
+      "cloudflare-ai-gateway",
+      "workers-ai/@cf/moonshotai/kimi-k2.6"
+    ) as Model<Api>,
   // Moonshot's descriptor (prices, reasoning, compat) on the gateway's OpenAI-compatible route, which serves it on
   // Unified Billing (checked 2026-10-19: keySource "Unified", images in tool results, reasoning_effort low).
   "kimi-k3": (): Model<Api> => ({
