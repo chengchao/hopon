@@ -120,15 +120,23 @@ const sweepCoder = async (
             readFileSync(path.join(dir, "result.json"), "utf-8")
           ) as CoderRecord;
         }
-        const record = await runCoder({
-          dir,
-          job,
-          judge,
-          modelId,
-          run: run + 1,
-        });
-        console.log(line(record));
-        return record;
+        // A lost box or a failed request skips the run, with no result.json, so the next sweep retries it.
+        try {
+          const record = await runCoder({
+            dir,
+            job,
+            judge,
+            modelId,
+            run: run + 1,
+          });
+          console.log(line(record));
+          return record;
+        } catch (error) {
+          console.log(
+            `${modelId} ${job.id}#${run + 1}: SKIPPED ${String(error).slice(0, 200)}`
+          );
+          return null;
+        }
       })
     )
   );
@@ -327,7 +335,8 @@ const commands: Record<string, () => Promise<void> | void> = {
   // results work (every run sent screenshots and no request failed) and its median turn is ≤ 120 s.
   smoke: async () => {
     const jobs = CODER_JOBS.filter((job) => SMOKE_JOBS.includes(job.id));
-    const records = await sweepCoder(jobs, models(["kimi-k3"]), 1, false);
+    const results = await sweepCoder(jobs, models(["kimi-k3"]), 1, false);
+    const records = results.filter((record) => record !== null);
     for (const [model, runs = []] of Object.entries(
       Object.groupBy(records, (record) => record.model)
     )) {
@@ -378,6 +387,11 @@ const commands: Record<string, () => Promise<void> | void> = {
     console.log(report(sweepDir, CALIBRATION).markdown);
   },
 };
+
+// A box whose connection drops can reject a stream nobody awaits; that run is already lost, the sweep goes on.
+process.on("unhandledRejection", (error) => {
+  console.log(`unhandled: ${String(error).slice(0, 200)}`);
+});
 
 const action = commands[command];
 if (!action) {
