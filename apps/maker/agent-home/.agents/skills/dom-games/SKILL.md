@@ -22,6 +22,9 @@ Nothing else loads: no images, fonts or files from the web, no `fetch`, no `loca
 - Portrait phone, at least 360×640 CSS px, often taller. `<meta name="viewport" content="width=device-width,initial-scale=1">`, `body { margin: 0; touch-action: manipulation; }`, and size things with `vw`, `vh`, flex and grid so nothing overflows.
 - Big tap targets (at least 48 px), big readable text (at least 18 px), strong contrast.
 - Handle `click` (taps arrive as clicks). Use `addEventListener` in `game.ts`.
+- Hidden means hidden: something "down", "off" or not yet revealed gets `display: none` or `visibility: hidden`, or sits inside a container with `overflow: hidden`; never leave it drawn in another element's space.
+- A tap area is at least as big as what it looks like, and bigger for small kids' games; never shrink it when the drawing grows.
+- Size emoji and text in `vw` or `rem` so they stay big in large grids (at least 24 px for game pieces).
 - Show the score and the end yourself: there is no scaffold overlay. A start screen is optional; the playtest taps the centre once before its inputs, so a centred "Start" button is fine.
 
 ## The hopon scaffold (`/dom.js`)

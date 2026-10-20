@@ -13,7 +13,7 @@ import type { Sandbox } from "e2b";
 
 import { WORKSPACE } from "../src/box.ts";
 import { boxPlaytest, runJob } from "../src/coder.ts";
-import type { Spec } from "../src/coder.ts";
+import type { Spec, Thinking } from "../src/coder.ts";
 import { judgeCoder } from "./judge.ts";
 
 const EVAL = import.meta.dirname;
@@ -161,20 +161,26 @@ export const runCoder = async ({
   run,
   dir,
   judge = true,
+  thinking = "low",
+  revision,
 }: {
   modelId: string;
   job: CoderJob;
   run: number;
   dir: string;
   judge?: boolean;
+  thinking?: Thinking;
+  // The end-to-end run's Draft: the current Revision's files and number, instead of a frozen base.
+  revision?: { n: number; source: Record<string, string> };
 }) => {
   mkdirSync(dir, { recursive: true });
-  const source = job.base ? readRevision(job.base) : {};
+  const source = revision?.source ?? (job.base ? readRevision(job.base) : {});
+  const n = revision?.n ?? (job.base ? 1 : 0);
   const events: unknown[] = [];
   const result = await runJob({
     job: {
       draftId: `eval-${job.id}-${run}`,
-      revision: job.base ? 1 : 0,
+      revision: n,
       source,
       spec: job.spec,
     },
@@ -186,6 +192,7 @@ export const runCoder = async ({
         ...event,
         ...("files" in event && { files: Object.keys(event.files) }),
       }),
+    thinking,
   });
   const { sandbox } = result;
   try {
@@ -202,7 +209,7 @@ export const runCoder = async ({
         ? await judgeCoder({
             end: end?.toString("base64"),
             files,
-            original: job.base ? source : undefined,
+            original: n > 0 ? source : undefined,
             signals: final.random,
             spec: job.spec,
             start: start?.toString("base64"),
@@ -229,7 +236,7 @@ export const runCoder = async ({
       seconds: result.seconds,
       steps: result.steps,
       summary: result.summary,
-      thinking: "low",
+      thinking,
       toolCalls: result.toolCalls,
       turns: result.turns,
       usage: result.usage,

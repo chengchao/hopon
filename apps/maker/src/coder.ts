@@ -15,7 +15,10 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type {
+  CreateAgentSessionOptions,
+  ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import type { Sandbox } from "e2b";
 
 import { createBox, run, WORKSPACE } from "./box.ts";
@@ -149,6 +152,8 @@ export const prompt = ({ revision, spec }: Job) =>
       : "Music: none this turn; leave any existing music.mjs as it is.",
   ].join("\n");
 
+export type Thinking = NonNullable<CreateAgentSessionOptions["thinkingLevel"]>;
+
 export interface RunOptions {
   modelId: string;
   job: Job;
@@ -157,6 +162,8 @@ export interface RunOptions {
   deadlineMs?: number;
   // Keeps the box for the caller's own checks (the eval's final playtest); the caller kills it.
   keepBox?: boolean;
+  // "off" breaks Claude 5.5; low is the floor that works everywhere (#115).
+  thinking?: Thinking;
 }
 
 // Eyes for a Coder model without image input (the owner's idea, 2026-10-19): Haiku 5.5 looks at both screenshots
@@ -206,7 +213,8 @@ const openSession = async (
   modelId: string,
   sandbox: Sandbox,
   // oxlint-disable-next-line no-explicit-any -- pi's own ToolDefinition<any, any>
-  playtestTool: ToolDefinition<any, any>
+  playtestTool: ToolDefinition<any, any>,
+  thinking: Thinking
 ) => {
   const model = resolve(modelId);
   const home = mkdtempSync(path.join(tmpdir(), "hopon-coder-"));
@@ -247,8 +255,7 @@ const openSession = async (
     settingsManager: SettingsManager.inMemory({
       compaction: { enabled: false },
     }),
-    // "off" breaks Claude 5.5; low is the floor that works everywhere (#115).
-    thinkingLevel: "low",
+    thinkingLevel: thinking,
   });
   return session;
 };
@@ -290,6 +297,7 @@ export const runJob = async ({
   maxSteps = MAX_STEPS,
   deadlineMs = DEADLINE_MS,
   keepBox = false,
+  thinking = "low",
 }: RunOptions) => {
   const started = Date.now();
   const sandbox = await createBox();
@@ -350,16 +358,18 @@ export const runJob = async ({
     }),
     promptSnippet: "Typecheck and play the game, with screenshots",
   });
-  const session = await openSession(modelId, sandbox, playtestTool);
+  const session = await openSession(modelId, sandbox, playtestTool, thinking);
 
   let steps = 0;
   let limit: string | undefined;
   const errors: string[] = [];
-  const toolCalls: { tool: string; ms: number }[] = [];
+  const toolCalls: { tool: string; ms: number; command?: string }[] = [];
+  const commands = new Map<string, string>();
   const startedAt = new Map<string, number>();
   session.subscribe((event) => {
     if (event.type === "tool_execution_start") {
       steps += 1;
+      commands.set(event.toolCallId, String(event.args?.command ?? ""));
       startedAt.set(event.toolCallId, Date.now());
       if (steps > maxSteps) {
         limit = `over ${maxSteps} steps`;
@@ -371,6 +381,9 @@ export const runJob = async ({
       toolCalls.push({
         ms: Date.now() - (startedAt.get(event.toolCallId) ?? Date.now()),
         tool: event.toolName,
+        ...(event.toolName === "bash" && {
+          command: String(commands.get(event.toolCallId) ?? "").slice(0, 120),
+        }),
       });
     } else if (
       event.type === "message_end" &&
@@ -434,6 +447,7 @@ export const runJob = async ({
     seconds,
     steps,
     summary,
+    thinking,
     toolCalls,
     turns: assistant.length,
     // The eyes' Haiku calls are part of the job's cost.

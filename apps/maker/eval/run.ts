@@ -12,6 +12,7 @@ import {
 import path from "node:path";
 import { parseArgs } from "node:util";
 
+import type { Thinking } from "../src/coder.ts";
 import { CANDIDATES } from "../src/models.ts";
 import { buildRuntime } from "../src/runtime.ts";
 import {
@@ -23,18 +24,31 @@ import {
   SMOKE_JOBS,
 } from "./coder.ts";
 import type { CoderJob, CoderRecord } from "./coder.ts";
-import { quantile, report } from "./report.ts";
+import { runE2E } from "./e2e.ts";
+import {
+  coderStats,
+  quantile,
+  readRecords,
+  report,
+  talkerStats,
+} from "./report.ts";
+import type { TalkerRecord } from "./talker.ts";
 import { CHATS, runTalker } from "./talker.ts";
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
   options: {
     chats: { type: "string" },
+    // e2e: the pair to run.
+    coder: { default: "claude-haiku-5-5", type: "string" },
     concurrency: { default: "6", type: "string" },
     jobs: { type: "string" },
     models: { type: "string" },
     runs: { default: "3", type: "string" },
     sweep: { default: "sweep", type: "string" },
+    talker: { default: "claude-haiku-5-5", type: "string" },
+    // The Coder's effort; the Talker always runs at low.
+    thinking: { default: "low", type: "string" },
   },
 });
 const command = positionals[0] ?? "help";
@@ -150,6 +164,7 @@ const sweepCoder = async (
             judge,
             modelId,
             run: run + 1,
+            thinking: values.thinking as Thinking,
           });
           if (refusedForBilling(dir, record)) {
             return null;
@@ -301,6 +316,62 @@ const commands: Record<string, () => Promise<void> | void> = {
       Number(values.runs)
     );
     console.log(report(sweepDir, CALIBRATION).markdown);
+  },
+  // The real Talker driving the real Coder through the scripted chats; every built game is judged.
+  e2e: async () => {
+    const pair = `${values.talker}+${values.coder}-${values.thinking}`;
+    const chats = CHATS.filter((chat) =>
+      list(
+        values.chats,
+        CHATS.map((each) => each.id)
+      ).includes(chat.id)
+    );
+    const tasks = chats.flatMap((chat) =>
+      Array.from({ length: Number(values.runs) }, (_, run) => async () => {
+        const dir = path.join(sweepDir, "e2e", pair, `${chat.id}-${run + 1}`);
+        if (billingStopped || existsSync(path.join(dir, "result.json"))) {
+          return;
+        }
+        try {
+          const { builds, talker } = await runE2E({
+            chat,
+            coderModel: values.coder,
+            dir,
+            run: run + 1,
+            talkerModel: values.talker,
+            thinking: values.thinking as Thinking,
+          });
+          if (refusedForBilling(dir, { builds, talker })) {
+            return;
+          }
+          console.log(
+            `${pair} ${chat.id}#${run + 1}: talker ${talker.pass ? "pass" : "FAIL"}, builds ${builds.filter((build) => build.pass).length}/${builds.length} pass`
+          );
+        } catch (error) {
+          console.log(
+            `${pair} ${chat.id}#${run + 1}: SKIPPED ${String(error).slice(0, 200)}`
+          );
+        }
+      })
+    );
+    await pool(tasks, Number(values.concurrency));
+    const root = path.join(sweepDir, "e2e", pair);
+    const builds = readRecords<CoderRecord>(root).filter(
+      (record) => record.agent === "coder"
+    );
+    const talkers = readRecords<TalkerRecord>(root).filter(
+      (record) => record.agent === "talker"
+    );
+    const summary = {
+      builds: coderStats(builds),
+      pair,
+      talker: talkerStats(talkers),
+    };
+    writeFileSync(
+      path.join(root, "summary.json"),
+      JSON.stringify(summary, null, 2)
+    );
+    console.log(JSON.stringify(summary, null, 2));
   },
   // The edit jobs' starting Revisions, built once with Sonnet and checked by the owner (preview.html in each).
   freeze: async () => {

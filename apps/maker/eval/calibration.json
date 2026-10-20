@@ -1,0 +1,44 @@
+[
+  {
+    "run": "claude-haiku-5-5/breakout-2",
+    "spec": 4,
+    "playable": 5
+  },
+  {
+    "run": "kimi-k3/breakout-1",
+    "spec": 4,
+    "playable": 5
+  },
+  {
+    "run": "kimi-k3/edit-ends-too-soon-1",
+    "spec": 4,
+    "playable": 5,
+    "edit": 4
+  },
+  {
+    "run": "claude-haiku-5-5/edit-faster-1",
+    "spec": 4,
+    "playable": 5,
+    "edit": 5
+  },
+  {
+    "run": "claude-haiku-5-5/edit-timer-3",
+    "spec": 4,
+    "playable": 5,
+    "edit": 4
+  },
+  {
+    "run": "claude-haiku-5-5/match-3-2",
+    "spec": 3
+  },
+  {
+    "run": "claude-sonnet-5-5/moon-cat-2",
+    "spec": 3,
+    "playable": 3
+  },
+  {
+    "run": "claude-sonnet-5-5/moon-cat-3",
+    "spec": 3,
+    "playable": 4
+  }
+]

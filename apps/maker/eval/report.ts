@@ -31,7 +31,7 @@ export const quantile = (values: number[], q: number) => {
 };
 const median = (values: number[]) => quantile(values, 0.5);
 
-const readRecords = <T>(dir: string): T[] =>
+export const readRecords = <T>(dir: string): T[] =>
   existsSync(dir)
     ? readdirSync(dir, { recursive: true, withFileTypes: true })
         .filter((entry) => entry.isFile() && entry.name === "result.json")

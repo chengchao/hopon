@@ -5,7 +5,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 import type { Spec } from "../src/coder.ts";
 import { openTalker } from "../src/talker.ts";
-import type { Talker } from "../src/talker.ts";
+import type { BuildResult, Talker } from "../src/talker.ts";
 import { judgeTalker } from "./judge.ts";
 import type { TalkerTurnRecord } from "./judge.ts";
 
@@ -127,11 +127,14 @@ export const runTalker = async ({
   chat,
   run,
   dir,
+  coder,
 }: {
   modelId: string;
   chat: Chat;
   run: number;
   dir: string;
+  // The real Coder, for the end-to-end run; without it, a stub returns a canned success after 3 s.
+  coder?: (spec: Spec) => Promise<BuildResult>;
 }) => {
   mkdirSync(dir, { recursive: true });
   const stub: Stub = { buildMs: 0, builds: [] };
@@ -140,12 +143,14 @@ export const runTalker = async ({
       stub.builds.push(spec);
       const started = Date.now();
       setTimeout(() => stub.steer?.(), STEER_AFTER_MS);
-      await sleep(STUB_BUILD_MS);
+      const result = coder
+        ? await coder(spec)
+        : await sleep(STUB_BUILD_MS).then((): BuildResult => ({
+            ok: true,
+            summary: `Built "${spec.title}". ${spec.brief.split(/(?<=\.)\s/u)[0]} It plays well and the playtest is green.`,
+          }));
       stub.buildMs += Date.now() - started;
-      return {
-        ok: true,
-        summary: `Built "${spec.title}". ${spec.brief.split(/(?<=\.)\s/u)[0]} It plays well and the playtest is green.`,
-      };
+      return result;
     },
     modelId,
   });

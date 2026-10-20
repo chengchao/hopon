@@ -74,7 +74,7 @@ drawTextScreen(text, screenPos, sizePx, color?, lineWidth?, lineColor?, align?) 
 class Ball extends EngineObject {
   constructor(pos: Vector2) {
     super(pos, vec2(1, 1), undefined, 0, RED); // pos, size, tileInfo (always undefined), angle, color
-    this.setCollision(true, false); // collide with other objects? be solid (push others)?
+    // no setCollision: hits and pickups are checked by hand (see "Hits and collisions")
     this.velocity = vec2(0.1, 0); // world units per frame (1/60 s)
     this.gravityScale = 1; // multiplies the global setGravity(vec2(0, -0.01))
     this.damping = 1;
@@ -88,13 +88,32 @@ class Ball extends EngineObject {
   render() {
     drawCircle(this.pos, this.size.x, this.color);
   } // default draws a rect
-  collideWithObject(other: EngineObject) {
-    return false;
-  } // true = physically resolve
 }
 ```
 
-`obj.destroy()`, `obj.destroyed`, `obj.getAliveTime()`, `obj.applyForce(v)`, `engineObjects` (all live objects), `engineObjectsCollect(pos, size)`. Collision only happens between objects that both called `setCollision(true, …)`. Objects with `mass = 0` are static. Gravity defaults to zero.
+`obj.destroy()`, `obj.destroyed`, `obj.getAliveTime()`, `obj.applyForce(v)`, `engineObjects` (all live objects), `engineObjectsCollect(pos, size)`. Gravity defaults to zero.
+
+### Hits and collisions
+
+**Check hits yourself.** For everything that is game logic (an obstacle kills the player, a pickup scores, a bullet hits a bug), test overlap in `gameUpdate` or the object's `update`, and never rely on the physics engine to call you:
+
+```ts
+if (isOverlapping(player.pos, player.size.scale(0.8), rock.pos, rock.size))
+  die(); // 0.8: a forgiving hitbox
+```
+
+Use the engine's physics only to push and bounce things (a ball off walls, a frog landing on a cloud), and know its rules, because a wrong setup fails silently:
+
+- `setCollision(collideSolidObjects, isSolid)`. Two objects interact only if **at least one is solid**: two `setCollision(true, false)` objects pass through each other and `collideWithObject` is never called.
+- Only a moving object (`mass > 0`) checks its contacts. A `mass = 0` object is a static wall: it is hit, it never checks.
+- `collideWithObject(other)` returns `true` to be pushed apart, `false` to pass through.
+- Collision boxes are axis-aligned and **ignore `angle`**: a rotated flipper or ramp collides as its unrotated box. For anything rotated, do the bounce yourself (reflect the velocity when the ball overlaps it).
+
+### Fair games
+
+- Leave the player room: nothing that kills should spawn where the player can't avoid it (spawn away from the player's x, or telegraph it first), and the first threat comes after about 2 s.
+- Make it forgiving: hitboxes for dangers a little smaller than their drawing, for targets and pickups a little bigger.
+- Everything the player must see is on screen and at least about 1 world unit (18 CSS px) big; a limit the player can hit (a ceiling, a wall) is drawn.
 
 Particles: `new ParticleEmitter(pos, angle, emitSize, emitTime, emitRate, coneAngle, undefined, colorStartA, colorStartB, colorEndA?, colorEndB?, particleTime?, sizeStart?, sizeEnd?, speed?)` — e.g. an explosion: `new ParticleEmitter(pos, 0, 1, 0.2, 100, Math.PI, undefined, YELLOW, RED)`.
 
@@ -184,8 +203,6 @@ class Pipe extends EngineObject {
     const h = 30;
     const y = top ? gapY + 3 + h / 2 : gapY - 3 - h / 2;
     super(vec2(x, y), vec2(2, h), undefined, 0, hsl(0.33, 0.6, 0.4));
-    this.setCollision(true, false);
-    this.mass = 0;
     this.gravityScale = 0;
     this.velocity = vec2(-0.08, 0);
   }
@@ -194,12 +211,10 @@ class Pipe extends EngineObject {
     if (this.pos.x < -15) {
       this.destroy();
     }
-  }
-  collideWithObject(other: EngineObject) {
-    if (other === bird) {
+    // the hit, checked by hand with a forgiving hitbox
+    if (isOverlapping(bird.pos, bird.size.scale(0.7), this.pos, this.size)) {
       die();
     }
-    return false;
   }
 }
 
@@ -215,7 +230,6 @@ function die() {
 function gameInit() {
   setGravity(vec2(0, -0.012));
   bird = new Bird();
-  bird.setCollision(true, false);
   nextPipe = 0;
 }
 
@@ -351,7 +365,6 @@ const boom = new Sound([1.2, 0.2, 80, 0.01, 0.3, 0.6, 4, 1, -2]);
 class Ship extends EngineObject {
   constructor() {
     super(vec2(0, -11), vec2(1.6, 1.6), undefined, 0, hsl(0.5, 1, 0.6));
-    this.setCollision(true, false);
     this.gravityScale = 0;
   }
   update() {
@@ -384,7 +397,6 @@ class Faller extends EngineObject {
       star ? YELLOW : GRAY
     );
     this.star = star;
-    this.setCollision(true, false);
     this.gravityScale = 0;
     this.velocity = vec2(0, -rand(0.1, 0.2) - time * 0.003);
     this.angleVelocity = rand(-0.1, 0.1);
@@ -393,12 +405,18 @@ class Faller extends EngineObject {
     super.update();
     if (this.pos.y < -16) {
       this.destroy();
+      return;
+    }
+    // hits checked by hand: rocks a little smaller than drawn, stars a little bigger
+    const reach = this.size.scale(this.star ? 1.2 : 0.8);
+    if (
+      !ship.destroyed &&
+      isOverlapping(this.pos, reach, ship.pos, ship.size)
+    ) {
+      this.touch();
     }
   }
-  collideWithObject(other: EngineObject) {
-    if (other !== ship) {
-      return false;
-    }
+  touch() {
     this.destroy();
     if (this.star) {
       hopon.addScore(1);
@@ -419,7 +437,6 @@ class Faller extends EngineObject {
       ship.destroy();
       hopon.gameOver();
     }
-    return false;
   }
   render() {
     if (this.star) {
