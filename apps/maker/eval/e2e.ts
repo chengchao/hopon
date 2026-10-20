@@ -17,6 +17,7 @@ export const runE2E = async ({
   coderModel,
   thinking,
   talkerThinking,
+  designer,
   chat,
   run,
   dir,
@@ -25,6 +26,7 @@ export const runE2E = async ({
   coderModel: string;
   thinking: Thinking;
   talkerThinking: Thinking;
+  designer?: Thinking;
   chat: Chat;
   run: number;
   dir: string;
@@ -63,6 +65,7 @@ export const runE2E = async ({
       );
       return { ok: true, summary: record.summary };
     },
+    designer,
     dir,
     modelId: talkerModel,
     run,

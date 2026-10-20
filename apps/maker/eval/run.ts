@@ -42,6 +42,8 @@ const { positionals, values } = parseArgs({
     // e2e: the pair to run.
     coder: { default: "claude-haiku-5-5", type: "string" },
     concurrency: { default: "6", type: "string" },
+    // e2e: the designer's effort, when the Talker has one.
+    designer: { type: "string" },
     jobs: { type: "string" },
     models: { type: "string" },
     runs: { default: "3", type: "string" },
@@ -321,7 +323,7 @@ const commands: Record<string, () => Promise<void> | void> = {
   },
   // The real Talker driving the real Coder through the scripted chats; every built game is judged.
   e2e: async () => {
-    const pair = `${values.talker}-${values["talker-thinking"]}+${values.coder}-${values.thinking}`;
+    const pair = `${values.talker}-${values["talker-thinking"]}${values.designer ? `+designer-${values.designer}` : ""}+${values.coder}-${values.thinking}`;
     const chats = CHATS.filter((chat) =>
       list(
         values.chats,
@@ -338,6 +340,7 @@ const commands: Record<string, () => Promise<void> | void> = {
           const { builds, talker } = await runE2E({
             chat,
             coderModel: values.coder,
+            designer: values.designer as Thinking | undefined,
             dir,
             run: run + 1,
             talkerModel: values.talker,
