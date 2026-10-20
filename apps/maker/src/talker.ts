@@ -14,7 +14,7 @@ import {
 } from "@earendil-works/pi-durable";
 import type { AgentEvent } from "@earendil-works/pi-durable";
 
-import type { Spec } from "./coder.ts";
+import type { Spec, Thinking } from "./coder.ts";
 import { createRegistry, resolve, talkerModelRef } from "./models.ts";
 
 export const TALKER_PROMPT = `You are the Maker in hopon. The Creator chats with you to make a small game for their phone, and you have it built with the build tool.
@@ -61,11 +61,17 @@ export type BuildResult =
 
 export interface TalkerOptions {
   modelId: string;
+  // Low keeps replies fast; the eval also tries high, for better design specs (#116).
+  thinking?: Thinking;
   // The Coder: the eval's stub, or the real call.
   build: (spec: Spec) => Promise<BuildResult>;
 }
 
-export const openTalker = async ({ modelId, build }: TalkerOptions) => {
+export const openTalker = async ({
+  modelId,
+  build,
+  thinking = "low",
+}: TalkerOptions) => {
   const context = BACKGROUND_CONTEXT;
   const model = resolve(modelId);
   const registry = createToolRegistry();
@@ -106,7 +112,7 @@ export const openTalker = async ({ modelId, build }: TalkerOptions) => {
   const root = await harness.root(context, {
     agent: {
       model: talkerModelRef(model),
-      thinkingLevel: "low",
+      thinkingLevel: thinking,
     },
   });
   const stream = await watchEvents(harness, root.id, context);

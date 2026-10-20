@@ -47,6 +47,8 @@ const { positionals, values } = parseArgs({
     runs: { default: "3", type: "string" },
     sweep: { default: "sweep", type: "string" },
     talker: { default: "claude-haiku-5-5", type: "string" },
+    // e2e: the Talker's effort.
+    "talker-thinking": { default: "low", type: "string" },
     // The Coder's effort; the Talker always runs at low.
     thinking: { default: "low", type: "string" },
   },
@@ -319,7 +321,7 @@ const commands: Record<string, () => Promise<void> | void> = {
   },
   // The real Talker driving the real Coder through the scripted chats; every built game is judged.
   e2e: async () => {
-    const pair = `${values.talker}+${values.coder}-${values.thinking}`;
+    const pair = `${values.talker}-${values["talker-thinking"]}+${values.coder}-${values.thinking}`;
     const chats = CHATS.filter((chat) =>
       list(
         values.chats,
@@ -339,6 +341,7 @@ const commands: Record<string, () => Promise<void> | void> = {
             dir,
             run: run + 1,
             talkerModel: values.talker,
+            talkerThinking: values["talker-thinking"] as Thinking,
             thinking: values.thinking as Thinking,
           });
           if (refusedForBilling(dir, { builds, talker })) {

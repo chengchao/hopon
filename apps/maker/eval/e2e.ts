@@ -16,6 +16,7 @@ export const runE2E = async ({
   talkerModel,
   coderModel,
   thinking,
+  talkerThinking,
   chat,
   run,
   dir,
@@ -23,6 +24,7 @@ export const runE2E = async ({
   talkerModel: string;
   coderModel: string;
   thinking: Thinking;
+  talkerThinking: Thinking;
   chat: Chat;
   run: number;
   dir: string;
@@ -64,6 +66,7 @@ export const runE2E = async ({
     dir,
     modelId: talkerModel,
     run,
+    thinking: talkerThinking,
   });
   return { builds, talker };
 };

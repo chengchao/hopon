@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import type { Spec } from "../src/coder.ts";
+import type { Spec, Thinking } from "../src/coder.ts";
 import { openTalker } from "../src/talker.ts";
 import type { BuildResult, Talker } from "../src/talker.ts";
 import { judgeTalker } from "./judge.ts";
@@ -128,6 +128,7 @@ export const runTalker = async ({
   run,
   dir,
   coder,
+  thinking = "low",
 }: {
   modelId: string;
   chat: Chat;
@@ -135,6 +136,7 @@ export const runTalker = async ({
   dir: string;
   // The real Coder, for the end-to-end run; without it, a stub returns a canned success after 3 s.
   coder?: (spec: Spec) => Promise<BuildResult>;
+  thinking?: Thinking;
 }) => {
   mkdirSync(dir, { recursive: true });
   const stub: Stub = { buildMs: 0, builds: [] };
@@ -153,6 +155,7 @@ export const runTalker = async ({
       return result;
     },
     modelId,
+    thinking,
   });
   const turns: Awaited<ReturnType<typeof playTurn>>[] = [];
   try {
@@ -201,7 +204,7 @@ export const runTalker = async ({
     model: modelId,
     pass: brevityOk && behaviourOk && scoresOk,
     run,
-    thinking: "low",
+    thinking,
     turns,
   };
   writeFileSync(path.join(dir, "result.json"), JSON.stringify(record, null, 2));
