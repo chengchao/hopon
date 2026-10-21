@@ -1,7 +1,7 @@
 // The eval's candidates and judge (#115), as pi-ai models. Claude and Kimi go through the Cloudflare AI Gateway on
 // Unified Billing, except Haiku 5.5, which it doesn't serve yet: that goes to Cloudflare's REST /ai/v1/messages.
-// DeepSeek V4.1 Flash was dropped by the owner (2026-10-19): it isn't on Unified Billing, and Workers AI's DeepSeek V4
-// Flash has no vision.
+// #116 picked Haiku 5.5 for both agents; Sonnet 5.5 and Kimi K3 stay for re-runs. DeepSeek and Kimi K2.6 were tried and
+// dropped (eval/results/2026-10-20.md).
 import { createModels, createProvider } from "@earendil-works/pi-ai";
 import type { Api, Model, MutableModels } from "@earendil-works/pi-ai";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
@@ -67,19 +67,6 @@ export const CANDIDATES = {
   "claude-haiku-5-5": haiku,
   "claude-sonnet-5-5": () =>
     getBuiltinModel("cloudflare-ai-gateway", "claude-sonnet-5-5") as Model<Api>,
-  // Added at the owner's ask: DeepSeek on Workers AI through the gateway. It has no image input, so the Coder gives
-  // it Haiku's description of the playtest screenshots instead (src/coder.ts).
-  "deepseek-v4-flash": () =>
-    getBuiltinModel(
-      "cloudflare-ai-gateway",
-      "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731"
-    ) as Model<Api>,
-  // Added after #115 at the owner's ask: a cheaper Kimi with vision, on Workers AI through the gateway.
-  "kimi-k2.6": () =>
-    getBuiltinModel(
-      "cloudflare-ai-gateway",
-      "workers-ai/@cf/moonshotai/kimi-k2.6"
-    ) as Model<Api>,
   // Moonshot's descriptor (prices, reasoning, compat) on the gateway's OpenAI-compatible route, which serves it on
   // Unified Billing (checked 2026-10-19: keySource "Unified", images in tool results, reasoning_effort low).
   "kimi-k3": (): Model<Api> => ({

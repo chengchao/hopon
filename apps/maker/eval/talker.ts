@@ -129,7 +129,6 @@ export const runTalker = async ({
   dir,
   coder,
   thinking = "high",
-  designer,
 }: {
   modelId: string;
   chat: Chat;
@@ -138,7 +137,6 @@ export const runTalker = async ({
   // The real Coder, for the end-to-end run; without it, a stub returns a canned success after 3 s.
   coder?: (spec: Spec) => Promise<BuildResult>;
   thinking?: Thinking;
-  designer?: Thinking;
 }) => {
   mkdirSync(dir, { recursive: true });
   const stub: Stub = { buildMs: 0, builds: [] };
@@ -156,7 +154,6 @@ export const runTalker = async ({
       stub.buildMs += Date.now() - started;
       return result;
     },
-    designer,
     modelId,
     thinking,
   });

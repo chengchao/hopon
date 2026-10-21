@@ -50,16 +50,6 @@ What games can't do. Say so kindly, offer something close, and never promise it:
 - No tilting or keyboard: games are played by tapping and swiping.
 Decline briefly, without building, anything hateful, sexual or gory, and anything that targets or mocks a real person.`;
 
-// The designer (option 2, #116): a high-effort pass over the Talker's brief, made only when it builds, so the chat
-// itself stays at the Talker's own fast effort. One plain model call, no tools.
-const DESIGNER_PROMPT = `You are the game designer behind a game-making chat. You get the brief the chat wrote for one build, and for a change also the spec of the game as it is. Rewrite the brief as the complete design spec the coder will build from, in English, up to 300 words, with no code and no engine talk.
-
-For a new game, in these parts: Goal (what the player does, how it is won or lost); Rules (what moves, spawns, scores and hurts, with numbers: speeds, counts, timers, lives); Controls (taps and swipes on a portrait phone screen, and where); Difficulty (the start and the ramp); Fairness (the first threat after about 2 seconds, every danger visible and avoidable, danger hit areas a bit smaller than drawn and target hit areas a bit bigger, finger-sized targets); Look (setting, characters, palette, mood, what happens on a hit, a point and the end); Language (the on-screen language, if not English).
-
-For a change: say exactly what changes, with numbers, and how it fits the game as it is, then end with "Keep everything else."
-
-Keep everything the brief asks for; fill what it leaves out; fix anything unfair or impossible to play. Answer with only the spec.`;
-
 const BuildParameters = Type.Object({
   brief: Type.String(),
   music: Type.Union([Type.String(), Type.Null()]),
@@ -74,8 +64,6 @@ export interface TalkerOptions {
   modelId: string;
   // #116 picked high: its design specs build best (89–94% against ~80% at low), at ~2.6 s to first token.
   thinking?: Thinking;
-  // When set, the designer rewrites each brief at this effort before the Coder gets it.
-  designer?: Thinking;
   // The Coder: the eval's stub, or the real call.
   build: (spec: Spec) => Promise<BuildResult>;
 }
@@ -84,37 +72,10 @@ export const openTalker = async ({
   modelId,
   build,
   thinking = "high",
-  designer,
 }: TalkerOptions) => {
   const context = BACKGROUND_CONTEXT;
   const model = resolve(modelId);
   const registry = createToolRegistry();
-  let lastSpec: Spec | undefined;
-  const design = async (
-    spec: Spec,
-    current: Spec | undefined,
-    effort: Thinking
-  ) => {
-    const message = await createRegistry().completeSimple(
-      model,
-      {
-        messages: [
-          {
-            content: `${current ? `The game as it is:\n${current.brief}\n\n` : ""}The brief:\n${spec.brief}`,
-            role: "user",
-            timestamp: Date.now(),
-          },
-        ],
-        systemPrompt: DESIGNER_PROMPT,
-      },
-      { reasoning: effort === "off" ? undefined : effort }
-    );
-    const brief = message.content
-      .flatMap((part) => (part.type === "text" ? [part.text] : []))
-      .join("")
-      .trim();
-    return brief ? { ...spec, brief } : spec;
-  };
   // One build per turn (#122). The eval opens a turn with `submit`; a steer joins the running turn.
   let buildsThisTurn = 0;
   registry.install(
@@ -132,11 +93,7 @@ export const openTalker = async ({
                 "Only one build per message. Tell the Creator you'll do it next."
               );
             }
-            const designed = designer
-              ? await design(spec, lastSpec, designer)
-              : spec;
-            lastSpec = designed;
-            const result = await build(designed);
+            const result = await build(spec);
             if (!result.ok) {
               throw new Error(`The build failed: ${result.reason}`);
             }

@@ -22,7 +22,7 @@ import type {
 import type { Sandbox } from "e2b";
 
 import { createBox, run, WORKSPACE } from "./box.ts";
-import { apiKey, createRegistry, resolve } from "./models.ts";
+import { apiKey, resolve } from "./models.ts";
 import { createE2BTools } from "./ops.ts";
 
 const AGENT_HOME = path.join(import.meta.dirname, "..", "agent-home");
@@ -169,36 +169,6 @@ export interface RunOptions {
   thinking?: Thinking;
 }
 
-// Eyes for a Coder model without image input (the owner's idea, 2026-10-19): Haiku 5.5 looks at both screenshots
-// and describes them, and the Coder gets the description instead. Its cost counts toward the job's.
-const EYES_PROMPT = `You are the eyes of a game coder that cannot see images. Below are screenshots of a phone game (360×640), taken just after a tap that starts it and at the end of a scripted playtest, plus the brief the game was built from. In under 120 words, describe what is on screen in each, then list anything that looks wrong: blank or frozen screens, nothing changing, unreadable text, things off-screen or overlapping, or a look that doesn't match the brief. No code.`;
-const describeScreenshots = async (
-  images: { data: string; mimeType: string; type: "image" }[],
-  brief: string
-) => {
-  const message = await createRegistry().completeSimple(
-    resolve("claude-haiku-5-5"),
-    {
-      messages: [
-        {
-          content: [{ text: `Brief: ${brief}`, type: "text" }, ...images],
-          role: "user",
-          timestamp: Date.now(),
-        },
-      ],
-      systemPrompt: EYES_PROMPT,
-    },
-    { reasoning: "low" }
-  );
-  const text = message.content
-    .flatMap((part) => (part.type === "text" ? [part.text] : []))
-    .join("");
-  return {
-    cost: message.usage.cost.total,
-    text: `Screenshots, described by a vision model:\n${text || message.errorMessage}`,
-  };
-};
-
 const screenshots = async (sandbox: Sandbox) =>
   await Promise.all(
     ["playtest-start.png", "playtest-end.png"].map(async (file) => ({
@@ -313,8 +283,6 @@ export const runJob = async ({
   const playtests: PlaytestResult[] = [];
   let lastInputs: Inputs = [];
   let imagesSent = 0;
-  let eyesCost = 0;
-  const seesImages = resolve(modelId).input.includes("image");
   const playtestTool = defineTool({
     description:
       "Typecheck and play the game in headless Chromium (360×640): loads it, taps the centre to start, runs your inputs, and returns the result with screenshots of the start and the end.",
@@ -333,17 +301,6 @@ export const runJob = async ({
       const images =
         result.typeErrors.length > 0 ? [] : await screenshots(sandbox);
       imagesSent += images.length;
-      if (!seesImages && images.length > 0) {
-        const eyes = await describeScreenshots(images, job.spec.brief);
-        eyesCost += eyes.cost;
-        return {
-          content: [
-            { text: JSON.stringify(result), type: "text" },
-            { text: eyes.text, type: "text" },
-          ],
-          details: undefined,
-        };
-      }
       return {
         content: [{ text: JSON.stringify(result), type: "text" }, ...images],
         details: undefined,
@@ -454,8 +411,7 @@ export const runJob = async ({
     thinking,
     toolCalls,
     turns: assistant.length,
-    // The eyes' Haiku calls are part of the job's cost.
-    usage: { ...usage, cost: usage.cost + eyesCost, eyes: eyesCost },
+    usage,
   };
 };
 

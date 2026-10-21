@@ -14,7 +14,7 @@ pnpm -F maker eval freeze                              # the edits' starting Rev
 pnpm -F maker eval smoke                               # Kimi: 5 jobs, images in tool results, median ≤ 120 s
 pnpm -F maker eval coder --models a,b [--runs 3] [--jobs id,id] [--concurrency 6] [--sweep name]
 pnpm -F maker eval talker --models a,b [--runs 3] [--chats id,id]
-pnpm -F maker eval e2e [--talker id] [--talker-thinking high] [--coder id] [--thinking low] [--designer high]  # real Talker → real Coder
+pnpm -F maker eval e2e [--talker id] [--talker-thinking high] [--coder id] [--thinking low]  # real Talker → real Coder
 pnpm -F maker eval blind                               # 20 runs for the owner to score, without model names
 pnpm -F maker eval calibrate < scores.json             # the blind page's scores into calibration.json
 pnpm -F maker eval report                              # report.md, report.json, contact-sheet.png in out/<sweep>/
