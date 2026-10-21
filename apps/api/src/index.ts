@@ -36,6 +36,7 @@ import {
   SUPPORT,
   TERMS,
 } from "./pages.ts";
+import RUNTIME_V1 from "./runtime/v1.json" with { type: "json" };
 import {
   blocks,
   comments,
@@ -322,7 +323,9 @@ const app = new Hono<AppEnv>();
 app.use(async (c, next) => {
   // oxlint-disable-next-line node/callback-return -- Hono middleware sets headers after the handler runs.
   await next();
-  c.header("Cache-Control", "no-store");
+  if (!c.res.headers.has("Cache-Control")) {
+    c.header("Cache-Control", "no-store");
+  }
   c.header("X-Content-Type-Options", "nosniff");
   c.header("Referrer-Policy", "no-referrer");
   if (!c.res.headers.has("Content-Security-Policy")) {
@@ -387,6 +390,14 @@ app.get("/privacy", (c) =>
 );
 app.get("/support", (c) =>
   c.html(SUPPORT, 200, { "Content-Security-Policy": PAGE_CSP })
+);
+
+// The game runtime, built by apps/maker (src/runtime.ts). Versioned by path, so it's cached for good.
+app.get("/runtime/v1.js", (c) =>
+  c.body(RUNTIME_V1, 200, {
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "Content-Type": "text/javascript; charset=utf-8",
+  })
 );
 
 app.get("/api/games", (c) =>

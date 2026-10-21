@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "eval": "node --env-file-if-exists=.env eval/run.ts",
+    "build:runtime": "node src/runtime.ts",
     "template": "node --env-file-if-exists=.env image/build.ts",
     "test": "node --test",
     "typecheck": "tsc --noEmit"

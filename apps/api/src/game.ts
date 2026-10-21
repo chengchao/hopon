@@ -16,8 +16,9 @@ export const fail = (
   code?: HttpError["code"]
 ) => new HttpError({ code, message, status });
 
+// 'self' is the served runtime (/runtime/v1.js) and, later, a game's own files.
 export const GAME_CSP =
-  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts";
+  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src 'self' data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts";
 
 // What the model must return: a playable, complete HTML document with a short title and description.
 const GeneratedGame = Schema.Struct({
