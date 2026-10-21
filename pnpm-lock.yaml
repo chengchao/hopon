@@ -242,6 +242,7 @@ importers:
       e2b:
         specifier: 2.56.0
         version: 2.56.0
+    devDependencies:
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
