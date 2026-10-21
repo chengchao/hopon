@@ -98,7 +98,10 @@ export const V1_SHA256: string | undefined = undefined;
 const sha256 = (code: string) =>
   createHash("sha256").update(code).digest("hex");
 
-export const assertV1Unchanged = (code: string, frozen = V1_SHA256) => {
+export const assertV1Unchanged = (
+  code: string,
+  frozen: string | undefined = V1_SHA256
+) => {
   if (frozen !== undefined && sha256(code) !== frozen) {
     throw new Error(
       "/runtime/v1.js is frozen (V1_SHA256) and this build differs from it: serve the changed runtime as v2"
