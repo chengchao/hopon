@@ -11,7 +11,7 @@ A game is one file, `game.ts`, in the workspace. The playtest typechecks it agai
 
 - Define the hooks with `function gameInit() {}` etc. at top level. The scaffold calls `engineInit` for you; never call it.
 - Put all per-round state in `gameInit`: the scaffold calls it again on every restart after destroying all objects.
-- Draw everything procedurally (rects, circles, lines, polys, text). There are no image files, no fonts, no network. `fetch`, `XMLHttpRequest`, `localStorage`, `import()` and new windows are blocked by the CSP (`connect-src 'none'`, `sandbox allow-scripts`, no `unsafe-eval`).
+- There are no image files, no fonts, no network: draw with the shapes below, and draw characters as sprites (see "Make it look good"). `fetch`, `XMLHttpRequest`, `localStorage`, `import()` and new windows are blocked by the CSP (`connect-src 'none'`, `sandbox allow-scripts`, no `unsafe-eval`).
 - The screen is portrait, at least 360×640 CSS px, often taller. Work in world units: call `setCameraScale(mainCanvasSize.x / 20)` in `gameUpdate` so the screen is 20 units wide, and keep the action within y ∈ [-13, 13]. `setCameraPos(vec2(0, 0))` in `gameInit`.
 - Touch is the main input. A tap is `mouseWasPressed(0)`, a held finger is `mouseIsDown(0)`, its world position is `mousePos`. Add arrow keys or Space as a bonus, never as the only control.
 - Keep it small: a game is typically 80–200 lines.
@@ -73,7 +73,7 @@ drawTextScreen(text, screenPos, sizePx, color?, lineWidth?, lineColor?, align?) 
 ```ts
 class Ball extends EngineObject {
   constructor(pos: Vector2) {
-    super(pos, vec2(1, 1), undefined, 0, RED); // pos, size, tileInfo (always undefined), angle, color
+    super(pos, vec2(1, 1), undefined, 0, RED); // pos, size, tileInfo (undefined, or a sprite), angle, color
     // no setCollision: hits and pickups are checked by hand (see "Hits and collisions")
     this.velocity = vec2(0.1, 0); // world units per frame (1/60 s)
     this.gravityScale = 1; // multiplies the global setGravity(vec2(0, -0.01))
@@ -116,6 +116,65 @@ Use the engine's physics only to push and bounce things (a ball off walls, a fro
 - Everything the player must see is on screen and at least about 1 world unit (18 CSS px) big; a limit the player can hit (a ceiling, a wall) is drawn.
 
 Particles: `new ParticleEmitter(pos, angle, emitSize, emitTime, emitRate, coneAngle, undefined, colorStartA, colorStartB, colorEndA?, colorEndB?, particleTime?, sizeStart?, sizeEnd?, speed?)` — e.g. an explosion: `new ParticleEmitter(pos, 0, 1, 0.2, 100, Math.PI, undefined, YELLOW, RED)`.
+
+## Make it look good
+
+The game should look finished, not like a prototype of flat rects on one colour. Spend about a third of the code on looks.
+
+- **Palette**: 4–6 colours that go together (one hue family plus one accent) and a dark outline colour, set as consts with `hsl()`. Never the bare `RED GREEN BLUE` constants.
+- **Background in layers**: a `drawRectGradient` sky, then 1–3 parallax layers (hills, clouds, stars, city), the far ones paler and slower: `x = ((((i * 9 - time * speed) % 36) + 36) % 36) - 18`.
+- **Depth**: outline shapes (`drawCircle(pos, d, color, 0.15, OUTLINE)`, `drawPoly(points, color, 0.15, OUTLINE, pos)`), a soft shadow under things on the ground (`drawEllipse(pos.add(vec2(0, -0.6)), vec2(1, 0.25), rgb(0, 0, 0, 0.25))`), a highlight (a small lighter circle up-left on a ball).
+- **Pixel-art sprites** for every character and object the player looks at (the hero, enemies, pickups, obstacles): never a bare circle or box. Write each as a text grid, one letter per pixel, 12–16 pixels wide, every row the same length, with a dark outline letter around the shape and 2–3 shades per colour (light up-left, dark down-right), then draw it **big**: 2.5–3.5 world units for the hero, at least 1.5 for pickups. Make sprites at top level, never per frame; keep hitboxes from the object's own `size`, not the drawing's:
+
+```ts
+// One letter per pixel; "." and letters missing from the palette are transparent.
+function pixels(rows: string[], palette: Record<string, string>) {
+  const width = Math.max(...rows.map((row) => row.length));
+  const canvas = new OffscreenCanvas(width, rows.length);
+  const c = canvas.getContext("2d")!;
+  rows.forEach((row, y) =>
+    [...row].forEach((letter, x) => {
+      if (palette[letter]) {
+        c.fillStyle = palette[letter];
+        c.fillRect(x, y, 1, 1);
+      }
+    })
+  );
+  return new TileInfo(
+    vec2(),
+    vec2(width, rows.length),
+    new TextureInfo(canvas, true, false, true)
+  ); // crisp pixels
+}
+const frog = pixels(
+  [
+    "..oo....oo..",
+    ".oWWo..oWWo.",
+    ".oWKo..oKWo.",
+    "oGGGGGGGGGGo",
+    "oGLLGGGGLLGo",
+    "oGGGGGGGGGDo",
+    "oGGoooooooDo",
+    ".oGGGGGGGDo.",
+    "..oGGooGDo..",
+    ".oGGo..oDDo.",
+  ],
+  {
+    D: "#3a8a2e",
+    G: "#5fbf4a",
+    K: "#111",
+    L: "#9be27e",
+    W: "#fff",
+    o: "#1d3b1d",
+  }
+);
+// drawTile(pos, vec2(3, 2.5), frog, WHITE, angle, facingLeft), or pass it to an EngineObject's super() as the tileInfo
+```
+
+Animate with two grids (legs apart, legs together) swapped every 0.15 s: `time % 0.3 < 0.15 ? walkA : walkB`. Flip to face left with `drawTile`'s `mirror`.
+
+- **Juice**: every hit, pickup and death gets feedback. Particles in the palette's colours (`new ParticleEmitter(pos, 0, 0.5, 0.1, 200, Math.PI, undefined, accent, WHITE, accent.scale(1, 0), WHITE.scale(1, 0), 0.5, 0.7, 0.1, 0.2)`); a screen shake (`shake = 0.5` on a hit, then in `gameUpdate` `shake *= 0.85; setCameraPos(vec2(0, 0).add(randInCircle(shake)))`, adding it to your camera follow if you have one); squash and stretch (`squash = 0.7` on a jump, `squash = lerp(squash, 1, 0.15)` each frame, drawn as `vec2(w / squash, h * squash)`); a pop (scale a pickup up for 0.1 s before it goes).
+- **Text**: draw words with an outline (`drawTextScreen(text, pos, 24, WHITE, 4, OUTLINE)`).
 
 ## Input
 
@@ -163,7 +222,7 @@ Call `playtest` with inputs for your controls, for example taps on the lanes, or
 
 Three complete games. Copy their structure.
 
-### Tap to flap (EngineObject, gravity, collision, particles)
+### Tap to flap (EngineObject, gravity, collision, particles, a pixel-art sprite, parallax)
 
 ```ts
 // Sky Hopper: tap to flap through gaps in the pipes.
@@ -171,6 +230,31 @@ hopon.title = "Sky Hopper";
 hopon.hint = "Tap to flap";
 
 const WORLD_W = 20;
+const OUTLINE = hsl(0.62, 0.4, 0.15);
+const PIPE = hsl(0.33, 0.55, 0.45);
+const bird1 = pixels(
+  [
+    "....oooo......",
+    "..ooYYYYoo....",
+    ".oYYYYYWWYo...",
+    "oLLYYYYWKWo...",
+    "oLLLYYYWWYooo.",
+    "oYLLYYYYYoOOOo",
+    "oYYYYYYYYYoooo",
+    ".oYYYYYYYYo...",
+    "..oDDDDDDo....",
+    "....oooo......",
+  ],
+  {
+    D: "#e0a020",
+    K: "#111",
+    L: "#fff4b0",
+    O: "#ff8c42",
+    W: "#fff",
+    Y: "#ffd23f",
+    o: "#1f2540",
+  }
+);
 const flap = new Sound([0.6, 0, 600, 0.01, 0.05, 0.1, 1, 2, 10]);
 const crash = new Sound([1, 0.1, 120, 0.02, 0.2, 0.4, 4, 2, -5]);
 const point = new Sound([0.5, 0, 900, 0.01, 0.05, 0.1, 0, 1, 0, 0, 300]);
@@ -192,8 +276,7 @@ class Bird extends EngineObject {
     }
   }
   render() {
-    drawCircle(this.pos, 1, this.color);
-    drawCircle(this.pos.add(vec2(0.25, 0.15)), 0.25, WHITE);
+    drawTile(this.pos, vec2(2.8, 2), bird1, WHITE, this.angle);
   }
 }
 
@@ -202,7 +285,7 @@ class Pipe extends EngineObject {
   constructor(x: number, gapY: number, top: boolean) {
     const h = 30;
     const y = top ? gapY + 3 + h / 2 : gapY - 3 - h / 2;
-    super(vec2(x, y), vec2(2, h), undefined, 0, hsl(0.33, 0.6, 0.4));
+    super(vec2(x, y), vec2(2, h), undefined, 0, PIPE);
     this.gravityScale = 0;
     this.velocity = vec2(-0.08, 0);
   }
@@ -216,6 +299,15 @@ class Pipe extends EngineObject {
       die();
     }
   }
+  render() {
+    drawRect(this.pos, this.size.add(vec2(0.3)), OUTLINE);
+    drawRect(this.pos, this.size, this.color);
+    drawRect(
+      this.pos.add(vec2(-0.5, 0)),
+      vec2(0.3, this.size.y),
+      PIPE.lerp(WHITE, 0.3)
+    ); // highlight
+  }
 }
 
 let bird: Bird;
@@ -223,7 +315,23 @@ let nextPipe = 0;
 
 function die() {
   crash.play();
-  new ParticleEmitter(bird.pos, 0, 0.5, 0.2, 60, 3.14, undefined, YELLOW, RED);
+  new ParticleEmitter(
+    bird.pos,
+    0,
+    0.5,
+    0.1,
+    200,
+    Math.PI,
+    undefined,
+    YELLOW,
+    WHITE,
+    rgb(1, 0.5, 0, 0),
+    rgb(1, 1, 1, 0),
+    0.5,
+    0.7,
+    0.1,
+    0.2
+  );
   hopon.gameOver();
 }
 
@@ -257,7 +365,39 @@ function gameRender() {
     cameraPos,
     vec2(100, 100),
     hsl(0.58, 0.7, 0.6),
-    hsl(0.55, 0.6, 0.85)
+    hsl(0.1, 0.8, 0.85)
+  );
+  // parallax: far hills pale and slow, near hills darker and faster
+  for (const [speed, y, color] of [
+    [0.5, -10, hsl(0.4, 0.3, 0.7)],
+    [1.5, -12, hsl(0.38, 0.45, 0.5)],
+  ] as const) {
+    for (let i = 0; i < 5; i++) {
+      drawEllipse(
+        vec2(((((i * 9 - time * speed) % 45) + 45) % 45) - 22, y),
+        vec2(10, 6),
+        color
+      );
+    }
+  }
+}
+
+function pixels(rows: string[], palette: Record<string, string>) {
+  const width = Math.max(...rows.map((row) => row.length));
+  const canvas = new OffscreenCanvas(width, rows.length);
+  const c = canvas.getContext("2d")!;
+  rows.forEach((row, y) =>
+    [...row].forEach((letter, x) => {
+      if (palette[letter]) {
+        c.fillStyle = palette[letter];
+        c.fillRect(x, y, 1, 1);
+      }
+    })
+  );
+  return new TileInfo(
+    vec2(),
+    vec2(width, rows.length),
+    new TextureInfo(canvas, true, false, true)
   );
 }
 ```

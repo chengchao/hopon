@@ -27,6 +27,39 @@ Nothing else loads: no images, fonts or files from the web, no `fetch`, no `loca
 - Size emoji and text in `vw` or `rem` so they stay big in large grids (at least 24 px for game pieces).
 - Show the score and the end yourself: there is no scaffold overlay. A start screen is optional; the playtest taps the centre once before its inputs, so a centred "Start" button is fine.
 
+## Make it look good
+
+The game should look finished, not like a form. Spend about a third of `index.html` on looks.
+
+- **Palette**: 4–6 colours that go together (one hue family plus one accent) as CSS variables on `:root`.
+- **Background**: never one flat colour: `background: radial-gradient(circle at 30% 20%, #ffffff33, transparent 40%), linear-gradient(160deg, #3a1c71, #d76d77 60%, #ffaf7b);`.
+- **Depth**: cards and buttons with `border-radius: 16px`, a solid "3D" bottom edge plus a soft shadow (`box-shadow: 0 5px 0 #0003, 0 10px 20px #0002`), an inner highlight (`inset 0 2px 0 #fff6`); pressed: `:active { transform: translateY(3px); box-shadow: 0 2px 0 #0003; }`.
+- **Emoji and SVG**: big emoji with `filter: drop-shadow(0 4px 3px #0004)`; inline `<svg>` for icons, characters and board pieces, styled with CSS (`fill: var(--accent)`).
+- **Type**: bold and big (`font: 800 28px system-ui`), titles with `text-shadow: 0 3px 0 #0003`.
+- **Motion**: `transition: transform 0.15s, background 0.2s` on everything tappable; a pop on a right answer and a shake on a wrong one with `@keyframes`, added and removed as classes; card flips with `transform: rotateY(180deg)` and `backface-visibility: hidden`.
+
+```css
+@keyframes pop {
+  50% {
+    transform: scale(1.15);
+  }
+}
+@keyframes shake {
+  25% {
+    transform: translateX(-6px);
+  }
+  75% {
+    transform: translateX(6px);
+  }
+}
+.pop {
+  animation: pop 0.25s;
+}
+.shake {
+  animation: shake 0.25s;
+}
+```
+
 ## The hopon scaffold (`/dom.js`)
 
 ```ts
@@ -59,7 +92,7 @@ Call `hopon.gameOver` when the game ends and `hopon.restart` on "Play again". Th
         align-items: center;
         justify-content: center;
         gap: 16px;
-        background: #1b1f3b;
+        background: linear-gradient(160deg, #1b1f3b, #4b2c6f);
         color: #fff;
         font:
           20px system-ui,
@@ -83,7 +116,14 @@ Call `hopon.gameOver` when the game ends and `hopon.restart` on "Play again". Th
         background: #ffd23f;
         color: #1b1f3b;
         font: inherit;
-        font-weight: 700;
+        font-weight: 800;
+        box-shadow:
+          0 5px 0 #0004,
+          inset 0 2px 0 #fff8;
+        transition: transform 0.1s;
+      }
+      button:active {
+        transform: translateY(3px);
       }
       button.wrong {
         background: #ef476f;
