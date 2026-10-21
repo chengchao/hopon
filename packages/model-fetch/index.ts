@@ -11,7 +11,11 @@ export interface ModelEnv {
 }
 
 export interface ModelCall {
-  metadata: { draftId: string; agent: string; jobId?: string };
+  metadata: {
+    draftId: string;
+    agent: "talker" | "coder" | "eval";
+    jobId?: string;
+  };
   // Production drops message text from the gateway's logs (#125); the eval keeps it.
   logPayload?: boolean;
 }
@@ -45,6 +49,33 @@ const shimHaiku = (body: Record<string, unknown>) => {
   return shimmed;
 };
 
+// Where each model goes: Haiku 5.5 to Cloudflare REST through the shim, the rest to the gateway's /anthropic route.
+const route = (
+  body: Record<string, unknown>,
+  text: string,
+  search: string,
+  env: ModelEnv
+) =>
+  body.model === HAIKU
+    ? {
+        auth: "authorization",
+        body: JSON.stringify(shimHaiku(body)),
+        url: `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/ai/v1/messages`,
+      }
+    : {
+        auth: "cf-aig-authorization",
+        body: text,
+        url: `https://gateway.ai.cloudflare.com/v1/${env.CLOUDFLARE_ACCOUNT_ID}/${env.CLOUDFLARE_GATEWAY_ID}/anthropic/v1/messages${search}`,
+      };
+
+const parse = (text: string) => {
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+};
+
 export const modelFetch = async (
   request: Request,
   env: ModelEnv,
@@ -55,7 +86,11 @@ export const modelFetch = async (
     return new Response("No model route", { status: 404 });
   }
   const text = await request.text();
-  const body = JSON.parse(text) as Record<string, unknown>;
+  const body = parse(text);
+  if (!body) {
+    return new Response("Body is not JSON", { status: 400 });
+  }
+  const target = route(body, text, url.search, env);
   const headers = new Headers(request.headers);
   for (const name of [
     "authorization",
@@ -66,25 +101,15 @@ export const modelFetch = async (
   ]) {
     headers.delete(name);
   }
+  headers.set(target.auth, `Bearer ${env.CLOUDFLARE_API_KEY}`);
   headers.set("cf-aig-metadata", JSON.stringify(call.metadata));
   if (!call.logPayload) {
     headers.set("cf-aig-collect-log-payload", "false");
   }
-  const haiku = body.model === HAIKU;
-  if (haiku) {
-    headers.set("authorization", `Bearer ${env.CLOUDFLARE_API_KEY}`);
-  } else {
-    headers.set("cf-aig-authorization", `Bearer ${env.CLOUDFLARE_API_KEY}`);
-  }
-  return await fetch(
-    haiku
-      ? `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/ai/v1/messages`
-      : `https://gateway.ai.cloudflare.com/v1/${env.CLOUDFLARE_ACCOUNT_ID}/${env.CLOUDFLARE_GATEWAY_ID}/anthropic/v1/messages${url.search}`,
-    {
-      body: haiku ? JSON.stringify(shimHaiku(body)) : text,
-      headers,
-      method: "POST",
-      signal: request.signal,
-    }
-  );
+  return await fetch(target.url, {
+    body: target.body,
+    headers,
+    method: "POST",
+    signal: request.signal,
+  });
 };

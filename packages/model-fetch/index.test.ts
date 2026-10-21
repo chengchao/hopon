@@ -99,3 +99,18 @@ test("a 429 reaches the caller unchanged, with no retry", async (t) => {
   assert.equal(response, limited);
   assert.equal(upstream.mock.callCount(), 1);
 });
+
+test("a body that isn't JSON gets a 400, not a throw", async (t) => {
+  const upstream = stubUpstream();
+  t.after(() => upstream.mock.restore());
+  const response = await modelFetch(
+    new Request("http://models.internal/anthropic/v1/messages", {
+      body: "not json",
+      method: "POST",
+    }),
+    ENV,
+    CALL
+  );
+  assert.equal(response.status, 400);
+  assert.equal(upstream.mock.callCount(), 0);
+});

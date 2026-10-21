@@ -14,7 +14,7 @@ import type { ModelEnv } from "@hopon/model-fetch";
 
 const MODELS_HOST = "models.internal";
 // pi's Anthropic client wants a key; modelFetch swaps in the real one, as the Coder's outbound handler will.
-const PLACEHOLDER_KEY = MODELS_HOST;
+const PLACEHOLDER_KEY = "placeholder";
 
 // The gateway's descriptor, not Anthropic's: Anthropic's turns on mid-conversation system messages, which
 // Cloudflare's REST endpoint for Haiku rejects ("messages[1].role").
@@ -73,7 +73,7 @@ const KEYS = [
   "CLOUDFLARE_API_KEY",
   "CLOUDFLARE_ACCOUNT_ID",
   "CLOUDFLARE_GATEWAY_ID",
-] as const;
+] as const satisfies readonly (keyof ModelEnv)[];
 export const apiKey = (model: Model<Api>) =>
   model.provider === "anthropic"
     ? PLACEHOLDER_KEY
