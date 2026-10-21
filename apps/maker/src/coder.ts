@@ -26,9 +26,10 @@ import { apiKey, resolve } from "./models.ts";
 import { createE2BTools } from "./ops.ts";
 
 const AGENT_HOME = path.join(import.meta.dirname, "..", "agent-home");
-// #116's turn limits, from the chosen Coder's p95 (Haiku 5.5 at low effort, building from the Talker's specs: 10
-// steps, 112 s; music builds 142 s), rounded up. The Talker's abort timer sits 30 s past the deadline (#122).
-export const MAX_STEPS = 10;
+// #116's turn limits. Seconds from the chosen Coder's p95 (Haiku 5.5 at low effort, building from the Talker's specs:
+// 112 s; music builds 142 s), rounded up. Steps stay at #111's 12, the owner's call: a p95 cap of 10 failed 2 of 72
+// good builds, and the deadline already bounds the wait. The Talker's abort timer sits 30 s past the deadline (#122).
+export const MAX_STEPS = 12;
 export const DEADLINE_MS = 120_000;
 const MUSIC_EXTRA_MS = 30_000;
 const deadlineFor = (job: { spec: { music: string | null } }) =>
