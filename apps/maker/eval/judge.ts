@@ -42,8 +42,9 @@ Items:
 - "spec": does the game read as the spec? Goal, rules, controls, look.
 - "playable": is it playable on a phone? A clear goal, the controls work by tap or swipe, it doesn't end before the player can act, and everything is visible and readable.
 - "edit" (only when an original game is given): did the change do what was asked, and break nothing else?
+- "looks": does it look polished, like a finished casual game rather than a prototype? Judge the screenshots: a chosen palette, depth (gradients, shading, outlines, shadows), characters and objects with some detail, a background that isn't one flat fill, readable type. 1 = flat placeholder shapes on a plain fill, 3 = tidy but plain, 5 = could ship in a store.
 
-${SCALE} Shape: {"spec": {"score": n, "reason": "one line"}, "playable": {...}, "edit": {...} or null}`;
+${SCALE} Shape: {"spec": {"score": n, "reason": "one line"}, "playable": {...}, "edit": {...} or null, "looks": {...}}`;
 
 const source = (label: string, set: Record<string, string>) =>
   Object.entries(set)
@@ -87,6 +88,8 @@ export const judgeCoder = async ({
   return {
     cost,
     edit: (original ? scores.edit : undefined) as Score | undefined,
+    // Reported only, not part of a pass (#116's follow-up on polish).
+    looks: scores.looks as Score | undefined,
     playable: scores.playable as Score,
     spec: scores.spec as Score,
   };

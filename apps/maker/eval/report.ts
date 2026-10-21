@@ -32,6 +32,8 @@ export const quantile = (values: number[], q: number) => {
   );
 };
 const median = (values: number[]) => quantile(values, 0.5);
+const mean = (values: number[]) =>
+  values.reduce((sum, value) => sum + value, 0) / values.length;
 
 export const readRecords = <T>(dir: string): T[] =>
   existsSync(dir)
@@ -60,6 +62,14 @@ export const coderStats = (runs: CoderRecord[]) => {
   );
   const stats = {
     firstGreen: runs.filter((run) => run.firstGreen).length / runs.length,
+    // The judge's "looks" (1–5), over the judged runs: reported, not part of a pass.
+    looks: mean(
+      runs.flatMap((run) =>
+        run.judge && !("error" in run.judge) && run.judge.looks
+          ? [run.judge.looks.score]
+          : []
+      )
+    ),
     medianCost: median(runs.map((run) => run.cost)),
     medianPlaytests: median(runs.map((run) => run.playtests)),
     medianSeconds: median(latency),
@@ -204,11 +214,11 @@ export const report = (sweepDir: string, calibrationFile: string) => {
   const lines = [
     "## Coder",
     "",
-    "| model | runs | pass | first green | median steps | p95 steps | median $ | median s | p90 s | p95 s (raw) | clears |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| model | runs | pass | looks | first green | median steps | p95 steps | median $ | median s | p90 s | p95 s (raw) | clears |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ...[...coder].map(
       ([model, s]) =>
-        `| ${model} | ${s.runs} | ${pct(s.passRate)} | ${pct(s.firstGreen)} | ${s.medianSteps} | ${s.p95Steps} | ${usd(s.medianCost)} | ${sec(s.medianSeconds)} | ${sec(s.p90Seconds)} | ${sec(s.p95SecondsRaw)} | ${s.clears ? "yes" : "no"} |`
+        `| ${model} | ${s.runs} | ${pct(s.passRate)} | ${s.looks.toFixed(1)} | ${pct(s.firstGreen)} | ${s.medianSteps} | ${s.p95Steps} | ${usd(s.medianCost)} | ${sec(s.medianSeconds)} | ${sec(s.p90Seconds)} | ${sec(s.p95SecondsRaw)} | ${s.clears ? "yes" : "no"} |`
     ),
     "",
     `Seconds are job start to Revision ready, music jobs less 30 s. Winner: ${coderWinner ?? "none clears"}.${limits ? ` Turn limits from its p95: ${limits.steps} steps, ${limits.seconds} s.` : ""}`,
