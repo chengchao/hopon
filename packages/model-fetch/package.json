@@ -1,0 +1,9 @@
+{
+  "name": "@hopon/model-fetch",
+  "private": true,
+  "type": "module",
+  "exports": "./index.ts",
+  "scripts": {
+    "test": "node --test"
+  }
+}

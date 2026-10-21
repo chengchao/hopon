@@ -193,16 +193,11 @@ const openSession = async (
   const model = resolve(modelId);
   const home = mkdtempSync(path.join(tmpdir(), "hopon-coder-"));
   cpSync(AGENT_HOME, home, { recursive: true });
-  // The REST route for Haiku speaks Anthropic's protocol; pi's runtime knows it as the anthropic provider.
-  const piModel =
-    model.provider === "cloudflare-rest"
-      ? { ...model, provider: "anthropic" }
-      : model;
   const modelRuntime = await ModelRuntime.create({
     credentials: new InMemoryCredentialStore(),
     modelsPath: null,
   });
-  await modelRuntime.setRuntimeApiKey(piModel.provider, apiKey(model));
+  await modelRuntime.setRuntimeApiKey(model.provider, apiKey(model));
   const resourceLoader = new DefaultResourceLoader({
     additionalSkillPaths: [path.join(home, ".agents", "skills")],
     agentDir: path.join(home, ".pi"),
@@ -221,7 +216,7 @@ const openSession = async (
       playtestTool,
     ],
     cwd: WORKSPACE,
-    model: piModel,
+    model,
     modelRuntime,
     noTools: "builtin",
     resourceLoader,
