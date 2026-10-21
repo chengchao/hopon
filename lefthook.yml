@@ -18,6 +18,12 @@ pre-commit:
     temp-sim:
       run: "! git diff --cached -U0 -- apps packages | grep -E '^\\+.*TEMP-SIM'"
 
+# Typecheck is the fast part of `pnpm check` (about 30 s), so it runs through pnpm; tests stay in CI.
+pre-push:
+  commands:
+    typecheck:
+      run: pnpm -r typecheck
+
 commit-msg:
   commands:
     commitlint:
