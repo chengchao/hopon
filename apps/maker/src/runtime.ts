@@ -2,6 +2,7 @@
 // image/littlejs.d.ts: the engine's declarations narrowed to what that build defines, as globals, plus hopon's.
 // The same bytes go to the Worker, which serves them as /runtime/v1.js, so the box's playtest runs what the phone runs.
 // `pnpm -F maker build:runtime` rebuilds; runtime.test.ts fails when the Worker's copy is stale.
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -36,7 +37,7 @@ const ENGINE_FILES = [
 
 export const RUNTIME_PATH = path.join(image, "runtime.js");
 const DTS_PATH = path.join(image, "littlejs.d.ts");
-// Committed, as a JSON string the Worker and Node both import. Once a published Game runs on v1, a change is v2.
+// Committed, as a JSON string the Worker and Node both import.
 export const SERVED_PATH = path.join(
   import.meta.dirname,
   "..",
@@ -90,6 +91,21 @@ const narrowDeclarations = (source: string) => {
     .join("\n");
 };
 
+// v1 is cached as immutable, so once people play Games on it (at launch) its bytes must never change: set this to the
+// sha256 of v1.json then, and a changed build fails instead of overwriting it. The changed runtime ships as v2.
+export const V1_SHA256: string | undefined = undefined;
+
+const sha256 = (code: string) =>
+  createHash("sha256").update(code).digest("hex");
+
+export const assertV1Unchanged = (code: string, frozen = V1_SHA256) => {
+  if (frozen !== undefined && sha256(code) !== frozen) {
+    throw new Error(
+      "/runtime/v1.js is frozen (V1_SHA256) and this build differs from it: serve the changed runtime as v2"
+    );
+  }
+};
+
 const runtimeSource = () =>
   [
     ...ENGINE_FILES.map((file) =>
@@ -106,6 +122,7 @@ export const compileRuntime = async (source = runtimeSource()) => {
 export const buildRuntime = async () => {
   const source = runtimeSource();
   const code = await compileRuntime(source);
+  assertV1Unchanged(code);
   writeFileSync(RUNTIME_PATH, code);
   writeFileSync(SERVED_PATH, `${JSON.stringify(code)}\n`);
   writeFileSync(
