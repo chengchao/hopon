@@ -22,8 +22,10 @@ export interface ModelCall {
 
 const HAIKU = "claude-haiku-5-5";
 
-// ponytail: Cloudflare's REST /v1/messages validates a narrower request than Anthropic's (#128 found four rewrites):
-// its own model name, no `?beta=true`, `system` as one string, no nulls. Delete once the gateway bills Haiku 5.5.
+// Cloudflare serves Haiku 5.5 from its own catalog (`anthropic/claude-haiku-5.5`, on Unified Billing and logged by the
+// default gateway), not through the gateway's Anthropic passthrough, which answers 401. Its /v1/messages validates a
+// narrower request than Anthropic's (#128 found four rewrites): its own model name, no `?beta=true`, `system` as one
+// string, no nulls.
 const dropNulls = (value: unknown): unknown => {
   if (Array.isArray(value)) {
     return value.map(dropNulls);

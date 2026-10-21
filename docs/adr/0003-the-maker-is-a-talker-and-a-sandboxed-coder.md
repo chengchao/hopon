@@ -56,7 +56,7 @@ The Creator talks to one Maker. Inside, it is two agents with a narrow contract 
 - The AI disclosure ([#52](https://github.com/chengchao/hopon/issues/52)) names every model provider the eval picks. Draft snapshots join the prune job ([#39](https://github.com/chengchao/hopon/issues/39)).
 - Unpublished Drafts need assets the WebView can load without a Clerk token, since subresources carry no headers.
 - E2B's Hobby tier allows 20 running sandboxes and an hour of continuous run time; Pro ($150 a month) allows 100.
-- PiHarness is beta and pi-durable is experimental. Pin exact versions, and run the prototype's eviction and snapshot scripts as the test for every upgrade. The Talker's bundle is about 965 KiB gzipped; move it to its own Worker if that matters. Claude Haiku 5.5 needs a request rewrite until the AI Gateway bills it.
+- PiHarness is beta and pi-durable is experimental. Pin exact versions, and run the prototype's eviction and snapshot scripts as the test for every upgrade. The Talker's bundle is about 965 KiB gzipped; move it to its own Worker if that matters. Cloudflare serves Claude Haiku 5.5 from its own catalog (REST `/ai/v1/messages`), not through the AI Gateway's Anthropic route, so `modelFetch` rewrites pi's Anthropic requests into the catalog's narrower format.
 - Still to check on a real iPhone: the ringer switch, reconnecting after iOS suspends the app, the served runtime under WebKit's `sandbox allow-scripts`, and that the Opus music loops without a gap however the feed plays it (the prototype used Web Audio).
 
 ## Revisit when
