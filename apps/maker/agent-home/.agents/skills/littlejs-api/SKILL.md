@@ -124,41 +124,54 @@ The game should look finished, not like a prototype of flat rects on one colour.
 - **Palette**: 4–6 colours that go together (one hue family plus one accent) and a dark outline colour, set as consts with `hsl()`. Never the bare `RED GREEN BLUE` constants.
 - **Background in layers**: a `drawRectGradient` sky, then 1–3 parallax layers (hills, clouds, stars, city), the far ones paler and slower: `x = ((((i * 9 - time * speed) % 36) + 36) % 36) - 18`.
 - **Depth**: outline shapes (`drawCircle(pos, d, color, 0.15, OUTLINE)`, `drawPoly(points, color, 0.15, OUTLINE, pos)`), a soft shadow under things on the ground (`drawEllipse(pos.add(vec2(0, -0.6)), vec2(1, 0.25), rgb(0, 0, 0, 0.25))`), a highlight (a small lighter circle up-left on a ball).
-- **Sprites**: draw each character once with the canvas 2D API (gradients, `roundRect`, arcs, strokes) and draw it as a tile. Safe under the CSP and the typecheck. Make sprites at top level, never per frame:
+- **Pixel-art sprites** for every character and object the player looks at (the hero, enemies, pickups, obstacles): never a bare circle or box. Write each as a text grid, one letter per pixel, 12–16 pixels wide, every row the same length, with a dark outline letter around the shape and 2–3 shades per colour (light up-left, dark down-right), then draw it **big**: 2.5–3.5 world units for the hero, at least 1.5 for pickups. Make sprites at top level, never per frame; keep hitboxes from the object's own `size`, not the drawing's:
 
 ```ts
-function sprite(
-  w: number,
-  h: number,
-  draw: (c: OffscreenCanvasRenderingContext2D) => void
-) {
-  const canvas = new OffscreenCanvas(w, h);
-  draw(canvas.getContext("2d")!);
+// One letter per pixel; "." and letters missing from the palette are transparent.
+function pixels(rows: string[], palette: Record<string, string>) {
+  const width = Math.max(...rows.map((row) => row.length));
+  const canvas = new OffscreenCanvas(width, rows.length);
+  const c = canvas.getContext("2d")!;
+  rows.forEach((row, y) =>
+    [...row].forEach((letter, x) => {
+      if (palette[letter]) {
+        c.fillStyle = palette[letter];
+        c.fillRect(x, y, 1, 1);
+      }
+    })
+  );
   return new TileInfo(
     vec2(),
-    vec2(w, h),
-    new TextureInfo(canvas, true, false, false)
-  ); // smooth, not pixelated
+    vec2(width, rows.length),
+    new TextureInfo(canvas, true, false, true)
+  ); // crisp pixels
 }
-const slime = sprite(64, 64, (c) => {
-  const g = c.createLinearGradient(0, 8, 0, 60);
-  g.addColorStop(0, "#8ef5a0");
-  g.addColorStop(1, "#2a9d55");
-  c.fillStyle = g;
-  c.strokeStyle = "#1d2b3a";
-  c.lineWidth = 4;
-  c.beginPath();
-  c.roundRect(6, 10, 52, 48, 22);
-  c.fill();
-  c.stroke();
-  c.fillStyle = "#1d2b3a";
-  c.beginPath();
-  c.arc(24, 32, 5, 0, 7);
-  c.arc(40, 32, 5, 0, 7);
-  c.fill();
-});
-// drawTile(pos, vec2(2), slime, WHITE, angle, mirror), or pass it to an EngineObject: super(pos, vec2(2), slime)
+const frog = pixels(
+  [
+    "..oo....oo..",
+    ".oWWo..oWWo.",
+    ".oWKo..oKWo.",
+    "oGGGGGGGGGGo",
+    "oGLLGGGGLLGo",
+    "oGGGGGGGGGDo",
+    "oGGoooooooDo",
+    ".oGGGGGGGDo.",
+    "..oGGooGDo..",
+    ".oGGo..oDDo.",
+  ],
+  {
+    D: "#3a8a2e",
+    G: "#5fbf4a",
+    K: "#111",
+    L: "#9be27e",
+    W: "#fff",
+    o: "#1d3b1d",
+  }
+);
+// drawTile(pos, vec2(3, 2.5), frog, WHITE, angle, facingLeft), or pass it to an EngineObject's super() as the tileInfo
 ```
+
+Animate with two grids (legs apart, legs together) swapped every 0.15 s: `time % 0.3 < 0.15 ? walkA : walkB`. Flip to face left with `drawTile`'s `mirror`.
 
 - **Juice**: every hit, pickup and death gets feedback. Particles in the palette's colours (`new ParticleEmitter(pos, 0, 0.5, 0.1, 200, Math.PI, undefined, accent, WHITE, accent.scale(1, 0), WHITE.scale(1, 0), 0.5, 0.7, 0.1, 0.2)`); a screen shake (`shake = 0.5` on a hit, then in `gameUpdate` `shake *= 0.85; setCameraPos(vec2(0, 0).add(randInCircle(shake)))`, adding it to your camera follow if you have one); squash and stretch (`squash = 0.7` on a jump, `squash = lerp(squash, 1, 0.15)` each frame, drawn as `vec2(w / squash, h * squash)`); a pop (scale a pickup up for 0.1 s before it goes).
 - **Text**: draw words with an outline (`drawTextScreen(text, pos, 24, WHITE, 4, OUTLINE)`).
@@ -209,7 +222,7 @@ Call `playtest` with inputs for your controls, for example taps on the lanes, or
 
 Three complete games. Copy their structure.
 
-### Tap to flap (EngineObject, gravity, collision, particles, a sprite, parallax)
+### Tap to flap (EngineObject, gravity, collision, particles, a pixel-art sprite, parallax)
 
 ```ts
 // Sky Hopper: tap to flap through gaps in the pipes.
@@ -219,29 +232,29 @@ hopon.hint = "Tap to flap";
 const WORLD_W = 20;
 const OUTLINE = hsl(0.62, 0.4, 0.15);
 const PIPE = hsl(0.33, 0.55, 0.45);
-const birdSprite = sprite(64, 64, (c) => {
-  c.fillStyle = "#ffd23f";
-  c.strokeStyle = "#1f2540";
-  c.lineWidth = 4;
-  c.beginPath();
-  c.arc(32, 34, 24, 0, 7);
-  c.fill();
-  c.stroke();
-  c.fillStyle = "#ff8c42"; // beak
-  c.beginPath();
-  c.moveTo(52, 32);
-  c.lineTo(62, 38);
-  c.lineTo(52, 44);
-  c.fill();
-  c.fillStyle = "#fff";
-  c.beginPath();
-  c.arc(42, 26, 7, 0, 7);
-  c.fill();
-  c.fillStyle = "#1f2540";
-  c.beginPath();
-  c.arc(44, 26, 3, 0, 7);
-  c.fill();
-});
+const bird1 = pixels(
+  [
+    "....oooo......",
+    "..ooYYYYoo....",
+    ".oYYYYYWWYo...",
+    "oLLYYYYWKWo...",
+    "oLLLYYYWWYooo.",
+    "oYLLYYYYYoOOOo",
+    "oYYYYYYYYYoooo",
+    ".oYYYYYYYYo...",
+    "..oDDDDDDo....",
+    "....oooo......",
+  ],
+  {
+    D: "#e0a020",
+    K: "#111",
+    L: "#fff4b0",
+    O: "#ff8c42",
+    W: "#fff",
+    Y: "#ffd23f",
+    o: "#1f2540",
+  }
+);
 const flap = new Sound([0.6, 0, 600, 0.01, 0.05, 0.1, 1, 2, 10]);
 const crash = new Sound([1, 0.1, 120, 0.02, 0.2, 0.4, 4, 2, -5]);
 const point = new Sound([0.5, 0, 900, 0.01, 0.05, 0.1, 0, 1, 0, 0, 300]);
@@ -263,7 +276,7 @@ class Bird extends EngineObject {
     }
   }
   render() {
-    drawTile(this.pos, vec2(1.8), birdSprite, WHITE, this.angle);
+    drawTile(this.pos, vec2(2.8, 2), bird1, WHITE, this.angle);
   }
 }
 
@@ -369,17 +382,22 @@ function gameRender() {
   }
 }
 
-function sprite(
-  w: number,
-  h: number,
-  draw: (c: OffscreenCanvasRenderingContext2D) => void
-) {
-  const canvas = new OffscreenCanvas(w, h);
-  draw(canvas.getContext("2d")!);
+function pixels(rows: string[], palette: Record<string, string>) {
+  const width = Math.max(...rows.map((row) => row.length));
+  const canvas = new OffscreenCanvas(width, rows.length);
+  const c = canvas.getContext("2d")!;
+  rows.forEach((row, y) =>
+    [...row].forEach((letter, x) => {
+      if (palette[letter]) {
+        c.fillStyle = palette[letter];
+        c.fillRect(x, y, 1, 1);
+      }
+    })
+  );
   return new TileInfo(
     vec2(),
-    vec2(w, h),
-    new TextureInfo(canvas, true, false, false)
+    vec2(width, rows.length),
+    new TextureInfo(canvas, true, false, true)
   );
 }
 ```
