@@ -11,8 +11,10 @@ const PASS_BAR = 0.9;
 const CODER_MEDIAN_S = 60;
 const CODER_P90_S = 120;
 const MUSIC_EXTRA_S = 30;
-const TALKER_FIRST_TOKEN_S = 2;
-const TALKER_REPLY_S = 8;
+// #115 set 2 s and 8 s; the owner loosened them on 2026-10-20 so the Talker can run at high effort, which writes the
+// design specs that build best (94% against ~80% at low effort in the end-to-end runs).
+const TALKER_FIRST_TOKEN_S = 3;
+const TALKER_REPLY_S = 10;
 const MAX_STEPS = 12;
 const MAX_SECONDS = 300;
 const CALIBRATION_OFF_BY = 1;
