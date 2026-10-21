@@ -128,7 +128,7 @@ export const runTalker = async ({
   run,
   dir,
   coder,
-  thinking = "low",
+  thinking = "high",
   designer,
 }: {
   modelId: string;

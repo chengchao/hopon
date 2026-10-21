@@ -26,10 +26,13 @@ import { apiKey, createRegistry, resolve } from "./models.ts";
 import { createE2BTools } from "./ops.ts";
 
 const AGENT_HOME = path.join(import.meta.dirname, "..", "agent-home");
-// #111's starting limits; #116 sets them from the chosen model's p95.
-export const MAX_STEPS = 12;
-// The Coder's own deadline, inside the Talker's 5-minute abort timer (#122).
-export const DEADLINE_MS = 270_000;
+// #116's turn limits, from the chosen Coder's p95 (Haiku 5.5 at low effort, building from the Talker's specs: 10
+// steps, 112 s; music builds 142 s), rounded up. The Talker's abort timer sits 30 s past the deadline (#122).
+export const MAX_STEPS = 10;
+export const DEADLINE_MS = 120_000;
+const MUSIC_EXTRA_MS = 30_000;
+const deadlineFor = (job: { spec: { music: string | null } }) =>
+  DEADLINE_MS + (job.spec.music ? MUSIC_EXTRA_MS : 0);
 const MUSIC_MIN_S = 20;
 const MUSIC_MAX_S = 40;
 
@@ -295,7 +298,7 @@ export const runJob = async ({
   job,
   onEvent,
   maxSteps = MAX_STEPS,
-  deadlineMs = DEADLINE_MS,
+  deadlineMs,
   keepBox = false,
   thinking = "low",
 }: RunOptions) => {
@@ -393,10 +396,11 @@ export const runJob = async ({
       errors.push((event.message as AssistantMessage).errorMessage ?? "error");
     }
   });
+  const deadlineAfter = deadlineMs ?? deadlineFor(job);
   const deadline = setTimeout(() => {
-    limit = `past the ${deadlineMs / 1000} s deadline`;
+    limit = `past the ${deadlineAfter / 1000} s deadline`;
     void session.abort();
-  }, deadlineMs);
+  }, deadlineAfter);
   try {
     await session.prompt(prompt(job));
   } catch (error) {

@@ -24,7 +24,7 @@ When the job asks for music, read the `music-synth` skill and write `music.mjs` 
 
 ## Limits
 
-- At most 12 tool calls for the whole job, and about 4 minutes. A good job is: read the skill, write the game, playtest, one or two fixes with edit, playtest.
+- At most 10 tool calls for the whole job, and about 2 minutes (2½ with music). A good job is: read the skill, write the game, playtest, one or two fixes with edit, playtest.
 - Use bash only for quick file commands and rendering music. Do not install packages, start servers, or reach the network.
 
 ## Your last message

@@ -72,7 +72,7 @@ export type BuildResult =
 
 export interface TalkerOptions {
   modelId: string;
-  // Low keeps replies fast; the eval also tries high, for better design specs (#116).
+  // #116 picked high: its design specs build best (89–94% against ~80% at low), at ~2.6 s to first token.
   thinking?: Thinking;
   // When set, the designer rewrites each brief at this effort before the Coder gets it.
   designer?: Thinking;
@@ -83,7 +83,7 @@ export interface TalkerOptions {
 export const openTalker = async ({
   modelId,
   build,
-  thinking = "low",
+  thinking = "high",
   designer,
 }: TalkerOptions) => {
   const context = BACKGROUND_CONTEXT;

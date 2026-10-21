@@ -50,7 +50,7 @@ const { positionals, values } = parseArgs({
     sweep: { default: "sweep", type: "string" },
     talker: { default: "claude-haiku-5-5", type: "string" },
     // e2e: the Talker's effort.
-    "talker-thinking": { default: "low", type: "string" },
+    "talker-thinking": { default: "high", type: "string" },
     // The Coder's effort; the Talker always runs at low.
     thinking: { default: "low", type: "string" },
   },
