@@ -1,0 +1,376 @@
+{
+  "round1Coder": {
+    "claude-haiku-5-5": {
+      "firstGreen": 0.7126436781609196,
+      "medianCost": 0.004636225000000001,
+      "medianPlaytests": 1,
+      "medianSeconds": 37.369,
+      "medianSteps": 6,
+      "p90Seconds": 69.302,
+      "p95SecondsRaw": 86.581,
+      "p95Steps": 13,
+      "passRate": 0.7816091954022989,
+      "runs": 87,
+      "totalCost": 0.4785568049999999,
+      "warnings": 8,
+      "clears": false
+    },
+    "claude-sonnet-5-5": {
+      "firstGreen": 0.36363636363636365,
+      "medianCost": 0.0571459,
+      "medianPlaytests": 2,
+      "medianSeconds": 25.127,
+      "medianSteps": 5,
+      "p90Seconds": 47.42,
+      "p95SecondsRaw": 50.717,
+      "p95Steps": 11,
+      "passRate": 0.8181818181818182,
+      "runs": 11,
+      "totalCost": 0.6712516,
+      "warnings": 1,
+      "clears": false
+    },
+    "kimi-k3": {
+      "firstGreen": 0.7888888888888889,
+      "medianCost": 0.0447039,
+      "medianPlaytests": 1,
+      "medianSeconds": 83.289,
+      "medianSteps": 5,
+      "p90Seconds": 144.235,
+      "p95SecondsRaw": 177.541,
+      "p95Steps": 8,
+      "passRate": 0.8,
+      "runs": 90,
+      "totalCost": 4.666606199999999,
+      "warnings": 6,
+      "clears": false
+    }
+  },
+  "round1Talker": {
+    "claude-haiku-5-5": {
+      "medianCost": 0.000291905,
+      "medianFirstTokenS": 1.391,
+      "medianReplyS": 3.947,
+      "p95ReplyS": 7.609,
+      "passRate": 1,
+      "runs": 24,
+      "totalCost": 0.01224738,
+      "turns": 42,
+      "clears": true
+    },
+    "claude-sonnet-5-5": {
+      "medianCost": 0.005339900000000001,
+      "medianFirstTokenS": 1.422,
+      "medianReplyS": 4.785,
+      "p95ReplyS": 7.213,
+      "passRate": 0.7083333333333334,
+      "runs": 24,
+      "totalCost": 0.21213,
+      "turns": 42,
+      "clears": false
+    },
+    "kimi-k3": {
+      "medianCost": 0.0053586,
+      "medianFirstTokenS": 4.934,
+      "medianReplyS": 14.604,
+      "p95ReplyS": 21.813,
+      "passRate": 0.9583333333333334,
+      "runs": 24,
+      "totalCost": 0.21067679999999997,
+      "turns": 42,
+      "clears": false
+    }
+  },
+  "smoke": {
+    "deepseek-v4-flash": {
+      "runs": 5,
+      "green": 4,
+      "medianSeconds": 242.677,
+      "totalCost": 0.128258701
+    },
+    "kimi-k2.6": {
+      "runs": 5,
+      "green": 0,
+      "medianSeconds": 270.892,
+      "totalCost": 0.151965
+    },
+    "kimi-k3": {
+      "runs": 5,
+      "green": 5,
+      "medianSeconds": 81.44,
+      "totalCost": 0.21815790000000002
+    }
+  },
+  "round2CoderLow": {
+    "claude-haiku-5-5": {
+      "firstGreen": 0.7,
+      "medianCost": 0.004440489999999999,
+      "medianPlaytests": 1,
+      "medianSeconds": 32.753,
+      "medianSteps": 6,
+      "p90Seconds": 73.063,
+      "p95SecondsRaw": 100.94,
+      "p95Steps": 10,
+      "passRate": 0.7888888888888889,
+      "runs": 90,
+      "totalCost": 0.49228343,
+      "warnings": 13,
+      "clears": false
+    }
+  },
+  "round2CoderHighPartial": {
+    "claude-haiku-5-5": {
+      "firstGreen": 0.4,
+      "medianCost": 0.014147950000000001,
+      "medianPlaytests": 2,
+      "medianSeconds": 103.181,
+      "medianSteps": 7,
+      "p90Seconds": 207.306,
+      "p95SecondsRaw": 247.002,
+      "p95Steps": 13,
+      "passRate": 0.875,
+      "runs": 40,
+      "totalCost": 0.6797908349999998,
+      "warnings": 8,
+      "clears": false
+    }
+  },
+  "e2e": {
+    "talker-low+coder-low (60-word prompt)": {
+      "builds": {
+        "firstGreen": 0.6666666666666666,
+        "medianCost": 0.01022594,
+        "medianPlaytests": 1,
+        "medianSeconds": 56.108000000000004,
+        "medianSteps": 6,
+        "p90Seconds": 110.308,
+        "p95SecondsRaw": 123.568,
+        "p95Steps": 11,
+        "passRate": 0.8055555555555556,
+        "runs": 36,
+        "totalCost": 0.3425402899999999,
+        "warnings": 0,
+        "clears": false
+      },
+      "talker": {
+        "medianCost": 0.00055691,
+        "medianFirstTokenS": 2.109,
+        "medianReplyS": 5.84,
+        "p95ReplyS": 8.522,
+        "passRate": 0.75,
+        "runs": 24,
+        "totalCost": 0.0203593,
+        "turns": 42,
+        "clears": false
+      }
+    },
+    "talker-high+coder-low (60-word prompt)": {
+      "builds": {
+        "firstGreen": 0.7222222222222222,
+        "medianCost": 0.008547724999999999,
+        "medianPlaytests": 1,
+        "medianSeconds": 62.258,
+        "medianSteps": 5,
+        "p90Seconds": 95.675,
+        "p95SecondsRaw": 112.379,
+        "p95Steps": 10,
+        "passRate": 0.9444444444444444,
+        "runs": 36,
+        "totalCost": 0.28915004999999994,
+        "warnings": 0,
+        "clears": false
+      },
+      "talker": {
+        "medianCost": 0.0006735350000000001,
+        "medianFirstTokenS": 2.506,
+        "medianReplyS": 8.384,
+        "p95ReplyS": 13.471,
+        "passRate": 0.7083333333333334,
+        "runs": 24,
+        "totalCost": 0.03309587,
+        "turns": 42,
+        "clears": false
+      }
+    },
+    "talker-low+coder-low (40-word prompt)": {
+      "builds": {
+        "firstGreen": 0.4444444444444444,
+        "medianCost": 0.010784305,
+        "medianPlaytests": 2,
+        "medianSeconds": 56.34,
+        "medianSteps": 7,
+        "p90Seconds": 81.134,
+        "p95SecondsRaw": 115.067,
+        "p95Steps": 13,
+        "passRate": 0.7777777777777778,
+        "runs": 36,
+        "totalCost": 0.33637255499999996,
+        "warnings": 0,
+        "clears": false
+      },
+      "talker": {
+        "medianCost": 0.000523735,
+        "medianFirstTokenS": 1.391,
+        "medianReplyS": 5.597,
+        "p95ReplyS": 8.718,
+        "passRate": 0.7916666666666666,
+        "runs": 24,
+        "totalCost": 0.019495694999999997,
+        "turns": 42,
+        "clears": false
+      }
+    },
+    "talker-low+designer-high+coder-low (40-word prompt)": {
+      "builds": {
+        "firstGreen": 0.6,
+        "medianCost": 0.01194136,
+        "medianPlaytests": 1,
+        "medianSeconds": 62.265,
+        "medianSteps": 8,
+        "p90Seconds": 110.457,
+        "p95SecondsRaw": 159.114,
+        "p95Steps": 13,
+        "passRate": 0.7142857142857143,
+        "runs": 35,
+        "totalCost": 0.427751125,
+        "warnings": 0,
+        "clears": false
+      },
+      "talker": {
+        "medianCost": 0.00053683,
+        "medianFirstTokenS": 1.251,
+        "medianReplyS": 21.041,
+        "p95ReplyS": 26.646,
+        "passRate": 0.7083333333333334,
+        "runs": 24,
+        "totalCost": 0.01832647,
+        "turns": 42,
+        "clears": false
+      }
+    },
+    "final: talker-high+coder-low (40-word prompt, failed-build rule)": {
+      "builds": {
+        "firstGreen": 0.6388888888888888,
+        "medianCost": 0.008602944999999999,
+        "medianPlaytests": 1,
+        "medianSeconds": 61.742,
+        "medianSteps": 5,
+        "p90Seconds": 96.24,
+        "p95SecondsRaw": 113.88,
+        "p95Steps": 12,
+        "passRate": 0.8333333333333334,
+        "runs": 36,
+        "totalCost": 0.306280005,
+        "warnings": 0,
+        "clears": false
+      },
+      "talker": {
+        "medianCost": 0.000648425,
+        "medianFirstTokenS": 2.868,
+        "medianReplyS": 7.009,
+        "p95ReplyS": 13.34,
+        "passRate": 0.9166666666666666,
+        "runs": 24,
+        "totalCost": 0.02780785,
+        "turns": 42,
+        "clears": true
+      }
+    }
+  },
+  "chosenCoderPooled": {
+    "firstGreen": 0.6805555555555556,
+    "medianCost": 0.008602944999999999,
+    "medianPlaytests": 1,
+    "medianSeconds": 62.258,
+    "medianSteps": 5,
+    "p90Seconds": 95.675,
+    "p95SecondsRaw": 112.379,
+    "p95Steps": 10,
+    "passRate": 0.8888888888888888,
+    "runs": 72,
+    "totalCost": 0.5954300550000002,
+    "warnings": 0,
+    "clears": false
+  },
+  "versions": {
+    "@earendil-works/pi-ai": "1.3.0",
+    "@earendil-works/pi-coding-agent": "1.3.0",
+    "@earendil-works/pi-durable": "1.3.0",
+    "e2b": "2.56.0",
+    "littlejsengine": "1.26.1",
+    "playwright-core": "1.58.2",
+    "typescript": "6.0.3"
+  },
+  "calibration": {
+    "firstSweep": [
+      {
+        "run": "claude-haiku-5-5/breakout-2",
+        "spec": 4,
+        "playable": 5
+      },
+      {
+        "run": "kimi-k3/breakout-1",
+        "spec": 4,
+        "playable": 5
+      },
+      {
+        "run": "kimi-k3/edit-ends-too-soon-1",
+        "spec": 4,
+        "playable": 5,
+        "edit": 4
+      },
+      {
+        "run": "claude-haiku-5-5/edit-faster-1",
+        "spec": 4,
+        "playable": 5,
+        "edit": 5
+      },
+      {
+        "run": "claude-haiku-5-5/edit-timer-3",
+        "spec": 4,
+        "playable": 5,
+        "edit": 4
+      },
+      {
+        "run": "claude-haiku-5-5/match-3-2",
+        "spec": 3
+      },
+      {
+        "run": "claude-sonnet-5-5/moon-cat-2",
+        "spec": 3,
+        "playable": 3
+      },
+      {
+        "run": "claude-sonnet-5-5/moon-cat-3",
+        "spec": 3,
+        "playable": 4
+      }
+    ],
+    "final": {
+      "verdict": "owner: all 20 final-setup games very good (read as ≥ 4 on every item)",
+      "runs": [
+        "out/e2e4/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/question-1/build-1",
+        "out/e2e4/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/clear-3/build-2",
+        "out/e2e4/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/steer-1/build-1",
+        "out/e2e4/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/clear-2/build-1",
+        "out/e2e/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/clear-1/build-2",
+        "out/e2e4/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/clear-2/build-2",
+        "out/e2e4/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/steer-3/build-1",
+        "out/e2e/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/start-over-3/build-1",
+        "out/e2e4/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/change-after-build-2/build-2",
+        "out/e2e/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/non-english-3/build-1",
+        "out/e2e4/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/change-after-build-3/build-1",
+        "out/e2e/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/non-english-2/build-2",
+        "out/e2e/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/change-after-build-1/build-1",
+        "out/e2e4/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/non-english-3/build-2",
+        "out/e2e4/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/non-english-2/build-2",
+        "out/e2e/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/question-1/build-1",
+        "out/e2e/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/steer-3/build-2",
+        "out/e2e4/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/clear-1/build-1",
+        "out/e2e/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/steer-1/build-2",
+        "out/e2e/e2e/claude-haiku-5-5-high+claude-haiku-5-5-low/clear-2/build-1"
+      ],
+      "judgeFailsAmongThem": 7
+    }
+  }
+}

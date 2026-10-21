@@ -1,0 +1,281 @@
+{
+  "builds": [
+    {
+      "id": "moon-cat",
+      "engine": "littlejs",
+      "spike": true,
+      "spec": {
+        "title": "Moon Cat",
+        "brief": "A cat hops across the moon's surface. Meteors fall from the top; tap to make the cat jump over the ones that land in its path. Stars float at jump height: touching one scores a point. A meteor hit ends the game. The pace picks up slowly. Look: dark starry sky, grey cratered ground, an orange cat, glowing yellow stars.",
+        "music": null
+      }
+    },
+    {
+      "id": "fruit-catcher",
+      "engine": "littlejs",
+      "spike": true,
+      "spec": {
+        "title": "Fruit Catcher",
+        "brief": "Pixel-art style. A basket at the bottom follows your finger left and right. Apples fall from the top: catch them for a point each. Bombs fall too: catching one ends the game. More things fall, faster, as the score climbs. Look: chunky blocky shapes, sky-blue background, red apples, black bombs with a spark.",
+        "music": null
+      }
+    },
+    {
+      "id": "ocean-memory",
+      "engine": "dom",
+      "spike": true,
+      "spec": {
+        "title": "Ocean Memory",
+        "brief": "A memory card game with ocean animals. A 4 by 4 grid of face-down cards; tap two to flip them. A matching pair (fish, octopus, crab, whale, turtle, shark, jellyfish, seahorse, shown as emoji) stays face up and scores; a mismatch flips back after a moment. Win when every pair is found. Show the number of moves. Look: deep blue water, sandy card backs.",
+        "music": null
+      }
+    },
+    {
+      "id": "neon-snake",
+      "engine": "littlejs",
+      "spike": true,
+      "spec": {
+        "title": "Neon Snake",
+        "brief": "Classic snake in neon. Swipe to turn up, down, left or right. Eat glowing dots to grow by one and score a point. Biting your own tail ends the game; the walls wrap around. The snake speeds up a little every five dots. Look: black background, bright green glowing snake, pink dots with a pulse.",
+        "music": null
+      }
+    },
+    {
+      "id": "gnome-whack",
+      "engine": "littlejs",
+      "spike": true,
+      "spec": {
+        "title": "Gnome Whack",
+        "brief": "Whack-a-mole with garden gnomes. Nine holes in a 3 by 3 grid; gnomes pop up at random and duck back down after about a second. Tap a gnome while it's up for a point. 30 seconds on the clock, shown at the top; when it runs out the game ends. Look: green lawn, brown holes, gnomes with red pointy hats.",
+        "music": null
+      }
+    },
+    {
+      "id": "endless-runner",
+      "engine": "littlejs",
+      "spec": {
+        "title": "Rooftop Run",
+        "brief": "A runner sprints across city rooftops, side-scrolling to the right automatically. Tap to jump the gaps between buildings; hold longer for a higher jump. Falling into a gap ends the game. Score is distance run. Coins above some gaps give a bonus. Look: sunset sky, dark building silhouettes, a small runner in a red hoodie.",
+        "music": "upbeat synth-pop chase, bright, 125 BPM"
+      }
+    },
+    {
+      "id": "platformer-lite",
+      "engine": "littlejs",
+      "spec": {
+        "title": "Cloud Climber",
+        "brief": "A frog climbs up through clouds. It bounces automatically whenever it lands on a cloud; tilt is not available, so tap the left or right half of the screen to steer. The camera follows upward; falling off the bottom ends the game. Score is height reached. Some clouds drift sideways. Look: pastel sky, white puffy clouds, a green frog.",
+        "music": null
+      }
+    },
+    {
+      "id": "breakout",
+      "engine": "littlejs",
+      "spec": {
+        "title": "Candy Breaker",
+        "brief": "Breakout with candy. Drag the paddle along the bottom to bounce a ball into rows of candy bricks at the top. Each brick broken scores a point; clear them all to win. Miss the ball three times and the game ends; show the lives left. Look: pink background, rainbow candy bricks, a white ball.",
+        "music": null
+      }
+    },
+    {
+      "id": "stacker",
+      "engine": "littlejs",
+      "spec": {
+        "title": "Tower Stack",
+        "brief": "Blocks slide back and forth above the tower. Tap to drop the moving block onto the stack; the part that hangs over the edge falls off, so the next block is smaller. Each block placed scores a point. Missing the stack entirely ends the game. The camera rises with the tower. Look: gradient sky, blocks in shifting rainbow colours.",
+        "music": null
+      }
+    },
+    {
+      "id": "match-3",
+      "engine": "littlejs",
+      "spec": {
+        "title": "Gem Swap",
+        "brief": "Match-3 on a 7 by 7 grid of coloured gems. Swipe a gem onto its neighbour to swap them; a swap that lines up three or more of a colour clears them, the gems above fall, and new ones drop in. A swap that makes no match swaps back. Score per gem cleared. 60 seconds on the clock. Look: dark purple board, five bright gem colours.",
+        "music": "upbeat chiptune puzzle loop, cheerful, 128 BPM"
+      }
+    },
+    {
+      "id": "shooter",
+      "engine": "littlejs",
+      "spec": {
+        "title": "Bug Blaster",
+        "brief": "A turret at the bottom fires automatically upward; drag to move it left and right. Waves of bugs zigzag down; each bug shot scores a point. A bug reaching the bottom ends the game. Waves get faster. Look: green grass, a blue turret, beetles in different colours, small yellow bullets.",
+        "music": null
+      }
+    },
+    {
+      "id": "rhythm-tap",
+      "engine": "littlejs",
+      "spec": {
+        "title": "Beat Lanes",
+        "brief": "Three lanes. Notes slide down the lanes toward a line near the bottom; tap a lane as its note crosses the line to score. Perfect timing scores more than late or early. Five missed notes end the game. The notes come at a steady beat that slowly gets faster. Look: dark stage, three glowing lanes, notes in cyan, magenta and yellow.",
+        "music": "electro pop beat, energetic, 110 BPM"
+      }
+    },
+    {
+      "id": "maze",
+      "engine": "littlejs",
+      "spec": {
+        "title": "Mouse Maze",
+        "brief": "A mouse is in a maze and the cheese is somewhere else in it. Swipe to move the mouse one corridor at a time until it hits a wall. Reaching the cheese scores and loads a new, slightly bigger random maze. 45 seconds for as many mazes as you can. Look: top-down, beige walls, grey mouse, yellow cheese.",
+        "music": null
+      }
+    },
+    {
+      "id": "flappy",
+      "engine": "littlejs",
+      "spec": {
+        "title": "Balloon Float",
+        "brief": "One button game. A hot-air balloon drifts right through a canyon. Tap to give it a puff of lift; gravity pulls it down. Rock pillars come from both top and bottom with gaps between; pass a gap for a point. Touching rock or the ground ends the game. Look: orange canyon, a striped balloon, blue sky.",
+        "music": null
+      }
+    },
+    {
+      "id": "tower-defense",
+      "engine": "littlejs",
+      "spec": {
+        "title": "Castle Guard",
+        "brief": "Very simple tower defence. Slimes walk along a winding path from the top to the castle at the bottom. Tap an empty grass spot next to the path to build a tower there (costs 10 coins; you start with 30 and earn 2 per slime). Towers shoot the nearest slime in range. Ten slimes reaching the castle ends the game. Score is slimes defeated. Look: green grass, sandy path, grey stone towers, purple slimes.",
+        "music": null
+      }
+    },
+    {
+      "id": "top-down-collect",
+      "engine": "littlejs",
+      "spec": {
+        "title": "Leaf Collector",
+        "brief": "Top-down. A hedgehog walks toward wherever you hold your finger. Autumn leaves appear around the park; walk over them to collect them for a point. Wandering dogs chase the hedgehog slowly; touching a dog ends the game. More dogs appear over time. Look: green park, orange and red leaves, a brown hedgehog, white dogs.",
+        "music": null
+      }
+    },
+    {
+      "id": "pinball-lite",
+      "engine": "littlejs",
+      "spec": {
+        "title": "Pocket Pinball",
+        "brief": "A simple pinball table. Tap the left half of the screen to flip the left flipper and the right half for the right flipper. Bumpers in the middle bounce the ball and score points when hit. The ball draining between the flippers loses a ball; three balls per game. Look: night-blue table, neon bumpers that flash when hit, a silver ball.",
+        "music": "retro arcade funk, bouncy, 115 BPM"
+      }
+    },
+    {
+      "id": "quiz",
+      "engine": "dom",
+      "spec": {
+        "title": "Animal Quiz",
+        "brief": "Ten multiple-choice questions about animals, one at a time, each with four answer buttons. A right answer turns green and scores a point; a wrong one turns red and shows the right one. After the tenth question show the score out of ten and a Play again button. Look: bright jungle green background, big rounded yellow buttons.",
+        "music": null
+      }
+    },
+    {
+      "id": "word-guess",
+      "engine": "dom",
+      "spec": {
+        "title": "Five Letters",
+        "brief": "Guess a hidden five-letter word in six tries, like Wordle. An on-screen keyboard (no device keyboard) types letters; Enter submits a guess. Letters in the right spot turn green, in the word but wrong spot yellow, not in the word grey; the keyboard keys colour the same way. Pick the word at random from a built-in list of 50 common words. Win scores the number of guesses left plus one.",
+        "music": null
+      }
+    },
+    {
+      "id": "trivia",
+      "engine": "dom",
+      "spec": {
+        "title": "Space Trivia",
+        "brief": "Timed space trivia: each question has 10 seconds, shown as a shrinking bar. Three answer buttons. A right answer scores more the faster you answer. Run out of time or answer wrong three times and the game ends; show strikes left. Questions come from a built-in list of 15, shuffled. Look: night sky, white text, glowing purple buttons.",
+        "music": null
+      }
+    },
+    {
+      "id": "odd-one-out",
+      "engine": "dom",
+      "spec": {
+        "title": "Spot the Odd One",
+        "brief": "A grid of identical emoji with exactly one that is different (a slightly different emoji or colour). Tap the odd one out to score and get a bigger, harder grid: 2 by 2, then 3 by 3, up to 6 by 6. A wrong tap costs 3 seconds. 30 seconds on the clock. Look: clean white background, big emoji, a timer bar at the top.",
+        "music": null
+      }
+    },
+    {
+      "id": "sliding-puzzle",
+      "engine": "dom",
+      "spec": {
+        "title": "Slide Fifteen",
+        "brief": "The 15 puzzle: a 4 by 4 board with tiles numbered 1 to 15 and one gap. Tap a tile next to the gap to slide it in. Start from a shuffled board that is guaranteed solvable. Win when the tiles are in order; show the move count and a Play again button. Look: wooden tiles with big numbers on a dark green board.",
+        "music": null
+      }
+    }
+  ],
+  "edits": [
+    {
+      "id": "edit-faster",
+      "base": "fruit-catcher",
+      "spec": {
+        "title": "Fruit Catcher",
+        "brief": "Make it faster: things fall about twice as fast from the start and speed up sooner. Keep everything else.",
+        "music": null
+      }
+    },
+    {
+      "id": "edit-timer",
+      "base": "neon-snake",
+      "spec": {
+        "title": "Neon Snake",
+        "brief": "Add a 60-second timer shown at the top centre. When it runs out the game ends (as a win if the snake ate at least 10 dots). Keep everything else.",
+        "music": null
+      }
+    },
+    {
+      "id": "edit-space-theme",
+      "base": "breakout",
+      "spec": {
+        "title": "Space Breaker",
+        "brief": "Change the theme to space: a starry black background, bricks drawn as small planets and asteroids, the paddle as a spaceship, the ball as a glowing comet. Same rules and controls.",
+        "music": null
+      }
+    },
+    {
+      "id": "edit-ends-too-soon",
+      "base": "flappy",
+      "spec": {
+        "title": "Balloon Float",
+        "brief": "Fix: it ends too soon. The first pillars come too quickly and the gaps are too tight. Give the player a few seconds before the first pillar, make the gaps wider at the start, and let them narrow slowly.",
+        "music": null
+      }
+    },
+    {
+      "id": "edit-lives",
+      "base": "moon-cat",
+      "spec": {
+        "title": "Moon Cat",
+        "brief": "Give the cat three lives, shown as hearts at the top right. A meteor hit costs a life and makes the cat blink for a second (no second hit while blinking); the game ends when all three are gone.",
+        "music": null
+      }
+    },
+    {
+      "id": "edit-bigger-targets",
+      "base": "gnome-whack",
+      "spec": {
+        "title": "Gnome Whack",
+        "brief": "Make it easier for small kids: bigger gnomes, a bigger tap area around each one, and gnomes stay up a bit longer. Keep the 30-second clock.",
+        "music": null
+      }
+    },
+    {
+      "id": "edit-dom-hint",
+      "base": "ocean-memory",
+      "spec": {
+        "title": "Ocean Memory",
+        "brief": "Add a Hint button below the grid: it briefly flips every face-down card face up for one second, then back. Each hint adds 5 to the move count. Keep everything else.",
+        "music": null
+      }
+    },
+    {
+      "id": "edit-add-music",
+      "base": "stacker",
+      "spec": {
+        "title": "Tower Stack",
+        "brief": "Add background music. Change nothing else in the game.",
+        "music": "calm lo-fi beat, dreamy and steady, 85 BPM"
+      }
+    }
+  ]
+}

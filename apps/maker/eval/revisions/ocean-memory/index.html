@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+body{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:linear-gradient(#0a2a5e,#031433);color:#fff;font:20px system-ui,sans-serif;touch-action:manipulation}
+h1{margin:0;font-size:28px}
+#grid{display:grid;grid-template-columns:repeat(4,1fr);gap:2.5vw;width:88vw;max-width:420px}
+.card{aspect-ratio:1;border:0;border-radius:12px;background:#e8cf94;font-size:9vw;display:flex;align-items:center;justify-content:center;padding:0;box-shadow:0 3px 0 #b39a5e}
+.card.up{background:#fff}
+.card.done{background:#bdf5d0}
+#msg{min-height:30px;font-weight:700}
+#again{display:none;min-height:52px;padding:0 24px;border:0;border-radius:14px;background:#ffd23f;font:inherit;font-weight:700}
+</style></head>
+<body>
+<h1>🌊 Ocean Memory</h1>
+<div id="info">Moves 0</div>
+<div id="grid"></div>
+<div id="msg"></div>
+<button id="again">Play again</button>
+<script src="/dom.js"></script>
+<script src="game.js"></script>
+</body></html>
