@@ -20,16 +20,19 @@ export class Coder extends Container<Env> {
   defaultPort = 8080;
   sleepAfter = "2m";
 
-  static outboundHandlers = {
-    models: (
-      request: Request,
-      env: Env,
-      { params }: OutboundHandlerContext<ModelCallParams>
-    ) =>
-      modelFetch(request, env, {
-        metadata: { agent: "coder", ...params },
-      }),
-  };
+  // Assigned, not declared: the base class registers handlers in its static setter, which a class field skips.
+  static {
+    this.outboundHandlers = {
+      models: (
+        request: Request,
+        env: Env,
+        { params }: OutboundHandlerContext<ModelCallParams>
+      ) =>
+        modelFetch(request, env, {
+          metadata: { agent: "coder", ...params },
+        }),
+    };
+  }
 
   constructor(ctx: DurableObjectState<Record<string, never>>, env: Env) {
     super(ctx, env);
