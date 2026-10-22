@@ -1,72 +1,58 @@
-// The eval's candidates and judge (#115), as pi-ai models. Claude and Kimi go through the Cloudflare AI Gateway on
-// Unified Billing, except Haiku 5.5, which it doesn't serve yet: that goes to Cloudflare's REST /ai/v1/messages.
-// #116 picked Haiku 5.5 for both agents; Sonnet 5.5 and Kimi K3 stay for re-runs. DeepSeek and Kimi K2.6 were tried and
-// dropped (eval/results/2026-10-20.md).
+// The eval's candidates and judge (#115), as pi-ai models. Claude goes through the shared modelFetch (#136), the
+// production path: pi-ai talks to `http://models.internal/anthropic`, as in the Coder's Container, and the fetch below
+// hands those requests to modelFetch in-process. Kimi K3 stays on the gateway's OpenAI-compatible route for re-runs.
+// #116 picked Haiku 5.5 for both agents. DeepSeek and Kimi K2.6 were tried and dropped (eval/results/2026-10-20.md).
 import { createModels, createProvider } from "@earendil-works/pi-ai";
 import type { Api, Model, MutableModels } from "@earendil-works/pi-ai";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
-import { cloudflareAIGatewayProvider } from "@earendil-works/pi-ai/providers/cloudflare-ai-gateway";
 import { cloudflareAIGatewayAuth } from "@earendil-works/pi-ai/providers/cloudflare-auth";
 import { cloudflareStreams } from "@earendil-works/pi-ai/providers/cloudflare-stream";
+import { modelFetch } from "@hopon/model-fetch";
+import type { ModelEnv } from "@hopon/model-fetch";
 
-const CF_REST = "cloudflare-rest";
-const restBaseUrl = () =>
-  `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/ai`;
+const MODELS_HOST = "models.internal";
+// pi's Anthropic client wants a key; modelFetch swaps in the real one, as the Coder's outbound handler will.
+const PLACEHOLDER_KEY = "placeholder";
 
 // The gateway's descriptor, not Anthropic's: Anthropic's turns on mid-conversation system messages, which
-// Cloudflare's endpoint rejects ("messages[1].role").
-const haiku = (): Model<Api> => ({
-  ...getBuiltinModel("cloudflare-ai-gateway", "claude-haiku-5-5"),
-  baseUrl: restBaseUrl(),
-  headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_KEY}` },
-  id: "anthropic/claude-haiku-5.5",
-  provider: CF_REST,
+// Cloudflare's REST endpoint for Haiku rejects ("messages[1].role").
+const claude = (
+  id: "claude-haiku-5-5" | "claude-sonnet-5-5" | "claude-opus-5-5"
+): Model<Api> => ({
+  ...getBuiltinModel("cloudflare-ai-gateway", id),
+  baseUrl: `http://${MODELS_HOST}/anthropic`,
+  provider: "anthropic",
 });
 
-// ponytail: Cloudflare's /v1/messages validates a narrower request than Anthropic's (#128 found four rewrites): no
-// `?beta=true`, `system` as one string, no nulls. Delete once the gateway bills Haiku 5.5.
-const dropNulls = (value: unknown): unknown => {
-  if (Array.isArray(value)) {
-    return value.map(dropNulls);
-  }
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([, item]) => item !== null)
-        .map(([key, item]) => [key, dropNulls(item)])
-    );
-  }
-  return value;
-};
-let shimmed = false;
-const shimCloudflareMessages = () => {
-  if (shimmed) {
+// The eval's calls keep full gateway logs (#125), tagged apart from any Draft's.
+let routed = false;
+const routeModels = () => {
+  if (routed) {
     return;
   }
-  shimmed = true;
+  routed = true;
   const realFetch = globalThis.fetch;
   globalThis.fetch = (input, init) => {
     const url = input instanceof Request ? input.url : String(input);
-    const messages = `${restBaseUrl()}/v1/messages`;
-    if (!url.startsWith(messages) || typeof init?.body !== "string") {
+    if (new URL(url).host !== MODELS_HOST) {
       return realFetch(input, init);
     }
-    const body = dropNulls(JSON.parse(init.body)) as {
-      system?: string | { text: string }[];
-    };
-    if (Array.isArray(body.system)) {
-      body.system = body.system.map((part) => part.text).join("\n\n");
-    }
-    return realFetch(messages, { ...init, body: JSON.stringify(body) });
+    return modelFetch(
+      new Request(input, init),
+      process.env as unknown as ModelEnv,
+      {
+        logPayload: true,
+        metadata: { agent: "eval", draftId: "eval" },
+      }
+    );
   };
 };
 
 export const CANDIDATES = {
-  "claude-haiku-5-5": haiku,
-  "claude-sonnet-5-5": () =>
-    getBuiltinModel("cloudflare-ai-gateway", "claude-sonnet-5-5") as Model<Api>,
+  "claude-haiku-5-5": () => claude("claude-haiku-5-5"),
+  "claude-sonnet-5-5": () => claude("claude-sonnet-5-5"),
   // Moonshot's descriptor (prices, reasoning, compat) on the gateway's OpenAI-compatible route, which serves it on
   // Unified Billing (checked 2026-10-19: keySource "Unified", images in tool results, reasoning_effort low).
   "kimi-k3": (): Model<Api> => ({
@@ -80,20 +66,18 @@ export const CANDIDATES = {
 export type Candidate = keyof typeof CANDIDATES;
 export const isCandidate = (id: string): id is Candidate => id in CANDIDATES;
 
-export const JUDGE = () =>
-  getBuiltinModel("cloudflare-ai-gateway", "claude-opus-5-5") as Model<Api>;
+export const JUDGE = () => claude("claude-opus-5-5");
 
-// The key each provider reads, so a run fails before it starts rather than on its first request.
-const KEYS: Record<string, string[]> = {
-  [CF_REST]: ["CLOUDFLARE_API_KEY", "CLOUDFLARE_ACCOUNT_ID"],
-  "cloudflare-ai-gateway": [
-    "CLOUDFLARE_API_KEY",
-    "CLOUDFLARE_ACCOUNT_ID",
-    "CLOUDFLARE_GATEWAY_ID",
-  ],
-};
+// modelFetch's keys (Claude) and the gateway's (Kimi), so a run fails before it starts rather than on its first request.
+const KEYS = [
+  "CLOUDFLARE_API_KEY",
+  "CLOUDFLARE_ACCOUNT_ID",
+  "CLOUDFLARE_GATEWAY_ID",
+] as const satisfies readonly (keyof ModelEnv)[];
 export const apiKey = (model: Model<Api>) =>
-  process.env[KEYS[model.provider]?.[0] ?? ""] ?? "";
+  model.provider === "anthropic"
+    ? PLACEHOLDER_KEY
+    : (process.env.CLOUDFLARE_API_KEY ?? "");
 
 export const resolve = (id: string) => {
   if (!isCandidate(id)) {
@@ -102,15 +86,11 @@ export const resolve = (id: string) => {
     );
   }
   const model = CANDIDATES[id]();
-  const missing = (KEYS[model.provider] ?? []).filter(
-    (name) => !process.env[name]
-  );
+  const missing = KEYS.filter((name) => !process.env[name]);
   if (missing.length > 0) {
     throw new Error(`${missing.join(", ")} missing from apps/maker/.env`);
   }
-  if (model.provider === CF_REST) {
-    shimCloudflareMessages();
-  }
+  routeModels();
   return model;
 };
 
@@ -124,24 +104,27 @@ export const talkerModelRef = (model: Model<Api>) => ({
 
 // pi-durable's model registry (the Talker, the judge): the same routes.
 export const createRegistry = (): MutableModels => {
-  shimCloudflareMessages();
+  routeModels();
   const models = createModels();
-  models.setProvider(cloudflareAIGatewayProvider());
   models.setProvider(
     createProvider({
       api: anthropicMessagesApi(),
       auth: {
         apiKey: {
-          name: "Cloudflare API token",
+          name: "modelFetch",
           resolve: () =>
             Promise.resolve({
-              auth: { apiKey: process.env.CLOUDFLARE_API_KEY ?? "" },
-              source: "CLOUDFLARE_API_KEY",
+              auth: { apiKey: PLACEHOLDER_KEY },
+              source: MODELS_HOST,
             }),
         },
       },
-      id: CF_REST,
-      models: [haiku()],
+      id: "anthropic",
+      models: [
+        CANDIDATES["claude-haiku-5-5"](),
+        CANDIDATES["claude-sonnet-5-5"](),
+        JUDGE(),
+      ],
     })
   );
   models.setProvider(
