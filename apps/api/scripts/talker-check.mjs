@@ -145,9 +145,7 @@ class Client {
     this.view = {
       entries: new Map(),
       inbox: [],
-      outcomes: [],
       running: false,
-      text: "",
     };
   }
 
@@ -205,8 +203,6 @@ class Client {
       );
       view.inbox = frame.data.inbox.map((item) => item.id);
       view.running = Boolean(frame.data.run);
-    } else if (frame.type === "turn_done" || frame.type === "turn_failed") {
-      view.outcomes.push(frame.type);
     } else if (frame.type === "batch") {
       for (const event of frame.data) {
         if (event.entry) {
@@ -218,10 +214,6 @@ class Client {
           view.running = false;
         } else if (event.type === "inbox_update") {
           view.inbox = event.items.map((item) => item.id);
-        } else if (event.type === "message_update") {
-          for (const change of event.changes) {
-            view.text += change.type === "text_delta" ? change.delta : "";
-          }
         }
       }
     }
@@ -255,13 +247,17 @@ const matchesServer = async (client, step) => {
 };
 const send = (client, text) =>
   api(`/api/drafts/${client.draft}/messages`, { text });
-const turns = async (client, n) => {
-  await until(
-    `${n} outcomes`,
-    () => client.view.outcomes.length >= n && !client.view.running,
+// Every message sent since `since` answered: a run ended since then, none runs now, and nothing is queued.
+const settled = (client, since) =>
+  until(
+    "the turn's end",
+    () =>
+      client.saw("run_end", since) &&
+      !client.view.running &&
+      client.view.inbox.length === 0,
     120_000
   );
-};
+const lastKind = (client) => [...client.view.entries.values()].at(-1)?.kind;
 
 try {
   await run([
@@ -281,20 +277,41 @@ try {
   });
   const client = new Client(id);
   await client.connect();
-  await turns(client, 1);
-  const before = client.view.text.length;
-  const sent = Date.now();
-  await send(client, "What would you call it?");
-  await turns(client, 2);
-  assert.ok(
-    client.saw("message_update", sent) && client.view.text.length > before,
-    "the reply streamed"
+  await until(
+    "the first reply",
+    () => !client.view.running && lastKind(client) === "pi.assistant",
+    120_000
   );
-  assert.deepEqual(client.view.outcomes, ["turn_done", "turn_done"]);
-  log("1 stream: snapshot, reply streamed, turn_done");
+  const { drafts: listed } = await api("/api/drafts");
+  let mark = Date.now();
+  await send(client, "What would you call it?");
+  await settled(client, mark);
+  // pi flushes the reply in flight every 100 ms, so a short one streams in few updates, sometimes none before its
+  // message_end. What must hold: the Maker's message showed up live, in an earlier frame than the one that ended it.
+  const frameOf = (test) =>
+    client.frames.findIndex(
+      (frame) =>
+        frame.at >= mark && frame.type === "batch" && frame.data.some(test)
+    );
+  const started = frameOf(
+    (event) =>
+      event.type === "message_start" && event.message.role === "assistant"
+  );
+  const ended = frameOf(
+    (event) =>
+      event.type === "message_end" && event.entry.kind === "pi.assistant"
+  );
+  assert.ok(started !== -1 && started < ended, "the reply streamed live");
+  assert.ok(client.saw("turn_done", mark), "turn_done");
+  const reply = [...client.view.entries.values()].at(-1);
+  const said = reply.model[0].content.find((block) => block.type === "text");
+  assert.ok(said?.text, "the Maker replied with text");
+  log(
+    `1 stream: snapshot, reply live in frames ${started}–${ended}, turn_done: "${said.text.slice(0, 80)}"`
+  );
 
   // 2. Away mid-turn, back mid-turn, a steer.
-  let mark = Date.now();
+  mark = Date.now();
   await send(client, "Tell me in one sentence how the cat moves.");
   await until("run_start", () => client.saw("run_start", mark));
   client.close();
@@ -303,7 +320,7 @@ try {
   await client.connect();
   assert.ok(client.view.running, "the reconnect snapshot is mid-turn");
   await send(client, "Actually, make the cat orange.");
-  await turns(client, 4);
+  await settled(client, mark);
   await matchesServer(client, "2 away mid-turn + steer");
 
   // 3. Evict: killed mid-turn, restarted, no requests: the turn finishes by itself.
@@ -319,10 +336,9 @@ try {
   const after = new Client(id, { reconnect: false });
   await after.connect();
   after.close();
-  const last = [...after.view.entries.values()].at(-1);
   assert.equal(after.view.running, false, "the turn finished with no requests");
   assert.equal(
-    last.kind,
+    lastKind(after),
     "pi.assistant",
     "the turn ended with the Maker's reply"
   );
@@ -331,28 +347,27 @@ try {
   // 4. Restart mid-turn with a client that reconnects on its own.
   client.reconnect = true;
   await client.connect();
-  const done = client.view.outcomes.length;
   mark = Date.now();
   await send(client, "Give the game a two-word name.");
   await until("run_start", () => client.saw("run_start", mark));
   kill();
   await start();
   await until(
-    "the turn's end",
-    () => !client.view.running && client.saw("snapshot", mark),
+    "the turn's end after a reconnect",
+    () =>
+      client.saw("snapshot", mark) &&
+      !client.view.running &&
+      lastKind(client) === "pi.assistant",
     120_000
   );
-  await matchesServer(
-    client,
-    `4 restart (${client.view.outcomes.length - done} outcomes seen live)`
-  );
+  await matchesServer(client, "4 restart, reconnected on its own");
 
   // 5. Hibernation: 40 s idle with the socket held. A woken object re-attaches held sockets with a fresh snapshot.
   log("idle 40 s with the socket held");
   await sleep(40_000);
   mark = Date.now();
   await send(client, "Say bye in three words.");
-  await until("run_end", () => client.saw("run_end", mark));
+  await settled(client, mark);
   assert.ok(
     client.saw("snapshot", mark),
     "the object hibernated: the held socket got a fresh snapshot on wake"
@@ -369,8 +384,8 @@ try {
   await matchesServer(client, "6 stop");
   const { drafts } = await api("/api/drafts");
   assert.ok(
-    drafts[0].updatedAt > drafts[0].createdAt || drafts[0].id === id,
-    "the row is dated by turns"
+    drafts[0].updatedAt > listed[0].updatedAt,
+    "the row is dated at the end of each turn"
   );
   log("all checks passed");
   client.reconnect = false;
