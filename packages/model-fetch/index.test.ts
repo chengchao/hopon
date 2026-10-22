@@ -2,13 +2,16 @@ import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 
 import { modelFetch } from "./index.ts";
+import type { ModelCall } from "./index.ts";
 
 const ENV = {
   CLOUDFLARE_ACCOUNT_ID: "acct",
   CLOUDFLARE_API_KEY: "key",
   CLOUDFLARE_GATEWAY_ID: "gw",
 };
-const CALL = { metadata: { agent: "coder", draftId: "d1", jobId: "d1-c1" } };
+const CALL: ModelCall = {
+  metadata: { agent: "coder", draftId: "d1", jobId: "d1-c1" },
+};
 
 // What pi-ai's Anthropic client sends to `http://models.internal/anthropic`.
 const piRequest = (model: string) =>
