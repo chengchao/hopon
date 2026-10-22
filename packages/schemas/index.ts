@@ -12,6 +12,11 @@ export const newGame = z.object({
   prompt: z.string().check(z.maxLength(PROMPT_MAX), z.trim(), z.minLength(4)),
 });
 
+// A message to the Maker, the first of a new Draft or a later one.
+export const newMessage = z.object({
+  text: z.string().check(z.maxLength(PROMPT_MAX), z.trim(), z.minLength(1)),
+});
+
 export const newComment = z.object({
   body: z.string().check(
     z.trim(),
@@ -37,6 +42,13 @@ export const newReport = z.object({
 });
 
 // What the API sends back. The API checks each response with `satisfies`, so renaming a field breaks the build instead of a screen.
+
+/** One of the signed-in user's Drafts, as their list shows it. `title` is null until the Maker names the game. */
+export interface DraftSummary {
+  id: string;
+  title: string | null;
+  updatedAt: string;
+}
 
 /** A new game, or the signed-in user's latest draft. */
 export interface GameSummary {

@@ -1,10 +1,17 @@
 import { verifyToken } from "@clerk/backend";
 import { zValidator } from "@hono/zod-validator";
-import { newComment, newGame, newReport, REPORT_REASONS } from "@hopon/schemas";
+import {
+  newComment,
+  newGame,
+  newMessage,
+  newReport,
+  REPORT_REASONS,
+} from "@hopon/schemas";
 import type {
   BlockedAccounts,
   Comment,
   CommentPage,
+  DraftSummary,
   FeedGame,
   GamePage,
   GameSummary,
@@ -40,6 +47,7 @@ import RUNTIME_V1 from "./runtime/v1.json" with { type: "json" };
 import {
   blocks,
   comments,
+  drafts,
   games,
   generationLimits,
   likes,
@@ -318,7 +326,37 @@ const run = <A, E>(
     )
   );
 
+// A Draft's id: its Talker's name, 64 hex characters.
+const DRAFT = ":id{[0-9a-f]{64}}";
+const MAX_DRAFTS = 20;
+
+// One request to a Draft's Talker (src/talker.ts), after the route has checked the owner. Its failure is a 500.
+const talker = (env: HoponEnv, id: string, action: string, body = {}) =>
+  Effect.promise(async () => {
+    const response = await env.TALKER.getByName(id).fetch(
+      `https://talker/${action}`,
+      { body: JSON.stringify(body), method: "POST" }
+    );
+    if (response.status >= 500) {
+      throw new Error(`Talker ${action}: ${response.status}`);
+    }
+    return response;
+  });
+
 const app = new Hono<AppEnv>();
+
+// The app's WebSocket to a Draft's Talker (#126). It carries no Clerk token: the one-time ticket from ws-ticket proves
+// the owner. Registered before the middleware, which would copy the 101 response and lose its socket.
+app.get(`/api/drafts/${DRAFT}/ws`, async (c) => {
+  const id = c.req.param("id");
+  const redeemed = await Effect.runPromise(
+    talker(c.env, id, "redeem", { ticket: c.req.query("ticket") ?? "" })
+  );
+  if (!redeemed.ok) {
+    throw fail(404, "Draft not found.");
+  }
+  return c.env.TALKER.getByName(id).fetch(c.req.raw);
+});
 
 app.use(async (c, next) => {
   // oxlint-disable-next-line node/callback-return -- Hono middleware sets headers after the handler runs.
@@ -506,6 +544,115 @@ app.get("/api/drafts/latest", (c) =>
       return c.json({ draft: draft ?? null } satisfies {
         draft: GameSummary | null;
       });
+    })
+  )
+);
+
+app.get("/api/drafts", (c) =>
+  run(
+    c,
+    Effect.gen(function* () {
+      const owner = yield* signedIn("Sign in to see your Drafts.");
+      const rows = yield* query((db) =>
+        db
+          .select({
+            id: drafts.id,
+            title: drafts.title,
+            updatedAt: drafts.updatedAt,
+          })
+          .from(drafts)
+          .where(eq(drafts.owner, owner))
+          .orderBy(desc(drafts.updatedAt))
+      );
+      return c.json({ drafts: rows } satisfies { drafts: DraftSummary[] });
+    })
+  )
+);
+
+// A new Draft, born on its first message: Screening, then the cap, then the Talker gets the message.
+app.post(
+  "/api/drafts",
+  jsonBody(newMessage, "Write a message of up to 2000 characters."),
+  (c) =>
+    run(
+      c,
+      Effect.gen(function* () {
+        const owner = yield* signedIn("Sign in to continue.");
+        const { text } = c.req.valid("json");
+        yield* screen(c.env, owner, "prompt", text);
+        // Agent needs a named object, so the id newUniqueId() makes is the Talker's name.
+        const id = c.env.TALKER.newUniqueId().toString();
+        // One statement, so two at once can't both take the last place.
+        const { meta } = yield* query((db) =>
+          db.run(
+            sql`INSERT INTO ${drafts} (id, owner) SELECT ${id}, ${owner}
+              WHERE (SELECT COUNT(*) FROM ${drafts} WHERE ${drafts}.owner = ${owner}) < ${MAX_DRAFTS}`
+          )
+        );
+        if (!meta.changes) {
+          return yield* fail(409, "Delete a Draft to start a new one.");
+        }
+        yield* talker(c.env, id, "message", { text });
+        return c.json({ id }, 201);
+      })
+    )
+);
+
+// The caller's Draft a route is about. Someone else's reads the same as a missing one.
+const ownDraft = Effect.fn("ownDraft")(function* (id: string) {
+  const owner = yield* signedIn("Sign in to continue.");
+  const draft = yield* query((db) =>
+    db
+      .select({ id: drafts.id })
+      .from(drafts)
+      .where(and(eq(drafts.id, id), eq(drafts.owner, owner)))
+      .get()
+  );
+  if (!draft) {
+    return yield* fail(404, "Draft not found.");
+  }
+  return owner;
+});
+
+// A refused message never reaches the Talker, so it isn't kept. One sent while a turn runs joins it as a steer.
+app.post(
+  `/api/drafts/${DRAFT}/messages`,
+  jsonBody(newMessage, "Write a message of up to 2000 characters."),
+  (c) =>
+    run(
+      c,
+      Effect.gen(function* () {
+        const id = c.req.param("id");
+        const owner = yield* ownDraft(id);
+        const { text } = c.req.valid("json");
+        yield* screen(c.env, owner, "prompt", text);
+        const response = yield* talker(c.env, id, "message", { text });
+        return c.json(yield* Effect.promise(() => response.json()), 202);
+      })
+    )
+);
+
+app.post(`/api/drafts/${DRAFT}/stop`, (c) =>
+  run(
+    c,
+    Effect.gen(function* () {
+      const id = c.req.param("id");
+      yield* ownDraft(id);
+      yield* talker(c.env, id, "stop");
+      return c.body(null, 204);
+    })
+  )
+);
+
+// A one-time ticket for GET /api/drafts/:id/ws, good for a minute.
+app.post(`/api/drafts/${DRAFT}/ws-ticket`, (c) =>
+  run(
+    c,
+    Effect.gen(function* () {
+      const id = c.req.param("id");
+      yield* ownDraft(id);
+      const response = yield* talker(c.env, id, "ticket");
+      return c.json(yield* Effect.promise(() => response.json()));
     })
   )
 );
