@@ -1,6 +1,7 @@
 // hopon scaffold: appended to LittleJS in the runtime, before the game's script. The game defines the five
 // LittleJS hooks as globals and calls hopon.addScore / hopon.gameOver; the scaffold owns the start screen,
-// score, game over and restart. Hooks are looked up by name at call time, so `function` and `const` both work.
+// score, game over and restart, and the feed's bridge. Hooks are looked up by name at call time, so `function` and
+// `const` both work. The engine unlocks audio on the first tap and has ZzFX built in.
 /* oxlint-disable no-undef, func-style -- a classic script sharing LittleJS's globals */
 const hopon = {
   addScore(points = 1) {
@@ -24,6 +25,42 @@ const hopon = {
   title: "",
   won: false,
 };
+
+// The feed's bridge: the app posts {type: "pause" | "resume"} as the game scrolls away and back, and
+// {type: "mute", on} as the feed mutes. Away, the clock stops and the audio is suspended; muted, it's silent.
+let hoponAway = false;
+let hoponVolume = soundVolume;
+
+// The clock runs only in play, and never while the game is scrolled away.
+const hoponSync = () => {
+  setPaused(hoponAway || hopon.state !== "play");
+  if (hoponAway) {
+    audioContext?.suspend();
+  } else {
+    audioResume();
+  }
+};
+
+const hoponMessage = (event) => {
+  let message;
+  try {
+    message = JSON.parse(event.data);
+  } catch {
+    return;
+  }
+  if (message?.type === "pause" || message?.type === "resume") {
+    hoponAway = message.type === "pause";
+    hoponSync();
+  } else if (message?.type === "mute") {
+    if (message.on && soundVolume > 0) {
+      hoponVolume = soundVolume;
+    }
+    setSoundVolume(message.on ? 0 : hoponVolume);
+  }
+};
+// iOS delivers the app's postMessage on window, Android on document.
+addEventListener("message", hoponMessage);
+document.addEventListener("message", hoponMessage);
 
 const hoponCall = (hook) => {
   // typeof on an undeclared name is safe; a game may leave any hook out.
@@ -69,7 +106,7 @@ addEventListener("load", () => {
   engineInit(
     () => {
       hoponBegin();
-      setPaused(true);
+      hoponSync();
     },
     () => hoponCall("gameUpdate"),
     () => {
@@ -79,7 +116,7 @@ addEventListener("load", () => {
           hoponBegin();
         }
         hopon.state = "play";
-        setPaused(false);
+        hoponSync();
       }
     },
     () => hoponCall("gameRender"),

@@ -46,8 +46,8 @@ const generated = {
   title: "星星小游戏",
 };
 const OPERATOR_PASSWORD = "test-operator-password-of-32-chars!";
-// Seeded by migrations/*_originals.sql.
-const ORIGINALS = 2;
+// Seeded by migrations/*_originals.sql and *_runtime_original.sql.
+const ORIGINALS = 3;
 const migrations = readdirSync(new URL("../migrations", import.meta.url))
   .filter((f) => f.endsWith(".sql"))
   .toSorted()
@@ -189,7 +189,7 @@ test("generation, private preview, latest draft, owned publish, public discovery
   const { games } = await json(call("/api/games"));
   assert.deepEqual(
     games.map((g) => g.title),
-    ["Odd Duck", "Toast Panic"]
+    ["Bubble Pop", "Odd Duck", "Toast Panic"]
   );
   assert.equal(await status(call("/api/drafts/latest", { user: "" })), 401);
   assert.deepEqual(await json(call("/api/drafts/latest")), {
@@ -250,6 +250,10 @@ test("generation, private preview, latest draft, owned publish, public discovery
   assert.equal(document.headers.get("Content-Security-Policy"), GAME_CSP);
   assert.ok(!GAME_CSP.includes("allow-same-origin"));
   assert.ok(GAME_CSP.includes("connect-src 'none'"));
+  // 'self' lets a game load /runtime/v1.js and its own media.
+  assert.match(GAME_CSP, /script-src 'self'/u);
+  assert.match(GAME_CSP, /media-src 'self'/u);
+  assert.equal(document.headers.get("Cache-Control"), "no-store");
   assert.equal(await document.text(), generated.html);
   assert.deepEqual(await json(call("/api/drafts/latest")), {
     draft: null,
@@ -263,7 +267,7 @@ test("generation, private preview, latest draft, owned publish, public discovery
   assert.equal(list.games[0].author, "maya_makes");
   assert.deepEqual(
     list.games.slice(1).map((g) => g.author),
-    ["hopon", "hopon"]
+    Array.from({ length: ORIGINALS }, () => "hopon")
   );
   const unknown = await call("/index.html");
   assert.equal(unknown.status, 404);
@@ -1297,9 +1301,9 @@ test("feed: `mine` marks the viewer's own games", async (t) => {
     const { games } = await json(call("/api/games", { user }));
     return games.map((g) => g.mine);
   };
-  assert.deepEqual(await mine("user_owner"), [true, false, false]);
-  assert.deepEqual(await mine("user_other"), [false, false, false]);
-  assert.deepEqual(await mine(""), [false, false, false]);
+  assert.deepEqual(await mine("user_owner"), [true, false, false, false]);
+  assert.deepEqual(await mine("user_other"), [false, false, false, false]);
+  assert.deepEqual(await mine(""), [false, false, false, false]);
 });
 // A published game by user_owner with a comment from user_fan on it.
 const commented = async (call) => {
@@ -2044,6 +2048,28 @@ test("ban: asks first, bans an account whatever its Clerk role, and only a repor
   assert.deepEqual(await reportRows(env), [
     { ...commentReport(posted), ...closed("banned") },
   ]);
+});
+
+test("runtime: /runtime/v1.js is the maker's build, long-cached, signed out", async (t) => {
+  const { call } = await setup(t);
+  const runtime = await call("/runtime/v1.js", { user: "" });
+  assert.equal(runtime.status, 200);
+  assert.match(runtime.headers.get("Content-Type"), /^text\/javascript/u);
+  assert.equal(
+    runtime.headers.get("Cache-Control"),
+    "public, max-age=31536000, immutable"
+  );
+  const code = await runtime.text();
+  assert.equal(
+    code,
+    JSON.parse(
+      readFileSync(new URL("../src/runtime/v1.json", import.meta.url), "utf-8")
+    )
+  );
+  // LittleJS and the scaffold, with the feed's bridge.
+  assert.match(code, /engineInit/u);
+  assert.match(code, /"pause"/u);
+  assert.equal(await status(call("/runtime/v2.js", { user: "" })), 404);
 });
 
 test("pages: /terms has the Rules, /support the contact address and /privacy the policy, signed out", async (t) => {

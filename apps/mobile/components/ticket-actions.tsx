@@ -4,6 +4,8 @@ import {
   Heart,
   MessageCircle,
   MoreHorizontal,
+  Volume2,
+  VolumeX,
 } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
@@ -41,18 +43,23 @@ const Pill = ({
   </Pressable>
 );
 
-// Like, comment, save and "more" sit on the ticket, never over the game, so they can't steal the game's touches.
+// Like, comment, save, mute and "more" sit on the ticket, never over the game, so they can't steal the game's touches.
 export const TicketActions = ({
   game,
   onLike,
   onComments,
   onSave,
+  muted,
+  onMute,
   onMore,
 }: {
   game: FeedGame;
   onLike: () => void;
   onComments: () => void;
   onSave: () => void;
+  /** The feed's one mute, for every game in it. */
+  muted: boolean;
+  onMute: () => void;
   /** Opens the menu with Report game and Block; left out on the viewer's own games. */
   onMore?: () => void;
 }) => {
@@ -92,6 +99,13 @@ export const TicketActions = ({
           color={COLORS.ink}
           fill={isSaved ? COLORS.ink : "none"}
         />
+      </Pill>
+      <Pill label={muted ? "Unmute" : "Mute"} onPress={onMute}>
+        {muted ? (
+          <VolumeX size={18} strokeWidth={2.25} color={COLORS.ink} />
+        ) : (
+          <Volume2 size={18} strokeWidth={2.25} color={COLORS.ink} />
+        )}
       </Pill>
       {onMore && (
         <Pill label="More" onPress={onMore}>
