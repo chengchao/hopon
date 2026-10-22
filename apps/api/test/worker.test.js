@@ -2573,4 +2573,9 @@ test("drafts: another account gets 404 on every Draft route; the socket needs a 
     forwarded.filter((f) => f.action === "upgrade"),
     [{ action: "upgrade", draft: id }]
   );
+  // A made-up id never reaches, and so never creates, a Talker.
+  assert.equal(
+    forwarded.some((f) => f.draft === missing),
+    false
+  );
 });

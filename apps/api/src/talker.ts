@@ -80,7 +80,6 @@ class Pi extends Context.Service<
     // A message while a turn runs joins it as a steer, after the current tool round.
     readonly send: (text: string) => Effect.Effect<string, PiError>;
     readonly abort: Effect.Effect<boolean, PiError>;
-    readonly busy: Effect.Effect<boolean, PiError>;
     readonly events: Effect.Effect<AgentEventStream, PiError>;
   }
 >()("hopon/api/Pi") {}
@@ -89,7 +88,6 @@ const piLayer = (harness: PiHarness) => {
   const root = harness.session();
   return Layer.succeed(Pi, {
     abort: call(() => root.abort()),
-    busy: call(() => root.busy()),
     events: call(() => root.events()),
     send: (text) =>
       call(async () => {
@@ -143,7 +141,7 @@ export class Talker extends Agent<Env> {
   runtime = ManagedRuntime.make(piLayer(this.harness));
   // pi's event streams live in memory, one per socket, so a wake re-attaches every held socket (onStart).
   streams = new Map<string, AgentEventStream>();
-  // The object's own stream, which dates the D1 row at the end of each turn.
+  // The object's own stream, which runs the ticker during each run and dates the D1 row at its end.
   watcher: AgentEventStream | undefined;
   ticker: ReturnType<typeof setInterval> | undefined;
 
@@ -194,19 +192,28 @@ export class Talker extends Agent<Env> {
     }
     this.watcher = await this.runtime.runPromise(Pi.use((pi) => pi.events));
     const db = drizzle(this.env.DB);
+    // A run Lifecycle resumed after an eviction started before this stream did.
+    if (this.watcher.snapshot.run) {
+      this.tick();
+    }
     this.watcher.start(async (events) => {
-      if (events.some((event) => event.type === "run_end")) {
-        clearInterval(this.ticker);
-        this.ticker = undefined;
-        await db
-          .update(drafts)
-          .set({ updatedAt: now })
-          .where(eq(drafts.id, this.name));
+      for (const event of events) {
+        if (event.type === "run_start") {
+          this.tick();
+        } else if (event.type === "run_end") {
+          clearInterval(this.ticker);
+          this.ticker = undefined;
+          // oxlint-disable-next-line no-await-in-loop -- one run ends per batch at most.
+          await db
+            .update(drafts)
+            .set({ updatedAt: now })
+            .where(eq(drafts.id, this.name));
+        }
       }
     });
   }
 
-  // Until the run ends (watch), every socket hears something at least every 15 s, and dead ones are closed.
+  // From a run's start to its end (watch), every socket hears something at least every 15 s, and dead ones are closed.
   tick() {
     if (this.ticker) {
       return;
@@ -238,16 +245,12 @@ export class Talker extends Agent<Env> {
     await stream?.stop();
   }
 
-  // After hibernation or an eviction the sockets are still held but their streams are gone; a run Lifecycle resumed
-  // needs its ticks back.
+  // After hibernation or an eviction the sockets are still held but their streams are gone.
   async onStart() {
     await this.watch();
     for (const connection of this.getConnections<{ since: number }>()) {
       // oxlint-disable-next-line no-await-in-loop -- one snapshot at a time is fine for a handful of sockets.
       await this.runtime.runPromise(this.attach(connection));
-    }
-    if (await this.harness.session().busy()) {
-      this.tick();
     }
   }
 
@@ -268,10 +271,13 @@ export class Talker extends Agent<Env> {
   async redeem(ticket: string) {
     const tickets =
       (await this.ctx.storage.get<Map<string, number>>("tickets")) ?? new Map();
-    const valid = (tickets.get(ticket) ?? 0) > Date.now();
+    const expires = tickets.get(ticket);
+    if (expires === undefined) {
+      return false;
+    }
     tickets.delete(ticket);
     await this.ctx.storage.put("tickets", tickets);
-    return valid;
+    return expires > Date.now();
   }
 
   // The Worker's forwarded requests, after it has checked the owner and screened the text.
@@ -285,7 +291,6 @@ export class Talker extends Agent<Env> {
             request.json<{ text: string }>()
           );
           const id = yield* pi.send(text);
-          this.tick();
           return Response.json({ id }, { status: 202 });
         }
         if (action === "stop") {

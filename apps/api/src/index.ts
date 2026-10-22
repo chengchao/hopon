@@ -349,6 +349,15 @@ const app = new Hono<AppEnv>();
 // the owner. Registered before the middleware, which would copy the 101 response and lose its socket.
 app.get(`/api/drafts/${DRAFT}/ws`, async (c) => {
   const id = c.req.param("id");
+  // Only a Draft that exists reaches a Talker, so a made-up id never creates one.
+  const draft = await drizzle(c.env.DB)
+    .select({ id: drafts.id })
+    .from(drafts)
+    .where(eq(drafts.id, id))
+    .get();
+  if (!draft) {
+    throw fail(404, "Draft not found.");
+  }
   const redeemed = await Effect.runPromise(
     talker(c.env, id, "redeem", { ticket: c.req.query("ticket") ?? "" })
   );
