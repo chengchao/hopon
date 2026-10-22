@@ -26,28 +26,62 @@ const claude = (
   provider: "anthropic",
 });
 
-// The eval's calls keep full gateway logs (#125), tagged apart from any Draft's.
-let routed = false;
-const routeModels = () => {
-  if (routed) {
-    return;
-  }
-  routed = true;
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = (input, init) => {
-    const url = input instanceof Request ? input.url : String(input);
-    if (new URL(url).host !== MODELS_HOST) {
-      return realFetch(input, init);
+// What answers pi-ai's requests to `http://models.internal`: modelFetch in-process for the eval, the network in the
+// Coder's Container (whose outbound handler in the Worker runs modelFetch), a script in the Coder's tests.
+export type ModelHandler = (request: Request) => Promise<Response>;
+
+// pi aborts a model request on the Coder's deadline, a cancel or the step limit, and the abort has to end it. An abort
+// that reaches the upstream fetch only through `new Request(input, init).signal` is lost once that Request is
+// garbage-collected (undici follows the caller's signal through a WeakRef), and the read then waits out undici's 300 s
+// body timeout: 4 eval runs hung 4–6 minutes on one request that way (PR #157). So the caller's own signal ends both
+// the wait for headers and the body, whatever the handler does with it.
+export const abortable =
+  (handler: ModelHandler): typeof fetch =>
+  async (input, init) => {
+    const request = new Request(input, init);
+    const signal =
+      init?.signal ?? (input instanceof Request ? input.signal : undefined);
+    if (!signal) {
+      return await handler(request);
     }
-    return modelFetch(
-      new Request(input, init),
-      process.env as unknown as ModelEnv,
-      {
-        logPayload: true,
-        metadata: { agent: "eval", draftId: "eval" },
-      }
-    );
+    signal.throwIfAborted();
+    // oxlint-disable-next-line promise/avoid-new -- settles once: the response or the caller's abort, whichever is first
+    const response = await new Promise<Response>((resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), {
+        once: true,
+      });
+      resolve(handler(request));
+    });
+    return response.body
+      ? new Response(
+          response.body.pipeThrough(new TransformStream(), { signal }),
+          response
+        )
+      : response;
   };
+
+// The eval's calls keep full gateway logs (#125), tagged apart from any Draft's.
+const evalHandler: ModelHandler = (request) =>
+  modelFetch(request, process.env as unknown as ModelEnv, {
+    logPayload: true,
+    metadata: { agent: "eval", draftId: "eval" },
+  });
+
+// The Coder's Container sends them on to the network, where its outbound handler in the Worker adds the key.
+const realFetch = globalThis.fetch;
+export const networkHandler: ModelHandler = (request) => realFetch(request);
+
+let handler: ModelHandler | undefined;
+export const routeModels = (next: ModelHandler) => {
+  if (!handler) {
+    globalThis.fetch = (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      return handler && new URL(url).host === MODELS_HOST
+        ? abortable(handler)(input, init)
+        : realFetch(input, init);
+    };
+  }
+  handler = next;
 };
 
 export const CANDIDATES = {
@@ -90,7 +124,7 @@ export const resolve = (id: string) => {
   if (missing.length > 0) {
     throw new Error(`${missing.join(", ")} missing from apps/maker/.env`);
   }
-  routeModels();
+  routeModels(evalHandler);
   return model;
 };
 
@@ -104,7 +138,7 @@ export const talkerModelRef = (model: Model<Api>) => ({
 
 // pi-durable's model registry (the Talker, the judge): the same routes.
 export const createRegistry = (): MutableModels => {
-  routeModels();
+  routeModels(evalHandler);
   const models = createModels();
   models.setProvider(
     createProvider({

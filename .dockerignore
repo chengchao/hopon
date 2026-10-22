@@ -1,0 +1,11 @@
+# The only image built from the repo is the Coder's (apps/maker/Dockerfile): send it just what it copies.
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!apps/maker/package.json
+!apps/maker/agent-home
+!apps/maker/src
+!packages/model-fetch/package.json
+!packages/model-fetch/index.ts
+**/*.test.ts

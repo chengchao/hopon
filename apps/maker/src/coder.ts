@@ -1,12 +1,14 @@
+import { once } from "node:events";
 // The Coder (#122): one build job in, events out. A fresh pi-coding-agent session per job, pi's read/bash/edit/write
 // plus a playtest tool executing in the Draft's E2B box, the job's source written over the workspace first. The eval
-// runs it in-process; the Container will wrap the same function in POST /jobs/:jobId.
+// runs it in-process; the Container wraps the same function in POST /jobs/:jobId (server.ts).
 import { cpSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import { InMemoryCredentialStore, Type } from "@earendil-works/pi-ai";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -21,8 +23,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Sandbox } from "e2b";
 
-import { createBox, run, WORKSPACE } from "./box.ts";
-import { apiKey, resolve } from "./models.ts";
+import { run, WORKSPACE } from "./box.ts";
+import { apiKey } from "./models.ts";
 import { createE2BTools } from "./ops.ts";
 
 const AGENT_HOME = path.join(import.meta.dirname, "..", "agent-home");
@@ -34,6 +36,8 @@ export const DEADLINE_MS = 120_000;
 const MUSIC_EXTRA_MS = 30_000;
 const deadlineFor = (job: { spec: { music: string | null } }) =>
   DEADLINE_MS + (job.spec.music ? MUSIC_EXTRA_MS : 0);
+// pi settles within moments of an abort; this bounds a tool call that doesn't, so a stopped job still ends on time.
+const SETTLE_MS = 5000;
 const MUSIC_MIN_S = 20;
 const MUSIC_MAX_S = 40;
 
@@ -114,6 +118,7 @@ const readText = async (sandbox: Sandbox, file: string) => {
 
 // What the Creator would get: the files a Revision holds (#117). music.opus is the harness's, from music.wav.
 const REVISION_FILES = ["index.html", "game.ts", "game.js", "music.mjs"];
+const MUSIC = "music.opus";
 
 const renderMusic = async (sandbox: Sandbox) => {
   const result = await run(
@@ -159,13 +164,15 @@ export const prompt = ({ revision, spec }: Job) =>
 export type Thinking = NonNullable<CreateAgentSessionOptions["thinkingLevel"]>;
 
 export interface RunOptions {
-  modelId: string;
+  model: Model<Api>;
   job: Job;
+  // The Draft's box; the caller opens it and pauses or kills it after.
+  sandbox: Sandbox;
   onEvent?: (event: CoderEvent) => void;
+  // The Talker's cancel: the job ends `failed`.
+  signal?: AbortSignal;
   maxSteps?: number;
   deadlineMs?: number;
-  // Keeps the box for the caller's own checks (the eval's final playtest); the caller kills it.
-  keepBox?: boolean;
   // "off" breaks Claude 5.5; low is the floor that works everywhere (#115).
   thinking?: Thinking;
 }
@@ -184,13 +191,12 @@ const screenshots = async (sandbox: Sandbox) =>
 // pi's session for one job: the loader's cwd is a copy of agent-home (AGENTS.md, skills), so pi's ancestor walk finds
 // nothing of this repo's; the session's cwd is the box's workspace.
 const openSession = async (
-  modelId: string,
+  model: Model<Api>,
   sandbox: Sandbox,
   // oxlint-disable-next-line no-explicit-any -- pi's own ToolDefinition<any, any>
   playtestTool: ToolDefinition<any, any>,
   thinking: Thinking
 ) => {
-  const model = resolve(modelId);
   const home = mkdtempSync(path.join(tmpdir(), "hopon-coder-"));
   cpSync(AGENT_HOME, home, { recursive: true });
   const modelRuntime = await ModelRuntime.create({
@@ -241,8 +247,12 @@ const totalUsage = (assistant: AssistantMessage[]) => {
   return usage;
 };
 
-// The Revision's changed and deleted files, against the source the job sent.
-const diffRevision = async (sandbox: Sandbox, source: Job["source"]) => {
+// The Revision's changed and deleted files, against the source the job sent, plus music.opus when the job rendered it.
+const diffRevision = async (
+  sandbox: Sandbox,
+  source: Job["source"],
+  music: boolean
+) => {
   const texts = await Promise.all(
     REVISION_FILES.map((file) => readText(sandbox, file))
   );
@@ -256,25 +266,46 @@ const diffRevision = async (sandbox: Sandbox, source: Job["source"]) => {
       files[file] = text;
     }
   }
+  if (music) {
+    files[MUSIC] = Buffer.from(
+      await sandbox.files.read(`${WORKSPACE}/${MUSIC}`, { format: "bytes" })
+    ).toString("base64");
+  }
   return { deleted, files };
 };
 
-export const runJob = async ({
-  modelId,
-  job,
-  onEvent,
-  maxSteps = MAX_STEPS,
-  deadlineMs,
-  keepBox = false,
-  thinking = "low",
-}: RunOptions) => {
-  const started = Date.now();
-  const sandbox = await createBox();
+// The workspace holds exactly the job's source: a box left dirty by a failed or stopped job starts from Revision n.
+const restore = async (sandbox: Sandbox, source: Job["source"]) => {
+  await run(sandbox, `find ${WORKSPACE} -mindepth 1 -delete`);
   await Promise.all(
-    Object.entries(job.source).map(([file, text]) =>
+    Object.entries(source).map(([file, text]) =>
       sandbox.files.write(`${WORKSPACE}/${file}`, text)
     )
   );
+};
+
+// A build without a green playtest never becomes a Revision (#122).
+const failure = (stopped: string | undefined, playtests: PlaytestResult[]) => {
+  if (stopped || playtests.at(-1)?.ok === true) {
+    return stopped;
+  }
+  return playtests.length === 0
+    ? "never playtested"
+    : "last playtest not green";
+};
+
+export const runJob = async ({
+  model,
+  job,
+  sandbox,
+  onEvent,
+  signal,
+  maxSteps = MAX_STEPS,
+  deadlineMs,
+  thinking = "low",
+}: RunOptions) => {
+  const started = Date.now();
+  await restore(sandbox, job.source);
 
   const playtests: PlaytestResult[] = [];
   let lastInputs: Inputs = [];
@@ -314,10 +345,18 @@ export const runJob = async ({
     }),
     promptSnippet: "Typecheck and play the game, with screenshots",
   });
-  const session = await openSession(modelId, sandbox, playtestTool, thinking);
+  const session = await openSession(model, sandbox, playtestTool, thinking);
 
   let steps = 0;
+  // Why the job was stopped: the step limit, the deadline or a cancel. pi's abort ends the model request too (see
+  // abortable in models.ts).
   let limit: string | undefined;
+  const halted = new AbortController();
+  const halt = (reason: string) => {
+    limit ??= reason;
+    void session.abort();
+    halted.abort();
+  };
   const errors: string[] = [];
   const toolCalls: { tool: string; ms: number; command?: string }[] = [];
   const commands = new Map<string, string>();
@@ -328,8 +367,7 @@ export const runJob = async ({
       commands.set(event.toolCallId, String(event.args?.command ?? ""));
       startedAt.set(event.toolCallId, Date.now());
       if (steps > maxSteps) {
-        limit = `over ${maxSteps} steps`;
-        void session.abort();
+        halt(`over ${maxSteps} steps`);
         return;
       }
       onEvent?.({ label: stepLabel(event.toolName, event.args), type: "step" });
@@ -350,16 +388,29 @@ export const runJob = async ({
     }
   });
   const deadlineAfter = deadlineMs ?? deadlineFor(job);
-  const deadline = setTimeout(() => {
-    limit = `past the ${deadlineAfter / 1000} s deadline`;
-    void session.abort();
-  }, deadlineAfter);
-  try {
-    await session.prompt(prompt(job));
-  } catch (error) {
-    errors.push(String(error));
+  const deadline = setTimeout(
+    () => halt(`past the ${deadlineAfter / 1000} s deadline`),
+    deadlineAfter
+  );
+  const cancel = () => halt("cancelled");
+  signal?.addEventListener("abort", cancel, { once: true });
+  if (signal?.aborted) {
+    cancel();
   }
+  const prompted = async () => {
+    try {
+      await session.prompt(prompt(job));
+    } catch (error) {
+      errors.push(String(error));
+    }
+  };
+  const settled = async () => {
+    await once(halted.signal, "abort");
+    await sleep(SETTLE_MS, undefined, { ref: false });
+  };
+  await Promise.race([prompted(), settled()]);
   clearTimeout(deadline);
+  signal?.removeEventListener("abort", cancel);
 
   const assistant = session.messages.filter(
     (message): message is AssistantMessage => message.role === "assistant"
@@ -371,36 +422,31 @@ export const runJob = async ({
     .trim();
   session.dispose();
 
-  // A build without a green playtest never becomes a Revision (#122).
-  let reason: string | undefined = limit ?? errors[0];
-  if (!reason && playtests.at(-1)?.ok !== true) {
-    reason =
-      playtests.length === 0 ? "never playtested" : "last playtest not green";
-  }
+  let reason = failure(limit ?? errors[0], playtests);
   if (!reason && job.spec.music) {
     reason = (await renderMusic(sandbox)) ?? reason;
   }
-  const { deleted, files } = await diffRevision(sandbox, job.source);
+  const { deleted, files } = await diffRevision(
+    sandbox,
+    job.source,
+    !reason && Boolean(job.spec.music)
+  );
   const seconds = (Date.now() - started) / 1000;
   onEvent?.(
     reason
       ? { reason, type: "failed" }
       : { deleted, files, summary, type: "done" }
   );
-  if (!keepBox) {
-    await sandbox.kill();
-  }
   return {
     errors,
     files,
     firstGreen: playtests[0]?.ok === true,
     imagesSent,
     lastInputs,
-    model: modelId,
+    model: model.id,
     ok: !reason,
     playtests,
     reason,
-    sandbox,
     seconds,
     steps,
     summary,

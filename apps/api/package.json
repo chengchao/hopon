@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --ip 0.0.0.0",
+    "dev:coder": "wrangler dev --enable-containers --ip 0.0.0.0",
     "dev:offline": "wrangler dev --local --ip 0.0.0.0 --var HOPON_OFFLINE:1",
     "db:generate": "drizzle-kit generate",
     "db:local": "wrangler d1 migrations apply DB --local",
@@ -15,7 +16,9 @@
   },
   "dependencies": {
     "@clerk/backend": "^3.22.0",
+    "@cloudflare/containers": "0.3.7",
     "@hono/zod-validator": "^0.9.1",
+    "@hopon/model-fetch": "workspace:*",
     "@hopon/schemas": "workspace:*",
     "drizzle-orm": "^0.45.3",
     "effect": "^4.0.1",
