@@ -11,9 +11,10 @@ import path from "node:path";
 
 import type { Sandbox } from "e2b";
 
-import { WORKSPACE } from "../src/box.ts";
-import { boxPlaytest, runJob } from "../src/coder.ts";
+import { createBox, EVAL_TEMPLATE, WORKSPACE } from "../src/box.ts";
+import { boxPlaytest, MUSIC, runJob } from "../src/coder.ts";
 import type { Spec, Thinking } from "../src/coder.ts";
+import { resolve } from "../src/models.ts";
 import { judgeCoder } from "./judge.ts";
 
 const EVAL = import.meta.dirname;
@@ -177,30 +178,33 @@ export const runCoder = async ({
   const source = revision?.source ?? (job.base ? readRevision(job.base) : {});
   const n = revision?.n ?? (job.base ? 1 : 0);
   const events: unknown[] = [];
-  const result = await runJob({
-    job: {
-      draftId: `eval-${job.id}-${run}`,
-      revision: n,
-      source,
-      spec: job.spec,
-    },
-    keepBox: true,
-    modelId,
-    onEvent: (event) =>
-      events.push({
-        at: Date.now(),
-        ...event,
-        ...("files" in event && { files: Object.keys(event.files) }),
-      }),
-    thinking,
-  });
-  const { sandbox } = result;
+  const model = resolve(modelId);
+  const sandbox = await createBox(EVAL_TEMPLATE);
   try {
+    const result = await runJob({
+      job: {
+        draftId: `eval-${job.id}-${run}`,
+        revision: n,
+        source,
+        spec: job.spec,
+      },
+      model,
+      onEvent: (event) =>
+        events.push({
+          at: Date.now(),
+          ...event,
+          ...("files" in event && { files: Object.keys(event.files) }),
+        }),
+      sandbox,
+      thinking,
+    });
     const final = result.ok
       ? await finalChecks(sandbox, result.lastInputs)
       : undefined;
     const finalGreen = final?.replay.ok === true && final.random.ok;
-    const files = { ...source, ...result.files };
+    // saveArtifacts keeps music.opus as bytes; the judge reads text.
+    const { [MUSIC]: _opus, ...changed } = result.files;
+    const files = { ...source, ...changed };
     const { start, end } = await saveArtifacts(sandbox, dir, files);
 
     // Only a game that could become a Revision is judged; a red one fails anyway.

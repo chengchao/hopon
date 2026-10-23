@@ -9,7 +9,7 @@ The suite #115 defines, kept here and run by hand on a model or framework upgrad
 - `results/`: the committed report of each sweep.
 
 ```bash
-pnpm -F maker template                                 # once, or after changing image/
+pnpm -F maker template eval                            # once, or after changing image/
 pnpm -F maker eval freeze                              # the edits' starting Revisions, if missing
 pnpm -F maker eval smoke                               # Kimi: 5 jobs, images in tool results, median ≤ 120 s
 pnpm -F maker eval coder --models a,b [--runs 3] [--jobs id,id] [--concurrency 6] [--sweep name]

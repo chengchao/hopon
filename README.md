@@ -41,6 +41,14 @@ apps/api/      Cloudflare Worker API（D1 + Drizzle、Workers AI、Clerk JWT 校
    echo 'OPERATOR_PASSWORD=...' >> apps/api/.dev.vars
    ```
 
+7. Maker 的 Coder 是一个 Cloudflare Container（`apps/maker/Dockerfile`），每个 Draft 一个实例。它的模型请求经 Worker 的 `modelFetch` 发出，要用 `CLOUDFLARE_API_KEY`（需 AI Gateway Run 和 Workers AI 权限）；它的 E2B box 要用 `E2B_API_KEY`，这是唯一进入容器的密钥。两者都列在 `secrets.required` 里，值与 `apps/maker/.env` 中的相同，写入 `apps/api/.dev.vars`：
+
+   ```sh
+   grep -E '^(CLOUDFLARE_API_KEY|E2B_API_KEY)=' apps/maker/.env >> apps/api/.dev.vars
+   ```
+
+   `pnpm run api` 不启动容器。要本地跑 Coder，先打开 Docker Desktop，再运行 `pnpm -F api dev:coder`（首次会构建镜像），然后在另一个终端用 `pnpm -F api smoke:coder` 给一个新 Draft 发一个真实的构建任务（加 `--music` 带音乐）：它会逐条打印事件，最后删掉这个 Draft 的 box。用的是真实模型和 E2B，一次大约一分钟。
+
 ## 本地运行
 
 ```sh

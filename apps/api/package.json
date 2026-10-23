@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --ip 0.0.0.0",
+    "dev:coder": "wrangler dev --enable-containers --var CODER_DEV:1 --ip 0.0.0.0",
+    "smoke:coder": "node scripts/coder-smoke.mjs",
     "dev:offline": "wrangler dev --local --ip 0.0.0.0 --var HOPON_OFFLINE:1",
     "db:generate": "drizzle-kit generate",
     "db:local": "wrangler d1 migrations apply DB --local",
@@ -15,6 +17,7 @@
   },
   "dependencies": {
     "@clerk/backend": "^3.22.0",
+    "@cloudflare/containers": "0.3.7",
     "@earendil-works/pi-ai": "1.3.0",
     "@earendil-works/pi-durable": "1.3.0",
     "@hono/zod-validator": "^0.9.1",

@@ -3,6 +3,9 @@
 // and tags the call for the AI Gateway's logs, which are the only record (#120). Errors pass through; no retry.
 // At launch the only route is `/anthropic/v1/messages`.
 
+// The host pi-ai's Claude requests go to (`baseUrl` `http://models.internal/anthropic`); only modelFetch answers it.
+export const MODELS_HOST = "models.internal";
+
 // The Worker's `env` or the eval's `process.env`.
 export interface ModelEnv {
   CLOUDFLARE_ACCOUNT_ID: string;
