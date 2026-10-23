@@ -19,8 +19,9 @@ test("every env value the Worker reads is declared in wrangler.jsonc", () => {
         .match(/interface __BaseEnv_Env \{(?<body>[^}]*)\}/u)
         .groups.body.matchAll(/^\s*(?<name>\w+):/gmu),
     ].map((m) => m.groups.name),
-    // Set by `pnpm api:offline` with `--var`, not by wrangler.jsonc.
+    // Set with `--var` by `pnpm api:offline` and `pnpm -F api dev:coder`, not by wrangler.jsonc.
     "HOPON_OFFLINE",
+    "CODER_DEV",
   ]);
   const used = new Set(
     [...source.matchAll(/\benv\.(?<name>[A-Z][A-Z0-9_]*)\b/gu)].map(
@@ -49,5 +50,20 @@ test("deleteGames deletes every table that points at games", () => {
     children.filter((table) => !deleted.has(table)),
     [],
     "delete it in deleteGames (apps/api/src/index.ts)"
+  );
+});
+
+// wrangler only warns about a missing secret, so a new one nobody has set locally fails much later, far from its cause.
+test("every secret the Worker requires has a setup step in the README", () => {
+  const required = read("../wrangler.jsonc")
+    .match(/"required":\s*\[(?<body>[^\]]*)\]/u)
+    .groups.body.matchAll(/"(?<name>[A-Z][A-Z0-9_]*)"/gu);
+  const readme = read("../../../README.md");
+  assert.deepEqual(
+    [...required]
+      .map((m) => m.groups.name)
+      .filter((name) => !readme.includes(name)),
+    [],
+    "add a step for it to README.md's setup (where its value comes from, and the .dev.vars line)"
   );
 });
