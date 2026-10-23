@@ -59,7 +59,7 @@ export const TERMS = page(
 
 <h2>What happens</h2>
 <ul>
-<li>Screening checks the sentence a game is made from, a game's title and description, comments and names, and refuses text that breaks the Rules before anyone else sees it.</li>
+<li>Screening checks every message to the Maker, a game's title and description, comments and names, and refuses text that breaks the Rules before anyone else sees it.</li>
 <li>We review every report within 24 hours.</li>
 <li>Games and comments that break the Rules are deleted.</li>
 <li>People who post them can be banned: they can no longer sign in, and all their games and comments are deleted.</li>
@@ -90,16 +90,25 @@ export const PRIVACY = page(
 <li><strong>Your email address</strong>, to sign you in with a one-time code. <a href="https://clerk.com/legal/privacy">Clerk</a> handles sign-in and stores it for us.</li>
 <li><strong>Your account ID and @handle</strong>, to show who made a game or comment.</li>
 <li><strong>What you post</strong>: the games you make and publish, your comments, and the reports you send.</li>
+<li><strong>Your chats with the Maker</strong>: your messages and the games it makes from them, while they are Drafts.</li>
 <li><strong>What you do in the app</strong>: the games you save and like, and the people you block. Only you see your saves and blocks.</li>
 </ul>
-<p>The sentence you make a game from goes to <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare</a> Workers AI, which writes the game. We don't keep the sentence. Cloudflare also hosts hopon.</p>
 <p>No ads, no tracking across other apps or websites, and we never sell your data.</p>
+
+<h2 id="maker">The Maker</h2>
+<p>When you make a game, your messages to the Maker and the game it makes from them (its code and pictures of it being played) go to these companies. Your email and account don't.</p>
+<ul>
+<li><strong>Anthropic</strong>: its Claude models are the Maker's AI. Anthropic doesn't train on what it receives and deletes it within 30 days, unless it is flagged for breaking Anthropic's usage policy.</li>
+<li><strong>Cloudflare</strong> hosts hopon, carries messages to the AI and runs Screening on every message. Cloudflare doesn't train on them.</li>
+<li><strong>E2B</strong> runs and plays the game's code in the US while the Maker builds it. The copy is deleted after a day without changes.</li>
+</ul>
+<p>We keep a Draft's chat and game until you Delete the Draft or publish it. Publishing keeps the game and deletes the chat. Text that Screening refuses is never kept.</p>
 
 <h2>Who sees it</h2>
 <p>Published games and comments, with your @handle, are public, and so is how many people like a game, but not who. Drafts, saves, blocks and your email are not public. We review what's reported to us.</p>
 
 <h2 id="delete-account">Deleting your account</h2>
-<p>Delete your account from the Me tab. That deletes your sign-in and email. Games you published and comments you posted stay up under your @handle; email ${contact} to have them deleted too.</p>
+<p>Delete your account from the Me tab. That deletes your sign-in and email, and all your Drafts with their chats. Games you published and comments you posted stay up under your @handle; email ${contact} to have them deleted too.</p>
 
 <h2>Contact</h2>
 <p>Questions about your data: ${contact}.</p>`

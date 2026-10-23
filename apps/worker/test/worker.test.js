@@ -111,6 +111,19 @@ const setup = async (t) => {
     }),
     newUniqueId: () => ({ toString: () => randomBytes(32).toString("hex") }),
   };
+  // Each Draft's Coder, faked: only `DELETE /box` is the Worker's to call. A test sets `coder.status` to make it fail.
+  const coder = { status: 204 };
+  const CODER = {
+    getByName: (draft) => ({
+      fetch: (url, init) => {
+        forwarded.push({
+          action: `${init.method} ${new URL(url).pathname}`,
+          draft,
+        });
+        return Promise.resolve(new Response(null, { status: coder.status }));
+      },
+    }),
+  };
   const env = {
     AI: {
       run: (model, input) =>
@@ -120,6 +133,7 @@ const setup = async (t) => {
     },
     AI_MODEL: "@cf/moonshotai/kimi-k2.5",
     CLERK_JWT_KEY,
+    CODER,
     DB,
     FILES: proxy.env.FILES,
     OPERATOR_PASSWORD,
@@ -202,7 +216,17 @@ const setup = async (t) => {
       env,
       ctx
     );
-  return { ai, call, count, env, forwarded, operate, owner, settled };
+  return {
+    ai,
+    call,
+    coder,
+    count,
+    env,
+    forwarded,
+    operate,
+    owner,
+    settled,
+  };
 };
 test("AI JSON boundary rejects invalid and truncated output", async () => {
   assert.deepEqual(
@@ -2131,6 +2155,23 @@ test("pages: /terms has the Rules, /support the contact address and /privacy the
   assert.equal(privacy.status, 200);
   assert.match(await privacy.text(), /<title>Privacy Policy<\/title>/u);
 });
+
+// #125's copy: the app's AI sheet links to /privacy#maker, which names who processes messages.
+test("pages: /privacy#maker names the Maker's processors and the Terms screen every message to the Maker", async (t) => {
+  const { call } = await setup(t);
+  const privacy = await call("/privacy", { user: "" }).then((r) => r.text());
+  assert.match(privacy, /<h2 id="maker">The Maker<\/h2>/u);
+  for (const company of ["Anthropic", "Cloudflare", "E2B"]) {
+    assert.match(privacy, new RegExp(`<strong>${company}</strong>`, "u"));
+  }
+  assert.match(privacy, /within 30 days/u);
+  assert.match(privacy, /your chats with the Maker/iu);
+  assert.match(privacy, /and all your Drafts with their chats/u);
+  assert.doesNotMatch(privacy, /Workers AI/u);
+  const terms = await call("/terms", { user: "" }).then((r) => r.text());
+  assert.match(terms, /every message to the Maker/u);
+  assert.doesNotMatch(terms, /the sentence a game is made from/u);
+});
 // `commented`, plus a published game by user_fan that user_owner saved, and a comment from each of them on an Original.
 const feuding = async (call) => {
   const posted = await commented(call);
@@ -2419,8 +2460,10 @@ test("drafts: born on a screened first message, listed newest first for their ow
     method: "POST",
   });
   assert.equal(first.status, 201);
-  const { id: a } = await first.json();
+  // With the message's operation id, which the Talker's submission events name, as the messages route answers.
+  const { id: a, message } = await first.json();
   assert.match(a, /^[0-9a-f]{64}$/u);
+  assert.equal(message, "op");
   assert.deepEqual(forwarded, [
     { action: "message", draft: a, text: "A cat that jumps over moons" },
   ]);
@@ -2595,6 +2638,11 @@ const withRevision = async ({ call, env }, n = 3) => {
   await env.FILES.put(`drafts/${id}/${n}/game.js`, "engineInit();");
   return id;
 };
+// The ids /api/drafts lists for `user` (the owner by default).
+const draftIds = async (call, user) => {
+  const { drafts } = await json(call("/api/drafts", user ? { user } : {}));
+  return drafts.map((d) => d.id);
+};
 // The path of the link the app gets for a Draft, and a signed-out request for one of its files.
 const preview = async (call, id) => {
   const { url } = await json(call(`/api/drafts/${id}/preview`));
@@ -2702,4 +2750,111 @@ test("preview: only the Draft's owner can mint a link, and only once it has a ga
   const none = await mint(empty);
   assert.equal(none.status, 404);
   assert.deepEqual(await none.json(), { error: "This Draft has no game yet." });
+});
+
+test("delete: a Draft goes with its row, its files, its Talker and its box; anyone else's is a 404", async (t) => {
+  const context = await setup(t);
+  const { call, count, env, forwarded } = context;
+  const id = await withRevision(context);
+  const kept = await withRevision(context);
+  const link = await preview(call, id);
+  const { ticket } = await json(
+    call(`/api/drafts/${id}/ws-ticket`, { method: "POST" })
+  );
+  assert.equal(
+    await status(call(`/api/drafts/${id}`, { method: "DELETE", user: "" })),
+    401
+  );
+  for (const [draft, user] of [
+    [id, "user_other"],
+    ["a".repeat(64), undefined],
+  ]) {
+    // oxlint-disable-next-line no-await-in-loop -- one Draft at a time
+    const response = await call(`/api/drafts/${draft}`, {
+      method: "DELETE",
+      ...(user ? { user } : {}),
+    });
+    assert.equal(response.status, 404);
+    // oxlint-disable-next-line no-await-in-loop -- one Draft at a time
+    assert.deepEqual(await response.json(), { error: "Draft not found." });
+  }
+  assert.equal(await count("drafts"), 2);
+  forwarded.length = 0;
+  assert.equal(
+    await status(call(`/api/drafts/${id}`, { method: "DELETE" })),
+    204
+  );
+  assert.deepEqual(forwarded, [
+    { action: "delete", draft: id },
+    { action: "DELETE /box", draft: id },
+  ]);
+  assert.deepEqual(await draftIds(call), [kept]);
+  const { objects } = await env.FILES.list({ prefix: "drafts/" });
+  assert.deepEqual(
+    objects.map((o) => o.key.split("/")[1]),
+    [kept, kept]
+  );
+  // The preview link and the socket are gone with it, and so is every route.
+  assert.equal(await status(open(call, link)), 404);
+  assert.equal(
+    await status(
+      call(`/api/drafts/${id}/ws?ticket=${encodeURIComponent(ticket)}`, {
+        user: "",
+      })
+    ),
+    404
+  );
+  assert.equal(
+    await status(call(`/api/drafts/${id}`, { method: "DELETE" })),
+    404
+  );
+});
+
+test("delete: a failure on the way keeps the Draft listed, so a retry finishes the job", async (t) => {
+  const context = await setup(t);
+  const { call, coder, env } = context;
+  const id = await withRevision(context);
+  coder.status = 502;
+  assert.equal(
+    await status(call(`/api/drafts/${id}`, { method: "DELETE" })),
+    500
+  );
+  assert.deepEqual(await draftIds(call), [id]);
+  coder.status = 204;
+  assert.equal(
+    await status(call(`/api/drafts/${id}`, { method: "DELETE" })),
+    204
+  );
+  assert.deepEqual(await json(call("/api/drafts")), { drafts: [] });
+  const { objects } = await env.FILES.list({ prefix: "drafts/" });
+  assert.deepEqual(objects, []);
+});
+
+test("delete: DELETE /api/drafts takes every Draft of the caller and none of anyone else's", async (t) => {
+  const context = await setup(t);
+  const { call, forwarded } = context;
+  const mine = [await withRevision(context), await withRevision(context)];
+  const { id: theirs } = await json(
+    call("/api/drafts", {
+      body: { text: "A dog game" },
+      method: "POST",
+      user: "user_other",
+    })
+  );
+  assert.equal(
+    await status(call("/api/drafts", { method: "DELETE", user: "" })),
+    401
+  );
+  forwarded.length = 0;
+  assert.equal(await status(call("/api/drafts", { method: "DELETE" })), 204);
+  assert.deepEqual(
+    forwarded.map((f) => `${f.action} ${f.draft}`).toSorted(),
+    mine.flatMap((id) => [`delete ${id}`, `DELETE /box ${id}`]).toSorted()
+  );
+  assert.deepEqual(await json(call("/api/drafts")), { drafts: [] });
+  assert.deepEqual(await draftIds(call, "user_other"), [theirs]);
+  const { objects } = await context.env.FILES.list({ prefix: "drafts/" });
+  assert.deepEqual(objects, []);
+  // Nothing left: still a 204.
+  assert.equal(await status(call("/api/drafts", { method: "DELETE" })), 204);
 });
