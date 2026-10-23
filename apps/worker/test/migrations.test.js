@@ -21,6 +21,7 @@ export const copiedColumns = (sql) =>
 
 test("table rebuilds copy only columns the old table has", async (t) => {
   const proxy = await getPlatformProxy({
+    configPath: new URL("wrangler.jsonc", import.meta.url).pathname,
     envFiles: [],
     persist: false,
     remoteBindings: false,

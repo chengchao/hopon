@@ -1,7 +1,7 @@
 // The Talker under wrangler (#141): the prototype's evict and snapshot scripts (prototype/talker-framework,
 // apps/talker-proto/scripts/evict.sh and snap.sh), kept as the upgrade test for PiHarness and pi-durable. Re-run it
 // whenever agents, pi-durable or pi-ai change. It makes real model calls through modelFetch, so it needs
-// CLOUDFLARE_API_KEY in the environment:
+// CLOUDFLARE_API_KEY in the environment (CI runs it from .github/workflows/talker.yml):
 //
 //   CLOUDFLARE_API_KEY=… node scripts/talker-check.mjs
 //
@@ -69,8 +69,10 @@ const run = async (args) => {
   assert.equal(code, 0, `wrangler ${args[0]} exited ${code}`);
 };
 
-// HOPON_OFFLINE skips Screening, which isn't under test, so nothing needs the remote AI binding.
+// HOPON_OFFLINE skips Screening, which isn't under test, so nothing needs the remote AI binding. In CI (`CI` set), the
+// server's log is printed only when a step fails.
 let server;
+const serverLog = [];
 const start = async () => {
   server = spawn(
     "npx",
@@ -89,12 +91,15 @@ const start = async () => {
     ],
     { cwd: API, detached: true, stdio: ["ignore", "pipe", "pipe"] }
   );
-  server.stdout.on("data", (data) =>
-    process.stdout.write(
-      `${`  | ${data}`.replaceAll("\n", "\n  | ").trimEnd()}\n`
-    )
-  );
-  server.stderr.on("data", (data) => process.stderr.write(`  | ${data}`));
+  for (const stream of [server.stdout, server.stderr]) {
+    stream.on("data", (data) => {
+      const lines = `${`  | ${data}`.replaceAll("\n", "\n  | ").trimEnd()}\n`;
+      serverLog.push(lines);
+      if (!process.env.CI) {
+        process.stdout.write(lines);
+      }
+    });
+  }
   for (;;) {
     try {
       // oxlint-disable-next-line no-await-in-loop -- polling until the server answers
@@ -390,6 +395,11 @@ try {
   log("all checks passed");
   client.reconnect = false;
   client.close();
+} catch (error) {
+  if (process.env.CI) {
+    process.stdout.write(serverLog.join(""));
+  }
+  throw error;
 } finally {
   kill();
 }
