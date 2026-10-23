@@ -2,14 +2,28 @@ import { useAuth, useUser } from "@clerk/expo";
 import { newMessage, PROMPT_MAX } from "@hopon/schemas";
 import type { DraftSummary } from "@hopon/schemas";
 import { Redirect, router } from "expo-router";
-import { ArrowUp, ChevronDown, List, Square } from "lucide-react-native";
+import {
+  ArrowUp,
+  ChevronDown,
+  List,
+  Play as PlayIcon,
+  Square,
+} from "lucide-react-native";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Keyboard, KeyboardAvoidingView, ScrollView, View } from "react-native";
+import {
+  ActivityIndicator,
+  Keyboard,
+  KeyboardAvoidingView,
+  Pressable,
+  ScrollView,
+  View,
+} from "react-native";
 import type { TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AiSheet } from "@/components/ai-sheet";
 import { DraftList } from "@/components/draft-list";
+import { Play } from "@/components/play";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Textarea } from "@/components/ui/textarea";
@@ -43,13 +57,43 @@ const examples = [
 // The counter shows only this close to PROMPT_MAX.
 const COUNTER_FROM = PROMPT_MAX - 200;
 
+// A build's game card (#148): the latest opens Play, older ones are a plain line, since their Revisions are gone.
+const Card = ({ row, onPlay }: { row: Row; onPlay: () => void }) =>
+  row.play ? (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPlay}
+      className="flex-row items-center gap-3 self-start rounded-2xl bg-primary px-4 py-3 active:opacity-80"
+    >
+      <PlayIcon color={COLORS.ink} fill={COLORS.ink} size={16} />
+      <Text className="font-strong text-base text-primary-foreground">
+        {row.text}
+      </Text>
+    </Pressable>
+  ) : (
+    <Text className="self-start text-sm text-muted-foreground">{row.text}</Text>
+  );
+
 const Bubble = ({
   row,
   onRetry,
+  onPlay,
 }: {
   row: Row;
   onRetry: (text: string) => void;
+  onPlay: () => void;
 }) => {
+  if (row.who === "card") {
+    return <Card row={row} onPlay={onPlay} />;
+  }
+  if (row.who === "status") {
+    return (
+      <View className="flex-row items-center gap-2 self-start">
+        <ActivityIndicator size="small" color={COLORS.paper} />
+        <Text className="text-sm text-muted-foreground">{row.text}</Text>
+      </View>
+    );
+  }
   if (row.who === "app") {
     return (
       <View className="items-center gap-2 py-1">
@@ -99,12 +143,17 @@ const Bubble = ({
 };
 
 const Header = ({
-  title,
+  draft,
   onDrafts,
+  canPlay,
+  onPlay,
 }: {
-  title: string;
+  draft: DraftSummary | null | undefined;
   // Unset while the chat can't switch yet.
   onDrafts?: () => void;
+  // Once there is a game.
+  canPlay: boolean;
+  onPlay: () => void;
 }) => (
   <View className="flex-row items-center gap-1 px-2 pb-2 pt-3">
     <Button
@@ -129,10 +178,10 @@ const Header = ({
       numberOfLines={1}
       className="flex-1 text-center font-strong text-base"
     >
-      {title}
+      {draft?.title ?? "New game"}
     </Text>
-    {/* Play and Publish come with their tickets. */}
-    <Button size="sm" variant="ghost" disabled>
+    {/* Publish comes with its ticket. */}
+    <Button size="sm" variant="ghost" disabled={!canPlay} onPress={onPlay}>
       <Text>Play</Text>
     </Button>
     <Button size="sm" className="rounded-full" disabled>
@@ -140,6 +189,12 @@ const Header = ({
     </Button>
   </View>
 );
+
+// The Draft, once it has a Revision to play: the Talker titled it, or this chat shows its card.
+const withGame = (draft: DraftSummary | null | undefined, rows: Row[]) =>
+  draft && (draft.title !== null || rows.some((row) => row.play))
+    ? draft
+    : undefined;
 
 // A thin bar under the header while the socket is down; the composer keeps working, since messages are POSTs.
 const LinkBar = ({ link, onRetry }: { link: Link; onRetry: () => void }) => {
@@ -172,11 +227,24 @@ const Create = () => {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [listing, setListing] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  // Turns ended since this chat opened; Play mints a fresh preview URL on each.
+  const [turns, setTurns] = useState(0);
+  // The build's timer ticks once a second while it runs.
+  const [now, setNow] = useState(Date.now);
   const keys = useRef(0);
   const opened = useRef(false);
   const scroll = useRef<ScrollView>(null);
   const composer = useRef<TextInput>(null);
-  const view = useMemo(() => chatView(chat), [chat]);
+  const view = useMemo(() => chatView(chat, now), [chat, now]);
+  const building = chat.build !== undefined;
+  useEffect(() => {
+    if (!building) {
+      return;
+    }
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [building]);
 
   const fetchDrafts = async () => {
     const list = await api<{ drafts: DraftSummary[] }>("/api/drafts", {
@@ -204,7 +272,10 @@ const Create = () => {
   });
 
   const onFrame = async (frame: Frame) => {
-    dispatch({ frame, type: "frame" });
+    dispatch({ at: Date.now(), frame, type: "frame" });
+    if (frame.type === "turn_done") {
+      setTurns((n) => n + 1);
+    }
     // The Talker names the game at the end of a turn that builds it.
     if (frame.type === "turn_done" && draft) {
       const drafts = await fetchDrafts().catch(() => []);
@@ -270,6 +341,7 @@ const Create = () => {
       return;
     }
     dispatch({ type: "reset" });
+    setPlaying(false);
     setDraft(next);
     setText("");
     setError("");
@@ -310,11 +382,16 @@ const Create = () => {
   const canSend = ready && newMessage.safeParse({ text: message }).success;
   const showStop = view.running && !message;
   const fresh = draft === null && view.rows.length === 0;
+  const game = withGame(draft, view.rows);
+  const play = () => {
+    Keyboard.dismiss();
+    setPlaying(true);
+  };
 
   return (
     <KeyboardAvoidingView behavior="padding" className="flex-1 bg-background">
       <Header
-        title={draft?.title ?? "New game"}
+        draft={draft}
         // Not before the list has answered, nor while a new chat's Draft is being born.
         onDrafts={
           ready
@@ -324,6 +401,8 @@ const Create = () => {
               }
             : undefined
         }
+        canPlay={game !== undefined}
+        onPlay={play}
       />
       {draft && <LinkBar link={link} onRetry={retry} />}
 
@@ -366,7 +445,7 @@ const Create = () => {
           </View>
         )}
         {view.rows.map((row) => (
-          <Bubble key={row.key} row={row} onRetry={send} />
+          <Bubble key={row.key} row={row} onRetry={send} onPlay={play} />
         ))}
       </ScrollView>
 
@@ -417,6 +496,9 @@ const Create = () => {
           </Text>
         )}
       </View>
+      {playing && game && (
+        <Play draft={game} turns={turns} onClose={() => setPlaying(false)} />
+      )}
       {listing && (
         <DraftList
           openId={draft?.id}
