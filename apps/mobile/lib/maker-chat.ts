@@ -7,15 +7,30 @@ interface Block {
   type: string;
   text?: string;
   thinking?: string;
+  // A toolCall's.
+  id?: string;
+  name?: string;
+  arguments?: { title?: string };
 }
 interface Message {
   role: string;
   content: string | Block[];
+  // A toolResult's.
+  toolCallId?: string;
+  toolName?: string;
+  isError?: boolean;
 }
 interface Entry {
   id: number;
   kind: string;
   model?: Message[];
+}
+// A running tool call; the build's output is the Coder's step labels, one a line.
+interface ToolSlot {
+  callId: string;
+  name: string;
+  status: string;
+  output?: string;
 }
 interface Snapshot {
   type: "snapshot";
@@ -23,7 +38,13 @@ interface Snapshot {
   inbox: { mode: string }[];
   run?: unknown;
   generation?: { message?: Message };
+  tools?: ToolSlot[];
 }
+type ToolOutput = { trimStart?: number; append?: string } | { set: string };
+type ToolEvent =
+  | { type: "tool_execution_start"; toolCallId: string; toolName: string }
+  | { type: "tool_execution_update"; toolCallId: string; output?: ToolOutput }
+  | { type: "tool_execution_end"; toolCallId: string; entry?: Entry };
 type Change =
   | {
       type: "text_start" | "thinking_start" | "toolcall_start" | "block";
@@ -45,6 +66,7 @@ type AgentEvent =
   // requestId is the operation id the messages POST answers with.
   | { type: "submission"; record: { requestId?: string; status: string } }
   | { type: "inbox_update"; items: { mode: string }[] }
+  | ToolEvent
   | { type: string; entry?: Entry };
 
 export type Frame =
@@ -71,6 +93,8 @@ export interface Chat {
   taken: string[];
   // How the last turn ended, when it didn't answer. Live only: a snapshot doesn't say.
   ended?: "stopped" | "failed";
+  // The Talker's build call while it runs (#148): its step labels so far, and when the app first saw it.
+  build?: { callId: string; output: string; since: number };
 }
 
 export const NEW_CHAT: Chat = {
@@ -81,7 +105,8 @@ export const NEW_CHAT: Chat = {
 };
 
 export type Action =
-  | { type: "frame"; frame: Frame }
+  // `at`: when the frame came in, for the build's timer.
+  | { type: "frame"; frame: Frame; at: number }
   | { type: "send"; key: string; text: string }
   | { type: "sent"; key: string; op: string }
   // Refused (Screening) or never delivered: the text goes back to the composer.
@@ -91,11 +116,13 @@ export type Action =
 
 export interface Row {
   key: string;
-  who: "creator" | "maker" | "app";
+  who: "creator" | "maker" | "app" | "status" | "card";
   text: string;
   queued?: boolean;
   // The message Try again re-sends.
   retry?: string;
+  // The latest game card, which opens Play.
+  play?: boolean;
 }
 
 const textOf = (message: Message | undefined) => {
@@ -115,13 +142,22 @@ const queuedCount = (items: { mode: string }[]) =>
 // A snapshot carries no submission records, only how many messages are still queued. They are the newest ones sent:
 // the Talker takes them in order. ponytail: a message sent while the snapshot was in flight can drop out of view
 // until the Talker takes it; snapshots with the inbox's operation ids would close that.
-const fromSnapshot = (chat: Chat, snapshot: Snapshot): Chat => {
+const fromSnapshot = (chat: Chat, snapshot: Snapshot, at: number): Chat => {
+  const slot = snapshot.tools?.find(
+    (tool) => tool.name === "build" && tool.status !== "done"
+  );
   const acked = chat.pending.filter((p) => p.op !== undefined);
   const stillQueued = new Set(
     acked.slice(acked.length - queuedCount(snapshot.inbox))
   );
   return {
     ...chat,
+    // ponytail: a snapshot doesn't say when the build started, so a build first seen in one counts from then.
+    build: slot && {
+      callId: slot.callId,
+      output: slot.output ?? "",
+      since: chat.build?.callId === slot.callId ? chat.build.since : at,
+    },
     ended: undefined,
     entries: snapshot.entries,
     partial: snapshot.generation?.message,
@@ -153,10 +189,40 @@ const applyChange = (message: Message, change: Change): Message => {
   return { ...message, content };
 };
 
-const applyEvent = (chat: Chat, event: AgentEvent): Chat => {
+const applyOutput = (output: string, change: ToolOutput | undefined) => {
+  if (!change) {
+    return output;
+  }
+  if ("set" in change) {
+    return change.set;
+  }
+  return output.slice(change.trimStart ?? 0) + (change.append ?? "");
+};
+
+// Of the tool events, only the build's show: its start, its step labels, its end.
+const applyTool = (chat: Chat, event: ToolEvent, at: number): Chat => {
+  if (event.type === "tool_execution_start") {
+    return event.toolName === "build"
+      ? { ...chat, build: { callId: event.toolCallId, output: "", since: at } }
+      : chat;
+  }
+  const { build } = chat;
+  if (build?.callId !== event.toolCallId) {
+    return chat;
+  }
+  if (event.type === "tool_execution_end") {
+    return { ...chat, build: undefined };
+  }
+  return {
+    ...chat,
+    build: { ...build, output: applyOutput(build.output, event.output) },
+  };
+};
+
+const applyEvent = (chat: Chat, event: AgentEvent, at: number): Chat => {
   if (event.type === "snapshot") {
     // pi replaces batches a slow socket missed with a fresh snapshot.
-    return fromSnapshot(chat, event as Snapshot);
+    return fromSnapshot(chat, event as Snapshot, at);
   }
   let next = chat;
   if ("entry" in event && event.entry) {
@@ -173,7 +239,10 @@ const applyEvent = (chat: Chat, event: AgentEvent): Chat => {
     return { ...next, ended: undefined, running: true };
   }
   if (event.type === "run_end") {
-    return { ...next, partial: undefined, running: false };
+    return { ...next, build: undefined, partial: undefined, running: false };
+  }
+  if ("toolCallId" in event) {
+    return applyTool(next, event as ToolEvent, at);
   }
   if (event.type === "message_start" && "message" in event) {
     return event.message.role === "assistant"
@@ -201,9 +270,9 @@ const applyEvent = (chat: Chat, event: AgentEvent): Chat => {
   return next;
 };
 
-const applyFrame = (chat: Chat, frame: Frame): Chat => {
+const applyFrame = (chat: Chat, frame: Frame, at: number): Chat => {
   if (frame.type === "snapshot") {
-    return fromSnapshot(chat, frame.data);
+    return fromSnapshot(chat, frame.data, at);
   }
   if (frame.type === "turn_failed") {
     // Stop is pi's abort; every other reason reads the same to the Creator (#119).
@@ -215,7 +284,7 @@ const applyFrame = (chat: Chat, frame: Frame): Chat => {
   let next = chat;
   if (frame.type === "batch") {
     for (const event of frame.data) {
-      next = applyEvent(next, event);
+      next = applyEvent(next, event, at);
     }
   }
   return next;
@@ -224,7 +293,7 @@ const applyFrame = (chat: Chat, frame: Frame): Chat => {
 export const makerChat = (chat: Chat, action: Action): Chat => {
   switch (action.type) {
     case "frame": {
-      return applyFrame(chat, action.frame);
+      return applyFrame(chat, action.frame, action.at);
     }
     case "send": {
       return {
@@ -258,18 +327,76 @@ const WHO: Record<string, Row["who"]> = {
   "pi.user": "creator",
 };
 
-export const chatView = (chat: Chat) => {
+// "1:12"
+const clock = (ms: number) => {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+};
+
+// The build's current step: the last label it passed on. Past steps aren't kept (#119).
+const stepOf = (output: string) =>
+  output.trim().split("\n").at(-1) || "Building";
+
+// `now` runs the build's timer.
+// The title each build call gave its game, by call id.
+const buildTitles = (entries: Entry[]) => {
+  const titles = new Map<string, string | undefined>();
+  for (const entry of entries) {
+    const content = entry.model?.[0]?.content;
+    for (const block of Array.isArray(content) ? content : []) {
+      if (block.type === "toolCall" && block.name === "build") {
+        titles.set(block.id ?? "", block.arguments?.title);
+      }
+    }
+  }
+  return titles;
+};
+
+// A build that answered with its summary: it wrote a Revision. A refusal or failure is an error result.
+const revisionOf = (entry: Entry) => {
+  const message = entry.model?.[0];
+  return entry.kind === "pi.tool-result" &&
+    message?.toolName === "build" &&
+    !message.isError
+    ? message
+    : undefined;
+};
+
+export const chatView = (chat: Chat, now: number) => {
   const rows: Row[] = [];
+  let latest: { row: Row; callId?: string } | undefined;
   for (const entry of chat.entries) {
+    const revision = revisionOf(entry);
+    if (revision) {
+      latest = {
+        callId: revision.toolCallId,
+        row: { key: `${entry.id}`, text: "Built a new version", who: "card" },
+      };
+      rows.push(latest.row);
+    }
     const who = WHO[entry.kind];
     const text = textOf(entry.model?.[0]);
     if (who && text) {
       rows.push({ key: `${entry.id}`, text, who });
     }
   }
+  // Only the latest Revision is kept (no Undo), so only its card plays.
+  if (latest) {
+    const title = buildTitles(chat.entries).get(latest.callId ?? "");
+    latest.row.play = true;
+    latest.row.text = `${title ?? "Your game"} · tap to play`;
+  }
   const streaming = textOf(chat.partial);
   if (streaming) {
     rows.push({ key: "partial", text: streaming, who: "maker" });
+  }
+  if (chat.build) {
+    const { output, since } = chat.build;
+    rows.push({
+      key: "status",
+      text: `${stepOf(output)} · ${clock(now - since)}`,
+      who: "status",
+    });
   }
   for (const { key, text } of chat.pending) {
     rows.push({ key: `pending-${key}`, queued: true, text, who: "creator" });
@@ -290,3 +417,11 @@ export const chatView = (chat: Chat) => {
   }
   return { rows, running: chat.running };
 };
+
+// The Revision a preview URL serves: /drafts/<id>/<n>/<exp>.<sig>/index.html (apps/worker/src/api.ts).
+const previewRevision = (url: string) =>
+  url.match(/\/drafts\/[^/]+\/(?<n>\d+)\//u)?.groups?.n;
+
+// Play's "New version · Reload" pill (#148): the newest preview URL is of a later Revision than the one playing.
+export const newVersion = (playing: string | undefined, fresh: string) =>
+  playing !== undefined && previewRevision(playing) !== previewRevision(fresh);

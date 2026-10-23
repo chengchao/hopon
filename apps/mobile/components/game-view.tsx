@@ -13,12 +13,15 @@ export const GameView = ({
   token,
   active = true,
   muted = false,
+  onCrash,
 }: {
   uri: string;
   title: string;
   token?: string;
   active?: boolean;
   muted?: boolean;
+  // WebKit killed the game's content process; the WebView stays blank until reloaded.
+  onCrash?: () => void;
 }) => {
   const view = useRef<WebView>(null);
   const sync = () => {
@@ -39,6 +42,7 @@ export const GameView = ({
       accessibilityLabel={`Play: ${title}`}
       onShouldStartLoadWithRequest={(request) => request.url === uri}
       onLoadEnd={sync}
+      onContentProcessDidTerminate={onCrash}
       setSupportMultipleWindows={false}
       allowFileAccess={false}
       allowsInlineMediaPlayback

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { chatView, makerChat, NEW_CHAT } from "../lib/maker-chat.ts";
+import {
+  chatView,
+  makerChat,
+  NEW_CHAT,
+  newVersion,
+} from "../lib/maker-chat.ts";
 
 // pi's frames as the Talker sends them (apps/worker/src/talker.ts).
 const user = (id, text) => ({
@@ -303,4 +308,228 @@ test("switching to another Draft starts from an empty chat, until its snapshot d
   );
   assert.deepEqual(lines(v), []);
   assert.equal(v.running, false);
+});
+
+// A build (#148): pi's tool events for the Talker's `build` call, whose running output is the Coder's step labels.
+const buildStart = (callId = "call-1") => ({
+  args: { brief: "", music: null, title: "Moon Cat" },
+  toolCallId: callId,
+  toolName: "build",
+  type: "tool_execution_start",
+});
+const buildOutput = (output, callId = "call-1") => ({
+  output,
+  toolCallId: callId,
+  toolName: "build",
+  type: "tool_execution_update",
+});
+// The time the app took the frame in.
+const at = (ms, action) => ({ ...action, at: ms });
+const statusOf = (v) => v.rows.find((row) => row.who === "status")?.text;
+const chatOf = (...actions) => {
+  let chat = NEW_CHAT;
+  for (const action of actions) {
+    chat = makerChat(chat, action);
+  }
+  return chat;
+};
+
+test("while build runs, one status row under the Maker's bubble shows the current step and a timer", () => {
+  const building = [
+    snapshot({ entries: [user(1, "A cat on the moon")], run: {} }),
+    batch({ entry: maker(2, "On it!"), type: "message_end" }),
+    at(1000, batch(buildStart())),
+  ];
+  assert.equal(
+    statusOf(chatView(chatOf(...building), 1000)),
+    "Building · 0:00"
+  );
+  const stepped = [
+    ...building,
+    batch(buildOutput({ append: "Writing the game\n" })),
+    batch(buildOutput({ append: "Playtesting\n" })),
+  ];
+  assert.deepEqual(lines(chatView(chatOf(...stepped), 73_000)), [
+    "creator: A cat on the moon",
+    "maker: On it!",
+    "status: Playtesting · 1:12",
+  ]);
+  // pi trims its retained window from the front, or replaces it.
+  const trimmed = [
+    ...stepped,
+    batch(buildOutput({ append: "Fixing the game\n", trimStart: 17 })),
+  ];
+  assert.equal(
+    statusOf(chatView(chatOf(...trimmed), 73_000)),
+    "Fixing the game · 1:12"
+  );
+  assert.equal(
+    statusOf(
+      chatView(
+        chatOf(...trimmed, batch(buildOutput({ set: "Writing music\n" }))),
+        73_000
+      )
+    ),
+    "Writing music · 1:12"
+  );
+  // It goes when the build ends.
+  const ended = batch({
+    toolCallId: "call-1",
+    toolName: "build",
+    type: "tool_execution_end",
+  });
+  assert.equal(
+    statusOf(chatView(chatOf(...trimmed, ended), 80_000)),
+    undefined
+  );
+});
+
+test("a build running at connect shows its step; a reconnect keeps the timer, and the turn's end clears it", () => {
+  const connected = snapshot({
+    entries: [user(1, "A cat game")],
+    run: {},
+    tools: [
+      {
+        callId: "call-1",
+        name: "build",
+        output: "Writing the game\nPlaytesting\n",
+        status: "running",
+      },
+    ],
+  });
+  // The snapshot doesn't say when the build started, so the timer counts from the connect.
+  const first = at(5000, connected);
+  assert.equal(statusOf(chatView(chatOf(first), 9000)), "Playtesting · 0:04");
+  const again = at(20_000, connected);
+  assert.equal(
+    statusOf(chatView(chatOf(first, again), 21_000)),
+    "Playtesting · 0:16"
+  );
+  assert.equal(
+    statusOf(
+      chatView(
+        chatOf(first, again, batch({ inputs: [1], type: "run_end" })),
+        22_000
+      )
+    ),
+    undefined
+  );
+});
+
+// The Maker's call to `build`, and pi's entry for its result.
+const buildCall = (id, callId, title) => ({
+  id,
+  kind: "pi.assistant",
+  model: [
+    {
+      content: [
+        { text: "On it!", type: "text" },
+        {
+          arguments: { brief: "", music: null, title },
+          id: callId,
+          name: "build",
+          type: "toolCall",
+        },
+      ],
+      role: "assistant",
+    },
+  ],
+});
+const buildResult = (id, callId, text, isError = false) => ({
+  id,
+  kind: "pi.tool-result",
+  model: [
+    {
+      content: [{ text, type: "text" }],
+      isError,
+      role: "toolResult",
+      toolCallId: callId,
+      toolName: "build",
+    },
+  ],
+});
+
+test("a build that makes a Revision drops a game card; only the latest plays, older ones read Built a new version", () => {
+  const first = [
+    user(1, "A cat on the moon"),
+    buildCall(2, "call-1", "Moon Cat"),
+    buildResult(3, "call-1", "Built a moon cat game."),
+    maker(4, "Here it is!"),
+  ];
+  const one = view(snapshot({ entries: first }));
+  assert.deepEqual(lines(one), [
+    "creator: A cat on the moon",
+    "maker: On it!",
+    "card: Moon Cat · tap to play",
+    "maker: Here it is!",
+  ]);
+  assert.equal(one.rows[2].play, true);
+  const two = view(
+    snapshot({
+      entries: [
+        ...first,
+        user(5, "Make it a dog"),
+        buildCall(6, "call-2", "Moon Dog"),
+        buildResult(7, "call-2", "Made it a dog."),
+      ],
+    })
+  );
+  assert.deepEqual(lines(two).slice(2), [
+    "card: Built a new version",
+    "maker: Here it is!",
+    "creator: Make it a dog",
+    "maker: On it!",
+    "card: Moon Dog · tap to play",
+  ]);
+  assert.deepEqual(
+    two.rows.filter((row) => row.play).map((row) => row.text),
+    ["Moon Dog · tap to play"]
+  );
+});
+
+test("a build that fails, is busy or hits the daily limit drops no card; the Maker's reply says so", () => {
+  const v = view(
+    snapshot({
+      entries: [
+        user(1, "A cat on the moon"),
+        buildCall(2, "call-1", "Moon Cat"),
+        buildResult(
+          3,
+          "call-1",
+          'The coder is busy. Tell the Creator: "The Maker is busy. Try again in a minute."',
+          true
+        ),
+        maker(4, "The Maker is busy. Try again in a minute."),
+        user(5, "Again"),
+        buildCall(6, "call-2", "Moon Cat"),
+        buildResult(
+          7,
+          "call-2",
+          `The daily limit is reached. Tell the Creator: "You've made 10 games today; come back tomorrow."`,
+          true
+        ),
+        maker(8, "You've made 10 games today; come back tomorrow."),
+      ],
+    })
+  );
+  assert.deepEqual(lines(v), [
+    "creator: A cat on the moon",
+    "maker: On it!",
+    "maker: The Maker is busy. Try again in a minute.",
+    "creator: Again",
+    "maker: On it!",
+    "maker: You've made 10 games today; come back tomorrow.",
+  ]);
+});
+
+// What GET /api/drafts/:id/preview answers: /drafts/<id>/<n>/<exp>.<sig>/index.html
+const preview = (n, exp) =>
+  `https://hopon.example/drafts/d1/${n}/${exp}.c2lnbmF0dXJl/index.html`;
+
+test("Play shows the Reload pill only when a newer Revision than the one playing has landed", () => {
+  // Before the game loads, and on a turn that built nothing (a fresh link to the same Revision).
+  assert.equal(newVersion(undefined, preview(1, 100)), false);
+  assert.equal(newVersion(preview(1, 100), preview(1, 160)), false);
+  assert.equal(newVersion(preview(1, 100), preview(2, 160)), true);
+  assert.equal(newVersion(preview(9, 100), preview(10, 160)), true);
 });
