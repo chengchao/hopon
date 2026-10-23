@@ -24,11 +24,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AiSheet } from "@/components/ai-sheet";
 import { DraftList } from "@/components/draft-list";
 import { Play } from "@/components/play";
+import { PublishSheet } from "@/components/publish-sheet";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
-import { chatView, makerChat, NEW_CHAT } from "@/lib/maker-chat";
+import { chatView, makerChat, NEW_CHAT, publishable } from "@/lib/maker-chat";
 import type { Frame, Row } from "@/lib/maker-chat";
 import { useMakerSocket } from "@/lib/maker-socket";
 import type { Link } from "@/lib/maker-socket";
@@ -147,6 +148,8 @@ const Header = ({
   onDrafts,
   canPlay,
   onPlay,
+  canPublish,
+  onPublish,
 }: {
   draft: DraftSummary | null | undefined;
   // Unset while the chat can't switch yet.
@@ -154,6 +157,9 @@ const Header = ({
   // Once there is a game.
   canPlay: boolean;
   onPlay: () => void;
+  // Once there is a Revision and no turn is running.
+  canPublish: boolean;
+  onPublish: () => void;
 }) => (
   <View className="flex-row items-center gap-1 px-2 pb-2 pt-3">
     <Button
@@ -180,11 +186,15 @@ const Header = ({
     >
       {draft?.title ?? "New game"}
     </Text>
-    {/* Publish comes with its ticket. */}
     <Button size="sm" variant="ghost" disabled={!canPlay} onPress={onPlay}>
       <Text>Play</Text>
     </Button>
-    <Button size="sm" className="rounded-full" disabled>
+    <Button
+      size="sm"
+      className="rounded-full"
+      disabled={!canPublish}
+      onPress={onPublish}
+    >
       <Text>Publish</Text>
     </Button>
   </View>
@@ -228,6 +238,7 @@ const Create = () => {
   const [error, setError] = useState("");
   const [listing, setListing] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   // Turns ended since this chat opened; Play mints a fresh preview URL on each.
   const [turns, setTurns] = useState(0);
   // The build's timer ticks once a second while it runs.
@@ -324,7 +335,12 @@ const Create = () => {
           "/api/drafts",
           { body: { text: message }, token }
         );
-        setDraft({ id: created.id, title: null, updatedAt: "" });
+        setDraft({
+          description: null,
+          id: created.id,
+          title: null,
+          updatedAt: "",
+        });
         dispatch({ key, op: created.message, type: "sent" });
       }
     } catch (sendError) {
@@ -387,6 +403,11 @@ const Create = () => {
     Keyboard.dismiss();
     setPlaying(true);
   };
+  const canPublish = publishable(draft, view);
+  const publish = () => {
+    Keyboard.dismiss();
+    setConfirming(true);
+  };
 
   return (
     <KeyboardAvoidingView behavior="padding" className="flex-1 bg-background">
@@ -403,6 +424,8 @@ const Create = () => {
         }
         canPlay={game !== undefined}
         onPlay={play}
+        canPublish={canPublish}
+        onPublish={publish}
       />
       {draft && <LinkBar link={link} onRetry={retry} />}
 
@@ -497,7 +520,13 @@ const Create = () => {
         )}
       </View>
       {playing && game && (
-        <Play draft={game} turns={turns} onClose={() => setPlaying(false)} />
+        <Play
+          draft={game}
+          turns={turns}
+          onClose={() => setPlaying(false)}
+          canPublish={canPublish}
+          onPublish={publish}
+        />
       )}
       {listing && (
         <DraftList
@@ -506,6 +535,11 @@ const Create = () => {
           onClose={() => setListing(false)}
         />
       )}
+      <PublishSheet
+        draft={draft}
+        open={confirming}
+        onClose={() => setConfirming(false)}
+      />
       <AiSheet
         message={asking}
         onAgreed={agreed}

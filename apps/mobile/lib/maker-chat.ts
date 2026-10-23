@@ -1,6 +1,7 @@
 // The Make tab's chat (#147): a pure function of the Talker's latest snapshot plus the live batches since it
 // (apps/worker/src/talker.ts sends pi-durable's events), and of the messages this app has sent but the Talker hasn't
 // taken yet. The socket and the screen live in app/create.tsx; this is the part the tests drive.
+import type { DraftSummary } from "@hopon/schemas";
 
 // The slice of pi-durable's types the chat reads.
 interface Block {
@@ -425,3 +426,9 @@ const previewRevision = (url: string) =>
 // Play's "New version · Reload" pill (#148): the newest preview URL is of a later Revision than the one playing.
 export const newVersion = (playing: string | undefined, fresh: string) =>
   playing !== undefined && previewRevision(playing) !== previewRevision(fresh);
+
+// Publish (#119): once the Draft has a Revision, which the Maker titles, and no turn is running.
+export const publishable = (
+  draft: DraftSummary | null | undefined,
+  view: { running: boolean }
+) => !!draft?.title && !view.running;

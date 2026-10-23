@@ -705,7 +705,12 @@ test("screening: a flagged title or description refuses Publish and leaves the D
     "maya_makes",
     `${made.title}\n${made.description}`,
   ]);
-  assert.deepEqual(await draftIds(call), [id]);
+  // Still listed with the title and description Publish's confirm sheet shows.
+  const { drafts } = await json(call("/api/drafts"));
+  assert.deepEqual(
+    drafts.map(({ description, title }) => ({ description, title })),
+    [{ description: made.description, title: made.title }]
+  );
   assert.deepEqual(await filesIn(env, `drafts/${id}/`), [
     `drafts/${id}/1/index.html`,
   ]);

@@ -503,6 +503,7 @@ app.get("/api/drafts", (c) =>
       const rows = yield* query((db) =>
         db
           .select({
+            description: drafts.description,
             id: drafts.id,
             title: drafts.title,
             updatedAt: drafts.updatedAt,
