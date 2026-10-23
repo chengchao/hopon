@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -74,6 +75,40 @@ const setup = async (t) => {
       }),
     screen: () => Promise.resolve({ response: { categories: [], safe: true } }),
   };
+  // Each Draft's Talker, faked: it records what the Worker forwards (src/talker.ts is checked under wrangler, in
+  // scripts/). A ticket is good once, for its own Draft only.
+  const forwarded = [];
+  const answer = (draft, request, init) => {
+    if (request instanceof Request) {
+      forwarded.push({ action: "upgrade", draft });
+      return new Response("socket", { status: 200 });
+    }
+    const action = new URL(request).pathname.slice(1);
+    const body = JSON.parse(init.body);
+    forwarded.push({ action, draft, ...body });
+    const minted = forwarded.filter((f) => f.action === "ticket").length;
+    const redeemed = forwarded.filter(
+      (f) =>
+        f.action === "redeem" && f.draft === draft && f.ticket === body.ticket
+    ).length;
+    if (action === "ticket") {
+      return Response.json({ ticket: `${draft}:${minted}` });
+    }
+    if (action === "redeem") {
+      const valid = body.ticket.startsWith(`${draft}:`) && redeemed === 1;
+      return new Response(null, { status: valid ? 204 : 404 });
+    }
+    if (action === "message") {
+      return Response.json({ id: "op" }, { status: 202 });
+    }
+    return new Response(null, { status: 204 });
+  };
+  const TALKER = {
+    getByName: (draft) => ({
+      fetch: (request, init) => Promise.resolve(answer(draft, request, init)),
+    }),
+    newUniqueId: () => ({ toString: () => randomBytes(32).toString("hex") }),
+  };
   const env = {
     AI: {
       run: (model, input) =>
@@ -85,6 +120,7 @@ const setup = async (t) => {
     CLERK_JWT_KEY,
     DB,
     OPERATOR_PASSWORD,
+    TALKER,
   };
   const count = async (table) => {
     const { n } = await DB.prepare(
@@ -162,7 +198,7 @@ const setup = async (t) => {
       env,
       ctx
     );
-  return { ai, call, count, env, operate, owner, settled };
+  return { ai, call, count, env, forwarded, operate, owner, settled };
 };
 test("AI JSON boundary rejects invalid and truncated output", async () => {
   assert.deepEqual(
@@ -2358,5 +2394,188 @@ test("blocked accounts: Unblock brings back both people's games and comments, ex
       })
     ),
     201
+  );
+});
+
+test("drafts: born on a screened first message, listed newest first for their owner only", async (t) => {
+  const { call, env, forwarded } = await setup(t);
+  assert.equal(
+    await status(
+      call("/api/drafts", { body: { text: "hi" }, method: "POST", user: "" })
+    ),
+    401
+  );
+  assert.equal(await status(call("/api/drafts", { user: "" })), 401);
+  assert.equal(
+    await status(call("/api/drafts", { body: { text: " " }, method: "POST" })),
+    400
+  );
+  const first = await call("/api/drafts", {
+    body: { text: "  A cat that jumps over moons  " },
+    method: "POST",
+  });
+  assert.equal(first.status, 201);
+  const { id: a } = await first.json();
+  assert.match(a, /^[0-9a-f]{64}$/u);
+  assert.deepEqual(forwarded, [
+    { action: "message", draft: a, text: "A cat that jumps over moons" },
+  ]);
+  const { id: b } = await json(
+    call("/api/drafts", { body: { text: "Space snake" }, method: "POST" })
+  );
+  const list = await json(call("/api/drafts"));
+  assert.deepEqual(
+    list.drafts.map((d) => [d.id, d.title]),
+    [
+      [b, null],
+      [a, null],
+    ]
+  );
+  assert.match(list.drafts[0].updatedAt, /^\d{4}-\d\d-\d\dT[\d:.]+Z$/u);
+  // The Talker dates the row at the end of each turn, which moves it to the top.
+  await env.DB.prepare(
+    "UPDATE drafts SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 second') WHERE id = ?"
+  )
+    .bind(a)
+    .run();
+  const { drafts } = await json(call("/api/drafts"));
+  assert.deepEqual(
+    drafts.map((d) => d.id),
+    [a, b]
+  );
+  assert.deepEqual(await json(call("/api/drafts", { user: "user_other" })), {
+    drafts: [],
+  });
+});
+
+test("drafts: a 21st is refused until one goes", async (t) => {
+  const { call, count, env, forwarded } = await setup(t);
+  await env.DB.batch(
+    Array.from({ length: 19 }, (_, i) =>
+      env.DB.prepare("INSERT INTO drafts (id, owner) VALUES (?, ?)").bind(
+        `${i}`.padStart(64, "0"),
+        "user_owner"
+      )
+    )
+  );
+  // Someone else's don't count.
+  await env.DB.prepare("INSERT INTO drafts (id, owner) VALUES (?, ?)")
+    .bind("f".repeat(64), "user_other")
+    .run();
+  assert.equal(
+    await status(
+      call("/api/drafts", { body: { text: "Twentieth" }, method: "POST" })
+    ),
+    201
+  );
+  const refused = await call("/api/drafts", {
+    body: { text: "Twenty-first" },
+    method: "POST",
+  });
+  assert.equal(refused.status, 409);
+  assert.deepEqual(await refused.json(), {
+    error: "Delete a Draft to start a new one.",
+  });
+  assert.equal(await count("drafts"), 21);
+  assert.deepEqual(
+    forwarded.map((f) => f.text),
+    ["Twentieth"]
+  );
+  await env.DB.prepare("DELETE FROM drafts WHERE id = ?")
+    .bind("0".repeat(64))
+    .run();
+  assert.equal(
+    await status(
+      call("/api/drafts", { body: { text: "Twenty-first" }, method: "POST" })
+    ),
+    201
+  );
+});
+
+test("drafts: a screened-out message is refused and never reaches the Talker", async (t) => {
+  const { ai, call, count, forwarded } = await setup(t);
+  ai.screen = flagOnly("A game about hurting people");
+  const first = await call("/api/drafts", {
+    body: { text: "A game about hurting people" },
+    method: "POST",
+  });
+  assert.equal(first.status, 422);
+  assert.deepEqual(await first.json(), REFUSED);
+  assert.equal(await count("drafts"), 0);
+  const { id } = await json(
+    call("/api/drafts", { body: { text: "A cat game" }, method: "POST" })
+  );
+  const later = await call(`/api/drafts/${id}/messages`, {
+    body: { text: "A game about hurting people" },
+    method: "POST",
+  });
+  assert.equal(later.status, 422);
+  assert.deepEqual(await later.json(), REFUSED);
+  const steer = await call(`/api/drafts/${id}/messages`, {
+    body: { text: "Make it faster" },
+    method: "POST",
+  });
+  assert.equal(steer.status, 202);
+  assert.deepEqual(await steer.json(), { id: "op" });
+  assert.deepEqual(
+    forwarded.map((f) => f.text),
+    ["A cat game", "Make it faster"]
+  );
+});
+
+test("drafts: another account gets 404 on every Draft route; the socket needs a ticket of its own", async (t) => {
+  const { call, forwarded } = await setup(t);
+  const { id } = await json(
+    call("/api/drafts", { body: { text: "A cat game" }, method: "POST" })
+  );
+  const other = { user: "user_other" };
+  const missing = "a".repeat(64);
+  for (const [path, body] of [
+    ["messages", { text: "hello" }],
+    ["stop", undefined],
+    ["ws-ticket", undefined],
+  ]) {
+    for (const draft of [id, missing]) {
+      // oxlint-disable-next-line no-await-in-loop -- one route at a time
+      const response = await call(`/api/drafts/${draft}/${path}`, {
+        body,
+        method: "POST",
+        ...(draft === id ? other : {}),
+      });
+      assert.equal(response.status, 404, `${path} ${draft}`);
+      // oxlint-disable-next-line no-await-in-loop -- one route at a time
+      assert.deepEqual(await response.json(), { error: "Draft not found." });
+    }
+  }
+  assert.equal(
+    await status(call("/api/drafts/not-a-draft/stop", { method: "POST" })),
+    404
+  );
+  assert.equal(forwarded.length, 1);
+  assert.equal(
+    await status(call(`/api/drafts/${id}/stop`, { method: "POST" })),
+    204
+  );
+  const { ticket } = await json(
+    call(`/api/drafts/${id}/ws-ticket`, { method: "POST" })
+  );
+  // No ticket, a used one, or one for another Draft: 404, and nothing reaches the socket.
+  const socket = (draft, query) =>
+    status(call(`/api/drafts/${draft}/ws${query}`, { user: "" }));
+  assert.equal(await socket(id, ""), 404);
+  assert.equal(
+    await socket(missing, `?ticket=${encodeURIComponent(ticket)}`),
+    404
+  );
+  assert.equal(await socket(id, `?ticket=${encodeURIComponent(ticket)}`), 200);
+  assert.equal(await socket(id, `?ticket=${encodeURIComponent(ticket)}`), 404);
+  assert.deepEqual(
+    forwarded.filter((f) => f.action === "upgrade"),
+    [{ action: "upgrade", draft: id }]
+  );
+  // A made-up id never reaches, and so never creates, a Talker.
+  assert.equal(
+    forwarded.some((f) => f.draft === missing),
+    false
   );
 });

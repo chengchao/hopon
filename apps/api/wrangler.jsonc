@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "hopon",
-  "main": "src/index.ts",
+  "main": "src/worker.ts",
   "compatibility_date": "2026-09-01",
   "d1_databases": [
     {
@@ -21,11 +21,23 @@
       "CLERK_SECRET_KEY",
       "OPERATOR_PASSWORD",
       "OPERATOR_WEBHOOK_URL",
+      // modelFetch's Cloudflare API token, for the Talker's model calls (packages/model-fetch).
+      "CLOUDFLARE_API_KEY",
     ],
   },
   "vars": {
     "AI_MODEL": "@cf/moonshotai/kimi-k2.5",
+    // The Talker's model and effort (#116), through modelFetch on the account's gateway.
+    "MAKER_TALKER_MODEL": "claude-haiku-5-5",
+    "MAKER_TALKER_EFFORT": "high",
+    "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
+    "CLOUDFLARE_GATEWAY_ID": "default",
   },
+  // One Talker per Draft (src/talker.ts), named by the Draft's id.
+  "durable_objects": {
+    "bindings": [{ "name": "TALKER", "class_name": "Talker" }],
+  },
+  "migrations": [{ "tag": "talker", "new_sqlite_classes": ["Talker"] }],
   "compatibility_flags": ["nodejs_compat"],
   // Repeated as CLOUDFLARE_ACCOUNT_ID in package.json's db:remote and deploy: on a login with several accounts, some
   // wrangler commands ignore this field when run non-interactively.
