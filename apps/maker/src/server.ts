@@ -26,6 +26,10 @@ const THINKING = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
 const isThinking = (effort: string): effort is Thinking =>
   (THINKING as readonly string[]).includes(effort);
 const decodeJob = Schema.decodeUnknownEffect(Schema.fromJsonString(JobSchema));
+// A promise whose rejection stays the error itself, so a failed job's reason says what failed (E2B, the box, pi)
+// rather than tryPromise's generic UnknownError.
+const attempt = <A>(run: () => Promise<A>) =>
+  Effect.tryPromise({ catch: (error) => error, try: run });
 
 export class Box extends Context.Service<
   Box,
@@ -156,9 +160,9 @@ const build = (job: Job, run: Run, deadlineMs: number) =>
       run.cancel.abort();
     }, deadlineMs);
     yield* Effect.acquireUseRelease(
-      Effect.tryPromise(() => box.open(job.draftId)),
+      attempt(() => box.open(job.draftId)),
       (sandbox) =>
-        Effect.tryPromise(() =>
+        attempt(() =>
           runJob({
             deadlineMs,
             job,
@@ -170,8 +174,7 @@ const build = (job: Job, run: Run, deadlineMs: number) =>
             thinking,
           })
         ),
-      (sandbox) =>
-        Effect.tryPromise(() => box.pause(sandbox)).pipe(Effect.ignore)
+      (sandbox) => attempt(() => box.pause(sandbox)).pipe(Effect.ignore)
     );
   }).pipe(
     // A box or E2B failure still ends the job, so the Talker never waits on a stream that stops short.
@@ -209,10 +212,14 @@ export const makeCoder = (
     const [, jobs, id, action] = pathname.split("/");
     if (request.method === "DELETE" && pathname === "/box") {
       const box = yield* Box;
-      return yield* Effect.tryPromise(() => box.kill(draftId)).pipe(
+      return yield* attempt(() => box.kill(draftId)).pipe(
         Effect.as(new Response(null, { status: 204 })),
-        Effect.orElseSucceed(
-          () => new Response("Could not kill the box", { status: 502 })
+        Effect.catch((error) =>
+          Effect.succeed(
+            new Response(`Could not kill the box: ${String(error)}`, {
+              status: 502,
+            })
+          )
         )
       );
     }

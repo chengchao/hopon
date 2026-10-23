@@ -21,8 +21,8 @@ const JOB = {
 };
 
 // The box: files in a Map, the playtest always green, every other command a no-op.
-// `open` resolves after `openMs`; `kill` fails when `killFails`.
-const fakeBox = ({ openMs = 0, killFails = false } = {}) => {
+// `open` resolves after `openMs`, or fails when `openFails`; `kill` fails when `killFails`.
+const fakeBox = ({ openMs = 0, openFails = false, killFails = false } = {}) => {
   const files = new Map<string, string>();
   const state = { paused: 0 };
   const sandbox = {
@@ -74,6 +74,9 @@ const fakeBox = ({ openMs = 0, killFails = false } = {}) => {
       killFails ? Promise.reject(new Error("E2B is down")) : Promise.resolve(),
     open: async () => {
       await sleep(openMs);
+      if (openFails) {
+        throw new Error("E2B is down");
+      }
       return sandbox;
     },
     pause: () => {
@@ -295,4 +298,12 @@ test("DELETE /box answers 502 when the box can't be killed", async () => {
     new Request("http://coder/box", { method: "DELETE" })
   );
   assert.equal(response.status, 502);
+});
+
+test("a job whose box won't open fails with the box's own error", async () => {
+  const handle = coder(scripted([]), fakeBox({ openFails: true }));
+  const sent = await events(await post(handle, "/jobs/job-10", JOB));
+  assert.deepEqual(sent, [
+    { reason: "coder error: Error: E2B is down", type: "failed" },
+  ]);
 });
