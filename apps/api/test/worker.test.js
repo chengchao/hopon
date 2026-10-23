@@ -60,6 +60,7 @@ const migrations = readdirSync(new URL("../migrations", import.meta.url))
 // A fresh, in-memory local D1 (workerd) per test, migrated like `wrangler d1 migrations apply`; only AI is faked.
 const setup = async (t) => {
   const proxy = await getPlatformProxy({
+    configPath: new URL("wrangler.jsonc", import.meta.url).pathname,
     envFiles: [],
     persist: false,
     remoteBindings: false,
