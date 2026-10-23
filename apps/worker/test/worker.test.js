@@ -2416,8 +2416,10 @@ test("drafts: born on a screened first message, listed newest first for their ow
     method: "POST",
   });
   assert.equal(first.status, 201);
-  const { id: a } = await first.json();
+  // With the message's operation id, which the Talker's submission events name, as the messages route answers.
+  const { id: a, message } = await first.json();
   assert.match(a, /^[0-9a-f]{64}$/u);
+  assert.equal(message, "op");
   assert.deepEqual(forwarded, [
     { action: "message", draft: a, text: "A cat that jumps over moons" },
   ]);
