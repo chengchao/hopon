@@ -1,6 +1,7 @@
 import { verifyToken } from "@clerk/backend";
 import { zValidator } from "@hono/zod-validator";
 import {
+  MAX_DRAFTS,
   newComment,
   newGame,
   newMessage,
@@ -329,7 +330,6 @@ const run = <A, E>(
 
 // A Draft's id: its Talker's name, 64 hex characters.
 const DRAFT = ":id{[0-9a-f]{64}}";
-const MAX_DRAFTS = 20;
 
 // One request to a Draft's Talker (src/talker.ts), after the route has checked the owner. Its failure is a 500.
 const talker = (env: HoponEnv, id: string, action: string, body = {}) =>

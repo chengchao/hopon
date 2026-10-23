@@ -4,6 +4,8 @@ import * as z from "zod/mini";
 
 export const PROMPT_MAX = 2000;
 export const COMMENT_MAX = 300;
+// A Creator's 21st Draft is refused: the API checks it, and the app disables New game.
+export const MAX_DRAFTS = 20;
 
 // Counts characters like SQLite's length(), not UTF-16 units.
 export const characters = (text: string) => [...text].length;

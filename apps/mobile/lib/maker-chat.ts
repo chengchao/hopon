@@ -85,7 +85,9 @@ export type Action =
   | { type: "send"; key: string; text: string }
   | { type: "sent"; key: string; op: string }
   // Refused (Screening) or never delivered: the text goes back to the composer.
-  | { type: "unsent"; key: string };
+  | { type: "unsent"; key: string }
+  // Another Draft opened (#149): its snapshot redraws the chat, and a new chat has none.
+  | { type: "reset" };
 
 export interface Row {
   key: string;
@@ -238,6 +240,9 @@ export const makerChat = (chat: Chat, action: Action): Chat => {
           ? chat.pending.filter((p) => p.key !== key)
           : chat.pending.map((p) => (p.key === key ? { ...p, op } : p)),
       };
+    }
+    case "reset": {
+      return NEW_CHAT;
     }
     default: {
       return {
