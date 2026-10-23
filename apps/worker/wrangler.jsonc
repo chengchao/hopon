@@ -40,6 +40,8 @@
     // The Coder's (#116): Haiku 5.5 at low effort.
     "MAKER_CODER_MODEL": "claude-haiku-5-5",
     "MAKER_CODER_EFFORT": "low",
+    // A Draft's box is killed after this long with no turn (#144). talker-check shortens it.
+    "MAKER_BOX_IDLE_S": "86400",
     "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
     "CLOUDFLARE_GATEWAY_ID": "default",
   },

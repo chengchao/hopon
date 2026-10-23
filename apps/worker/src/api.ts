@@ -654,6 +654,58 @@ app.post(`/api/drafts/${DRAFT}/stop`, (c) =>
   )
 );
 
+// Delete (#144): the Talker's storage and sockets, the box, the files, then the row. The row goes last, so a Delete
+// that fails on the way leaves the Draft listed and a retry finishes it. Each step is fine to repeat.
+const deleteDraft = (env: HoponEnv, id: string) =>
+  Effect.gen(function* () {
+    yield* talker(env, id, "delete");
+    yield* Effect.promise(async () => {
+      const response = await env.CODER.getByName(id).fetch("http://coder/box", {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        throw new Error(`Coder DELETE /box: ${response.status}`);
+      }
+      // A Draft holds a Revision or two, well under a list's 1000 keys.
+      const { objects } = await env.FILES.list({ prefix: `drafts/${id}/` });
+      if (objects.length) {
+        await env.FILES.delete(objects.map((object) => object.key));
+      }
+    });
+    yield* query((db) => db.delete(drafts).where(eq(drafts.id, id)));
+  });
+
+app.delete(`/api/drafts/${DRAFT}`, (c) =>
+  run(
+    c,
+    Effect.gen(function* () {
+      const id = c.req.param("id");
+      yield* ownDraft(id);
+      yield* deleteDraft(c.env, id);
+      return c.body(null, 204);
+    })
+  )
+);
+
+// All of the caller's Drafts, which the app Deletes before it deletes the account.
+app.delete("/api/drafts", (c) =>
+  run(
+    c,
+    Effect.gen(function* () {
+      const owner = yield* signedIn("Sign in to continue.");
+      const rows = yield* query((db) =>
+        db.select({ id: drafts.id }).from(drafts).where(eq(drafts.owner, owner))
+      );
+      // ponytail: each box kill may start its Draft's container, so a few at a time stay under the start rate.
+      yield* Effect.forEach(rows, ({ id }) => deleteDraft(c.env, id), {
+        concurrency: 4,
+        discard: true,
+      });
+      return c.body(null, 204);
+    })
+  )
+);
+
 // A one-time ticket for GET /api/drafts/:id/ws, good for a minute.
 app.post(`/api/drafts/${DRAFT}/ws-ticket`, (c) =>
   run(
