@@ -12,7 +12,7 @@ Accepted. Settled by the spikes, prototypes and research linked from the wayfind
 - `prototype/music-source` (`docs/research/music-source-prototype.md`): a ZzFXM song against a Node synthesizer the model writes, scored blind.
 - `research/maker-hosting`, `research/e2b-pause-warmup`, `research/talker-on-workerd`, `research/elevenlabs-music`, `research/music-api-terms`.
 
-Replaces today's one-shot generation in `POST /api/games` (`generate` → `parseGame` in `apps/api/src/index.ts`).
+Replaces today's one-shot generation in `POST /api/games` (`generate` → `parseGame` in `apps/worker/src/api.ts`).
 
 ## Context
 

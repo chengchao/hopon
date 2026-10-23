@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "hopon",
-  "main": "src/worker.ts",
+  "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "d1_databases": [
     {
@@ -51,7 +51,7 @@
       "rollout_active_grace_period": 300,
     },
   ],
-  // A container needs Docker: `pnpm -F api dev:coder` runs the Coder locally; plain `dev` and the tests'
+  // A container needs Docker: `pnpm -F worker dev:coder` runs the Coder locally; plain `dev` and the tests'
   // getPlatformProxy leave it out.
   "dev": { "enable_containers": false },
   // One Talker (src/talker.ts) and one Coder (src/coder.ts) per Draft, each named by the Draft's id.

@@ -19,7 +19,7 @@ test("every env value the Worker reads is declared in wrangler.jsonc", () => {
         .match(/interface __BaseEnv_Env \{(?<body>[^}]*)\}/u)
         .groups.body.matchAll(/^\s*(?<name>\w+):/gmu),
     ].map((m) => m.groups.name),
-    // Set with `--var` by `pnpm api:offline` and `pnpm -F api dev:coder`, not by wrangler.jsonc.
+    // Set with `--var` by `pnpm api:offline` and `pnpm -F worker dev:coder`, not by wrangler.jsonc.
     "HOPON_OFFLINE",
     "CODER_DEV",
   ]);
@@ -31,7 +31,7 @@ test("every env value the Worker reads is declared in wrangler.jsonc", () => {
   assert.deepEqual(
     [...used].filter((name) => !declared.has(name)),
     [],
-    "add it to wrangler.jsonc (a secret goes in secrets.required), then run `pnpm -F api types`"
+    "add it to wrangler.jsonc (a secret goes in secrets.required), then run `pnpm -F worker types`"
   );
 });
 
@@ -49,7 +49,7 @@ test("deleteGames deletes every table that points at games", () => {
   assert.deepEqual(
     children.filter((table) => !deleted.has(table)),
     [],
-    "delete it in deleteGames (apps/api/src/index.ts)"
+    "delete it in deleteGames (apps/worker/src/api.ts)"
   );
 });
 

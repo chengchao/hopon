@@ -6,7 +6,7 @@ Accepted. Built in [#99](https://github.com/chengchao/hopon/issues/99) and [#100
 
 ## Context
 
-#29 made the **Operator** a Clerk account with `publicMetadata.role = "operator"`, exposed as a `role` session claim. The API gates every Operator action on that claim (`operatorOnly` in `apps/api/src/index.ts`), and the Expo app shows the Operator a Reports row on Me, a queue (`apps/mobile/app/reports.tsx`) and Delete on any comment. That puts moderation tools inside the consumer app, and makes the Operator depend on two hand-made Clerk settings that every Clerk instance needs ([#72](https://github.com/chengchao/hopon/issues/72), [#32](https://github.com/chengchao/hopon/issues/32)). Neither ticket is done, so no deployed setup relies on the role yet.
+#29 made the **Operator** a Clerk account with `publicMetadata.role = "operator"`, exposed as a `role` session claim. The API gates every Operator action on that claim (`operatorOnly` in `apps/worker/src/api.ts`), and the Expo app shows the Operator a Reports row on Me, a queue (`apps/mobile/app/reports.tsx`) and Delete on any comment. That puts moderation tools inside the consumer app, and makes the Operator depend on two hand-made Clerk settings that every Clerk instance needs ([#72](https://github.com/chengchao/hopon/issues/72), [#32](https://github.com/chengchao/hopon/issues/32)). Neither ticket is done, so no deployed setup relies on the role yet.
 
 ## Decision
 
