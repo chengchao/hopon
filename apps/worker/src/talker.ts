@@ -20,6 +20,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { Context, Data, Effect, Layer, ManagedRuntime } from "effect";
 
 import { drafts, now } from "./schema.ts";
+import { buildTool } from "./talker-build.ts";
 import { TALKER_PROMPT } from "./talker-prompt.ts";
 
 // pi's Anthropic client posts to this host, and its `fetch` hands each request to modelFetch in-process, which adds
@@ -124,6 +125,11 @@ export class Talker extends Agent<Env> {
         name: "talker",
         sections: [
           { key: "preamble", render: () => TALKER_PROMPT, tag: false },
+        ],
+        tools: [
+          buildTool(this.env, this.name, this.ctx.storage, () => {
+            this.runtime.runFork(Pi.use((pi) => pi.abort));
+          }),
         ],
       });
       // Retention 0: pi drops an idle conversation at once, so the object hibernates between turns (#128).

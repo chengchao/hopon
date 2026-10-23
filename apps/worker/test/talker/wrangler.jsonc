@@ -1,0 +1,35 @@
+// test/talker.test.js runs `wrangler dev` with this: the Worker's bindings, with test/talker/worker.ts's fake Coder in
+// place of the Container, and a 3 s abort timer for builds.
+{
+  "name": "hopon-talker-test",
+  "main": "worker.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hopon",
+      "database_id": "local",
+      "migrations_dir": "../../migrations",
+    },
+  ],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "hopon" }],
+  "vars": {
+    "MAKER_TALKER_MODEL": "claude-haiku-5-5",
+    "MAKER_TALKER_EFFORT": "high",
+    "CLOUDFLARE_ACCOUNT_ID": "test",
+    "CLOUDFLARE_GATEWAY_ID": "default",
+    "HOPON_OFFLINE": "1",
+    "BUILD_ABORT_MS": "3000",
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "TALKER", "class_name": "Talker" },
+      { "name": "CODER", "class_name": "Coder" },
+    ],
+  },
+  "migrations": [
+    { "tag": "talker", "new_sqlite_classes": ["Talker"] },
+    { "tag": "coder", "new_sqlite_classes": ["Coder"] },
+  ],
+}
