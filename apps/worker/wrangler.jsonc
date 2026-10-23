@@ -42,6 +42,9 @@
     "MAKER_CODER_EFFORT": "low",
     // A Draft's box is killed after this long with no turn (#144). talker-check shortens it.
     "MAKER_BOX_IDLE_S": "86400",
+    // The Talker's abort timer on a build (#116, #122), 30 s more with music: 30 s past the Coder's own deadline, so the
+    // Coder reports `failed` first. The Talker test shortens it.
+    "MAKER_BUILD_ABORT_S": "150",
     "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
     "CLOUDFLARE_GATEWAY_ID": "default",
   },

@@ -14,9 +14,6 @@ import { decodeBase64 } from "hono/utils/encode";
 import { currentRevision, Db, spend } from "./api.ts";
 import { drafts, now } from "./schema.ts";
 
-// BUILD_ABORT_MS is the Talker test's short abort timer (test/talker/wrangler.jsonc), never set otherwise.
-export type BuildEnv = Env & { BUILD_ABORT_MS?: string };
-
 // The Coder's NDJSON (apps/maker/src/coder.ts CoderEvent, plus its ping).
 type CoderEvent =
   | { type: "step"; label: string }
@@ -33,9 +30,8 @@ type Done = Extract<CoderEvent, { type: "done" }>;
 type Final = Done | Extract<CoderEvent, { type: "failed" }>;
 
 const DAILY_BUILDS = 10;
-// The Talker's abort timer (#116, #122): 30 s past the Coder's own deadline, so the Coder reports `failed` first.
-const ABORT_MS = 150_000;
-const MUSIC_ABORT_MS = 180_000;
+// A build with music gets this much more than MAKER_BUILD_ABORT_S, as the Coder's deadline does.
+const MUSIC_EXTRA_S = 30;
 // What the Talker says for these (its prompt has the lines too).
 const BUSY = "The Maker is busy. Try again in a minute.";
 const LIMIT = "You've made 10 games today; come back tomorrow.";
@@ -151,7 +147,7 @@ interface Turn {
 }
 
 export const buildTool = (
-  env: BuildEnv,
+  env: Env,
   draftId: string,
   storage: DurableObjectStorage,
   // Ends the turn as Stop does, so it ends `turn_failed`.
@@ -218,7 +214,8 @@ export const buildTool = (
       const jobId = `${draftId}-${api.callId}`;
       const signal = context.abortSignal ?? new AbortController().signal;
       const abortMs =
-        Number(env.BUILD_ABORT_MS) || (spec.music ? MUSIC_ABORT_MS : ABORT_MS);
+        (Number(env.MAKER_BUILD_ABORT_S) + (spec.music ? MUSIC_EXTRA_S : 0)) *
+        1000;
       const timer = setTimeout(endTurn, startedAt + abortMs - Date.now());
       const job = async () => {
         const response = await coder.fetch(`http://coder/jobs/${jobId}`, {
