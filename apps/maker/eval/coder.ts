@@ -11,8 +11,8 @@ import path from "node:path";
 
 import type { Sandbox } from "e2b";
 
-import { createBox, WORKSPACE } from "../src/box.ts";
-import { boxPlaytest, runJob } from "../src/coder.ts";
+import { createBox, EVAL_TEMPLATE, WORKSPACE } from "../src/box.ts";
+import { boxPlaytest, MUSIC, runJob } from "../src/coder.ts";
 import type { Spec, Thinking } from "../src/coder.ts";
 import { resolve } from "../src/models.ts";
 import { judgeCoder } from "./judge.ts";
@@ -179,7 +179,7 @@ export const runCoder = async ({
   const n = revision?.n ?? (job.base ? 1 : 0);
   const events: unknown[] = [];
   const model = resolve(modelId);
-  const sandbox = await createBox();
+  const sandbox = await createBox(EVAL_TEMPLATE);
   try {
     const result = await runJob({
       job: {
@@ -203,7 +203,7 @@ export const runCoder = async ({
       : undefined;
     const finalGreen = final?.replay.ok === true && final.random.ok;
     // saveArtifacts keeps music.opus as bytes; the judge reads text.
-    const { "music.opus": _opus, ...changed } = result.files;
+    const { [MUSIC]: _opus, ...changed } = result.files;
     const files = { ...source, ...changed };
     const { start, end } = await saveArtifacts(sandbox, dir, files);
 

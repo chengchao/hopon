@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Settled by the spikes, prototypes and research linked from the wayfinder map [#111](https://github.com/chengchao/hopon/issues/111), which also holds the decisions still open. The served runtime (`/runtime/v1.js`) and the feed's pause and mute bridge are built in [#137](https://github.com/chengchao/hopon/issues/137). Evidence branches:
+Accepted. Settled by the spikes, prototypes and research linked from the wayfinder map [#111](https://github.com/chengchao/hopon/issues/111), which also holds the decisions still open. The served runtime (`/runtime/v1.js`) and the feed's pause and mute bridge are built in [#137](https://github.com/chengchao/hopon/issues/137). The Coder in its Container is built in [#139](https://github.com/chengchao/hopon/issues/139): a Container class bound to the API Worker, one instance per Draft, whose `models.internal` handler runs `modelFetch`. Evidence branches:
 
 - `claude/bold-kowalevski-b96583` (`apps/maker/SPIKE.md`): pi SDK, E2B, LittleJS, four models on five prompts.
 - `claude/sweet-sanderson-1d4887` (`apps/maker/SPIKE-B.md`): pi's built-in tools with E2B-backed `operations`, native skills and `AGENTS.md`.

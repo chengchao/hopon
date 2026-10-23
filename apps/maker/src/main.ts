@@ -7,7 +7,6 @@ import type { ReadableStream as WebStream } from "node:stream/web";
 
 import { Layer } from "effect";
 
-import type { Thinking } from "./coder.ts";
 import { BoxLive, makeCoder, modelsLive } from "./server.ts";
 
 const PORT = 8080;
@@ -22,20 +21,25 @@ const env = (name: string) => {
 const handle = makeCoder(
   Layer.mergeAll(
     BoxLive,
-    modelsLive(env("MAKER_CODER_MODEL"), env("MAKER_CODER_EFFORT") as Thinking)
+    modelsLive(env("MAKER_CODER_MODEL"), env("MAKER_CODER_EFFORT"))
   ),
   { draftId: env("DRAFT_ID") }
 );
 
 createServer(async (incoming, outgoing) => {
   const hasBody = incoming.method !== "GET" && incoming.method !== "HEAD";
-  const response = await handle(
-    new Request(`http://coder${incoming.url}`, {
-      body: hasBody ? Buffer.concat(await incoming.toArray()) : undefined,
-      headers: incoming.headers as Record<string, string>,
-      method: incoming.method,
-    })
-  );
+  let response: Response;
+  try {
+    response = await handle(
+      new Request(`http://coder${incoming.url}`, {
+        body: hasBody ? Buffer.concat(await incoming.toArray()) : undefined,
+        headers: incoming.headers as Record<string, string>,
+        method: incoming.method,
+      })
+    );
+  } catch (error) {
+    response = new Response(String(error), { status: 500 });
+  }
   outgoing.writeHead(response.status, Object.fromEntries(response.headers));
   if (!response.body) {
     outgoing.end();

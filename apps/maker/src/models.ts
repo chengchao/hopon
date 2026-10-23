@@ -1,7 +1,8 @@
-// The eval's candidates and judge (#115), as pi-ai models. Claude goes through the shared modelFetch (#136), the
-// production path: pi-ai talks to `http://models.internal/anthropic`, as in the Coder's Container, and the fetch below
-// hands those requests to modelFetch in-process. Kimi K3 stays on the gateway's OpenAI-compatible route for re-runs.
-// #116 picked Haiku 5.5 for both agents. DeepSeek and Kimi K2.6 were tried and dropped (eval/results/2026-10-20.md).
+// The Maker's models as pi-ai models: the Coder's in its Container, and the eval's candidates and judge (#115). Claude
+// goes to `http://models.internal/anthropic` everywhere, and the fetch below hands those requests to a ModelHandler:
+// modelFetch (#136) in-process for the eval, the network in the Container, whose outbound handler in the Worker runs
+// modelFetch. Kimi K3 stays on the gateway's OpenAI-compatible route for re-runs. #116 picked Haiku 5.5 for both
+// agents. DeepSeek and Kimi K2.6 were tried and dropped (eval/results/2026-10-20.md).
 import { createModels, createProvider } from "@earendil-works/pi-ai";
 import type { Api, Model, MutableModels } from "@earendil-works/pi-ai";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
@@ -9,11 +10,10 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import { cloudflareAIGatewayAuth } from "@earendil-works/pi-ai/providers/cloudflare-auth";
 import { cloudflareStreams } from "@earendil-works/pi-ai/providers/cloudflare-stream";
-import { modelFetch } from "@hopon/model-fetch";
+import { MODELS_HOST, modelFetch } from "@hopon/model-fetch";
 import type { ModelEnv } from "@hopon/model-fetch";
 
-const MODELS_HOST = "models.internal";
-// pi's Anthropic client wants a key; modelFetch swaps in the real one, as the Coder's outbound handler will.
+// pi's Anthropic client wants a key; modelFetch swaps in the real one, in-process or in the Coder's outbound handler.
 const PLACEHOLDER_KEY = "placeholder";
 
 // The gateway's descriptor, not Anthropic's: Anthropic's turns on mid-conversation system messages, which
@@ -45,13 +45,15 @@ export const abortable =
       return await handler(request);
     }
     signal.throwIfAborted();
-    // oxlint-disable-next-line promise/avoid-new -- settles once: the response or the caller's abort, whichever is first
-    const response = await new Promise<Response>((resolve, reject) => {
-      signal.addEventListener("abort", () => reject(signal.reason), {
-        once: true,
-      });
-      resolve(handler(request));
-    });
+    const onAbort = Promise.withResolvers<never>();
+    const abort = () => onAbort.reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    let response: Response;
+    try {
+      response = await Promise.race([handler(request), onAbort.promise]);
+    } finally {
+      signal.removeEventListener("abort", abort);
+    }
     return response.body
       ? new Response(
           response.body.pipeThrough(new TransformStream(), { signal }),

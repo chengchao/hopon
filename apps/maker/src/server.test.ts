@@ -21,7 +21,8 @@ const JOB = {
 };
 
 // The box: files in a Map, the playtest always green, every other command a no-op.
-const fakeBox = () => {
+// `open` resolves after `openMs`; `kill` fails when `killFails`.
+const fakeBox = ({ openMs = 0, killFails = false } = {}) => {
   const files = new Map<string, string>();
   const state = { paused: 0 };
   const sandbox = {
@@ -69,8 +70,12 @@ const fakeBox = () => {
     },
   } as unknown as Sandbox;
   const box = Layer.succeed(Box)({
-    kill: () => Promise.resolve(),
-    open: () => Promise.resolve(sandbox),
+    kill: () =>
+      killFails ? Promise.reject(new Error("E2B is down")) : Promise.resolve(),
+    open: async () => {
+      await sleep(openMs);
+      return sandbox;
+    },
     pause: () => {
       state.paused += 1;
       return Promise.resolve();
@@ -135,7 +140,11 @@ const scripted =
     });
   };
 
-const coder = (handler: ModelHandler, box = fakeBox(), deadlineMs?: number) =>
+const coder = (
+  handler: ModelHandler,
+  box = fakeBox(),
+  { deadlineMs, pingMs }: { deadlineMs?: number; pingMs?: number } = {}
+) =>
   makeCoder(
     Layer.mergeAll(
       box.box,
@@ -145,7 +154,7 @@ const coder = (handler: ModelHandler, box = fakeBox(), deadlineMs?: number) =>
         thinking: "low",
       })
     ),
-    { deadlineMs, draftId: JOB.draftId }
+    { deadlineMs, draftId: JOB.draftId, pingMs }
   );
 
 const post = (handle: ReturnType<typeof coder>, path: string, body?: unknown) =>
@@ -219,7 +228,7 @@ test("a job past its deadline fails, and its stalled model request is aborted", 
     start: (controller) =>
       controller.enqueue(new TextEncoder().encode(sse([start]))),
   });
-  const handle = coder(scripted([stalled]), fakeBox(), 300);
+  const handle = coder(scripted([stalled]), fakeBox(), { deadlineMs: 300 });
   const began = Date.now();
   const sent = await events(await post(handle, "/jobs/job-3", JOB));
   assert.deepEqual(sent, [
@@ -245,4 +254,45 @@ test("cancel ends a running job failed; another job meanwhile is busy", async ()
   assert.deepEqual(await events(await running), [
     { reason: "cancelled", type: "failed" },
   ]);
+});
+
+test("the deadline counts from the job's arrival, so a slow box open counts too", async () => {
+  const handle = coder(scripted(buildsADot()), fakeBox({ openMs: 1000 }), {
+    deadlineMs: 300,
+  });
+  const began = Date.now();
+  const sent = await events(await post(handle, "/jobs/job-6", JOB));
+  assert.deepEqual(sent, [
+    { reason: "past the 0.3 s deadline", type: "failed" },
+  ]);
+  // Reported at the deadline, while the box is still opening.
+  assert.ok(Date.now() - began < 800, `ended after ${Date.now() - began} ms`);
+});
+
+test("a running job's stream pings", async () => {
+  const handle = coder(scripted(buildsADot()), fakeBox({ openMs: 120 }), {
+    pingMs: 50,
+  });
+  const response = await post(handle, "/jobs/job-7", JOB);
+  const text = await response.text();
+  assert.ok(text.startsWith(`${JSON.stringify({ type: "ping" })}\n`), text);
+});
+
+test("a job that isn't for this Draft, or isn't a job, is refused", async () => {
+  const handle = coder(scripted(buildsADot()));
+  const other = await post(handle, "/jobs/job-8", {
+    ...JOB,
+    draftId: "draft-2",
+  });
+  assert.equal(other.status, 400);
+  const broken = await post(handle, "/jobs/job-9", { ...JOB, revision: "one" });
+  assert.equal(broken.status, 400);
+});
+
+test("DELETE /box answers 502 when the box can't be killed", async () => {
+  const handle = coder(scripted([]), fakeBox({ killFails: true }));
+  const response = await handle(
+    new Request("http://coder/box", { method: "DELETE" })
+  );
+  assert.equal(response.status, 502);
 });

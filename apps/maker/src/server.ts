@@ -6,10 +6,10 @@
 // The box and the model are Effect services, so the tests fake both at their edges.
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { Sandbox } from "e2b";
-import { Cause, Context, Effect, Layer } from "effect";
+import { Cause, Context, Effect, Layer, Schema } from "effect";
 
 import { killBox, openBox } from "./box.ts";
-import { runJob } from "./coder.ts";
+import { deadlineFor, JobSchema, runJob } from "./coder.ts";
 import type { CoderEvent, Job, Thinking } from "./coder.ts";
 import {
   CANDIDATES,
@@ -21,6 +21,11 @@ import type { ModelHandler } from "./models.ts";
 
 const PING_MS = 10_000;
 const ATTACH_MS = 600_000;
+// pi's levels; Claude 5.5 needs one above "off" (#115).
+const THINKING = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const isThinking = (effort: string): effort is Thinking =>
+  (THINKING as readonly string[]).includes(effort);
+const decodeJob = Schema.decodeUnknownEffect(Schema.fromJsonString(JobSchema));
 
 export class Box extends Context.Service<
   Box,
@@ -45,9 +50,14 @@ export const BoxLive = Layer.succeed(Box)({
 });
 
 // The model and its effort come from the Worker's MAKER_CODER_MODEL and MAKER_CODER_EFFORT, never from the job.
-export const modelsLive = (modelId: string, thinking: Thinking) => {
+export const modelsLive = (modelId: string, thinking: string) => {
   if (!isCandidate(modelId)) {
     throw new Error(`MAKER_CODER_MODEL ${modelId} is not a Coder model`);
+  }
+  if (!isThinking(thinking)) {
+    throw new Error(
+      `MAKER_CODER_EFFORT ${thinking} is not one of ${THINKING.join(", ")}`
+    );
   }
   return Layer.succeed(Models)({
     handler: networkHandler,
@@ -56,39 +66,51 @@ export const modelsLive = (modelId: string, thinking: Thinking) => {
   });
 };
 
+// A job as it runs here: its events so far and the streams following it.
 interface Run {
   id: string;
   events: CoderEvent[];
   listeners: Set<(event: CoderEvent) => void>;
   cancel: AbortController;
+  deadline?: ReturnType<typeof setTimeout>;
   endedAt?: number;
 }
 
-const ended = (event: CoderEvent) =>
+const isFinal = (event: CoderEvent) =>
   event.type === "done" || event.type === "failed";
 
-const record = (job: Run, event: CoderEvent) => {
-  if (job.endedAt !== undefined) {
+// The first `done` or `failed` is the job's answer; anything after it is dropped.
+const record = (run: Run, event: CoderEvent) => {
+  if (run.endedAt !== undefined) {
     return;
   }
-  job.events.push(event);
-  if (ended(event)) {
-    job.endedAt = Date.now();
+  run.events.push(event);
+  if (isFinal(event)) {
+    run.endedAt = Date.now();
+    clearTimeout(run.deadline);
   }
-  for (const listener of job.listeners) {
+  for (const listener of run.listeners) {
     listener(event);
   }
 };
 
+const failedNow = (id: string, reason: string): Run => ({
+  cancel: new AbortController(),
+  endedAt: Date.now(),
+  events: [{ reason, type: "failed" }],
+  id,
+  listeners: new Set(),
+});
+
 // The job's events so far, then the rest as they come, with a ping every 10 s; it closes after `done` or `failed`.
-const ndjson = (job: Run) => {
+const ndjson = (run: Run, pingMs: number) => {
   const encoder = new TextEncoder();
   let ping: ReturnType<typeof setInterval> | undefined;
   let listener: ((event: CoderEvent) => void) | undefined;
   const stop = () => {
     clearInterval(ping);
     if (listener) {
-      job.listeners.delete(listener);
+      run.listeners.delete(listener);
     }
   };
   return new Response(
@@ -100,17 +122,17 @@ const ndjson = (job: Run) => {
         };
         listener = (event) => {
           send(event);
-          if (ended(event)) {
+          if (isFinal(event)) {
             stop();
             controller.close();
           }
         };
-        ping = setInterval(() => send({ type: "ping" }), PING_MS);
-        for (const event of job.events) {
+        ping = setInterval(() => send({ type: "ping" }), pingMs);
+        for (const event of run.events) {
           listener(event);
         }
-        if (job.endedAt === undefined) {
-          job.listeners.add(listener);
+        if (run.endedAt === undefined) {
+          run.listeners.add(listener);
         }
       },
     }),
@@ -118,12 +140,21 @@ const ndjson = (job: Run) => {
   );
 };
 
-// One job in its box: opened (resumed or made) first, paused after whatever happened.
-const build = (job: Job, run: Run, deadlineMs?: number) =>
+// One job in its box: opened (resumed or made) first, paused after whatever happened. The deadline counts from the
+// job's arrival and ends it `failed` on time even while the box opens or the music renders; runJob is stopped too.
+const build = (job: Job, run: Run, deadlineMs: number) =>
   Effect.gen(function* () {
     const box = yield* Box;
     const { handler, model, thinking } = yield* Models;
     routeModels(handler);
+    const startedAt = Date.now();
+    run.deadline = setTimeout(() => {
+      record(run, {
+        reason: `past the ${deadlineMs / 1000} s deadline`,
+        type: "failed",
+      });
+      run.cancel.abort();
+    }, deadlineMs);
     yield* Effect.acquireUseRelease(
       Effect.tryPromise(() => box.open(job.draftId)),
       (sandbox) =>
@@ -135,6 +166,7 @@ const build = (job: Job, run: Run, deadlineMs?: number) =>
             onEvent: (event) => record(run, event),
             sandbox,
             signal: run.cancel.signal,
+            startedAt,
             thinking,
           })
         ),
@@ -155,16 +187,17 @@ const build = (job: Job, run: Run, deadlineMs?: number) =>
   );
 
 export interface CoderOptions {
-  // The Draft this instance serves: its Container's name.
+  // The Draft this instance serves: its Container's name. A job for any other Draft is refused.
   draftId: string;
-  // The tests' short deadline; otherwise runJob's own (120 s, 150 s with music).
+  // The tests' short ones; otherwise 120 s (150 s with music) and 10 s.
   deadlineMs?: number;
+  pingMs?: number;
 }
 
 // The server as a fetch handler; main.ts serves it over HTTP.
 export const makeCoder = (
   services: Layer.Layer<Box | Models>,
-  { draftId, deadlineMs }: CoderOptions
+  { draftId, deadlineMs, pingMs = PING_MS }: CoderOptions
 ) => {
   let current: Run | undefined;
   const live = (id: string) =>
@@ -176,8 +209,12 @@ export const makeCoder = (
     const [, jobs, id, action] = pathname.split("/");
     if (request.method === "DELETE" && pathname === "/box") {
       const box = yield* Box;
-      yield* Effect.promise(() => box.kill(draftId));
-      return new Response(null, { status: 204 });
+      return yield* Effect.tryPromise(() => box.kill(draftId)).pipe(
+        Effect.as(new Response(null, { status: 204 })),
+        Effect.orElseSucceed(
+          () => new Response("Could not kill the box", { status: 502 })
+        )
+      );
     }
     if (request.method !== "POST" || jobs !== "jobs" || !id) {
       return new Response("Not found", { status: 404 });
@@ -192,19 +229,17 @@ export const makeCoder = (
       return new Response("Not found", { status: 404 });
     }
     if (current && live(id)) {
-      return ndjson(current);
+      return ndjson(current, pingMs);
     }
     if (current && current.endedAt === undefined) {
       // ponytail: a second Draft job while one runs is refused, never queued; the Talker runs one build per turn.
-      return ndjson({
-        cancel: new AbortController(),
-        endedAt: Date.now(),
-        events: [{ reason: "busy", type: "failed" }],
-        id,
-        listeners: new Set(),
-      });
+      return ndjson(failedNow(id, "busy"), pingMs);
     }
-    const job = yield* Effect.tryPromise(() => request.json() as Promise<Job>);
+    const text = yield* Effect.promise(() => request.text());
+    const job = yield* decodeJob(text).pipe(Effect.option);
+    if (job._tag === "None" || job.value.draftId !== draftId) {
+      return new Response(`Not a job for Draft ${draftId}`, { status: 400 });
+    }
     const run: Run = {
       cancel: new AbortController(),
       events: [],
@@ -212,15 +247,12 @@ export const makeCoder = (
       listeners: new Set(),
     };
     current = run;
-    yield* Effect.forkDetach(build(job, run, deadlineMs));
-    return ndjson(run);
+    yield* Effect.forkDetach(
+      build(job.value, run, deadlineMs ?? deadlineFor(job.value))
+    );
+    return ndjson(run, pingMs);
   });
 
   return (request: Request) =>
-    Effect.runPromise(
-      route(request).pipe(
-        Effect.orElseSucceed(() => new Response("Bad job", { status: 400 })),
-        Effect.provide(services)
-      )
-    );
+    Effect.runPromise(route(request).pipe(Effect.provide(services)));
 };

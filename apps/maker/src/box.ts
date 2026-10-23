@@ -9,7 +9,7 @@ export const WORKSPACE = "/workspace";
 const BOX_TIMEOUT_MS = 600_000;
 
 export const createBox = (
-  template = EVAL_TEMPLATE,
+  template: typeof E2B_TEMPLATE | typeof EVAL_TEMPLATE,
   metadata?: Record<string, string>
 ) =>
   Sandbox.create(template, {

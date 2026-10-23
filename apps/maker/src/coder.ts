@@ -1,7 +1,7 @@
-import { once } from "node:events";
 // The Coder (#122): one build job in, events out. A fresh pi-coding-agent session per job, pi's read/bash/edit/write
 // plus a playtest tool executing in the Draft's E2B box, the job's source written over the workspace first. The eval
 // runs it in-process; the Container wraps the same function in POST /jobs/:jobId (server.ts).
+import { once } from "node:events";
 import { cpSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -22,6 +22,7 @@ import type {
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { Sandbox } from "e2b";
+import { Schema } from "effect";
 
 import { run, WORKSPACE } from "./box.ts";
 import { apiKey } from "./models.ts";
@@ -34,7 +35,7 @@ const AGENT_HOME = path.join(import.meta.dirname, "..", "agent-home");
 export const MAX_STEPS = 12;
 export const DEADLINE_MS = 120_000;
 const MUSIC_EXTRA_MS = 30_000;
-const deadlineFor = (job: { spec: { music: string | null } }) =>
+export const deadlineFor = (job: { spec: { music: string | null } }) =>
   DEADLINE_MS + (job.spec.music ? MUSIC_EXTRA_MS : 0);
 // pi settles within moments of an abort; this bounds a tool call that doesn't, so a stopped job still ends on time.
 const SETTLE_MS = 5000;
@@ -45,18 +46,22 @@ const SYSTEM_PROMPT = `You are the Coder in hopon, an app where people make smal
 
 Your tools run in the game's workspace, a sandbox with no network. Follow the project instructions below.`;
 
-export interface Spec {
-  title: string;
-  brief: string;
-  music: string | null;
-}
-
-export interface Job {
-  draftId: string;
-  revision: number;
-  source: Record<string, string>;
-  spec: Spec;
-}
+// The job from the Talker (#122), decoded at the server's door.
+export const JobSchema = Schema.Struct({
+  draftId: Schema.String,
+  // 0 for a new game
+  revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  // game.ts, index.html (plain DOM), music.mjs; never game.js or music.opus
+  source: Schema.Record(Schema.String, Schema.String),
+  spec: Schema.Struct({
+    brief: Schema.String,
+    // genre and mood when this build writes or rewrites the music, else null
+    music: Schema.NullOr(Schema.String),
+    title: Schema.String,
+  }),
+});
+export type Job = typeof JobSchema.Type;
+export type Spec = Job["spec"];
 
 export interface PlaytestResult {
   ok: boolean;
@@ -118,7 +123,7 @@ const readText = async (sandbox: Sandbox, file: string) => {
 
 // What the Creator would get: the files a Revision holds (#117). music.opus is the harness's, from music.wav.
 const REVISION_FILES = ["index.html", "game.ts", "game.js", "music.mjs"];
-const MUSIC = "music.opus";
+export const MUSIC = "music.opus";
 
 const renderMusic = async (sandbox: Sandbox) => {
   const result = await run(
@@ -173,6 +178,8 @@ export interface RunOptions {
   signal?: AbortSignal;
   maxSteps?: number;
   deadlineMs?: number;
+  // When the job reached the Coder; the deadline counts from here. The server passes it, so opening the box counts.
+  startedAt?: number;
   // "off" breaks Claude 5.5; low is the floor that works everywhere (#115).
   thinking?: Thinking;
 }
@@ -284,6 +291,11 @@ const restore = async (sandbox: Sandbox, source: Job["source"]) => {
   );
 };
 
+const pastDeadline = (seconds: number) => `past the ${seconds} s deadline`;
+// Music rendering and reading the files back run after the session; a job that finished them late still fails.
+const overdue = (deadlineAt: number, seconds: number) =>
+  Date.now() > deadlineAt ? pastDeadline(seconds) : undefined;
+
 // A build without a green playtest never becomes a Revision (#122).
 const failure = (stopped: string | undefined, playtests: PlaytestResult[]) => {
   if (stopped || playtests.at(-1)?.ok === true) {
@@ -301,10 +313,11 @@ export const runJob = async ({
   onEvent,
   signal,
   maxSteps = MAX_STEPS,
-  deadlineMs,
+  deadlineMs = deadlineFor(job),
+  startedAt = Date.now(),
   thinking = "low",
 }: RunOptions) => {
-  const started = Date.now();
+  const deadlineAt = startedAt + deadlineMs;
   await restore(sandbox, job.source);
 
   const playtests: PlaytestResult[] = [];
@@ -360,12 +373,12 @@ export const runJob = async ({
   const errors: string[] = [];
   const toolCalls: { tool: string; ms: number; command?: string }[] = [];
   const commands = new Map<string, string>();
-  const startedAt = new Map<string, number>();
+  const toolStartedAt = new Map<string, number>();
   session.subscribe((event) => {
     if (event.type === "tool_execution_start") {
       steps += 1;
       commands.set(event.toolCallId, String(event.args?.command ?? ""));
-      startedAt.set(event.toolCallId, Date.now());
+      toolStartedAt.set(event.toolCallId, Date.now());
       if (steps > maxSteps) {
         halt(`over ${maxSteps} steps`);
         return;
@@ -373,7 +386,7 @@ export const runJob = async ({
       onEvent?.({ label: stepLabel(event.toolName, event.args), type: "step" });
     } else if (event.type === "tool_execution_end") {
       toolCalls.push({
-        ms: Date.now() - (startedAt.get(event.toolCallId) ?? Date.now()),
+        ms: Date.now() - (toolStartedAt.get(event.toolCallId) ?? Date.now()),
         tool: event.toolName,
         ...(event.toolName === "bash" && {
           command: String(commands.get(event.toolCallId) ?? "").slice(0, 120),
@@ -387,10 +400,9 @@ export const runJob = async ({
       errors.push((event.message as AssistantMessage).errorMessage ?? "error");
     }
   });
-  const deadlineAfter = deadlineMs ?? deadlineFor(job);
   const deadline = setTimeout(
-    () => halt(`past the ${deadlineAfter / 1000} s deadline`),
-    deadlineAfter
+    () => halt(pastDeadline(deadlineMs / 1000)),
+    Math.max(0, deadlineAt - Date.now())
   );
   const cancel = () => halt("cancelled");
   signal?.addEventListener("abort", cancel, { once: true });
@@ -431,7 +443,8 @@ export const runJob = async ({
     job.source,
     !reason && Boolean(job.spec.music)
   );
-  const seconds = (Date.now() - started) / 1000;
+  reason ??= overdue(deadlineAt, deadlineMs / 1000);
+  const seconds = (Date.now() - startedAt) / 1000;
   onEvent?.(
     reason
       ? { reason, type: "failed" }

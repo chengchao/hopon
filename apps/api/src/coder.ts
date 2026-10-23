@@ -6,9 +6,8 @@
 // the Draft (this instance's name) and the job.
 import { Container } from "@cloudflare/containers";
 import type { OutboundHandlerContext } from "@cloudflare/containers";
-import { modelFetch } from "@hopon/model-fetch";
+import { MODELS_HOST, modelFetch } from "@hopon/model-fetch";
 
-const MODELS_HOST = "models.internal";
 const JOB_PATH = /^\/jobs\/(?<jobId>[^/]+)$/u;
 
 interface ModelCallParams {
@@ -68,7 +67,8 @@ export class Coder extends Container<Env> {
       } satisfies ModelCallParams);
     }
     const response = await this.containerFetch(request);
-    // Past max_instances no container starts: the Talker reads that as a busy build (#122).
+    // No container to start: past max_instances, or while a deploy is still provisioning the image. The Talker reads
+    // both as a busy build (#122).
     if (jobId && response.status === 503) {
       return new Response(
         `${JSON.stringify({ reason: "busy", type: "failed" })}\n`,
