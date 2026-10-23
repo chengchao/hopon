@@ -7,8 +7,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { Effect } from "effect";
 import { getPlatformProxy, unstable_splitSqlQuery } from "wrangler";
 
+import worker from "../src/api.ts";
 import { parseGame, GAME_CSP } from "../src/game.ts";
-import worker from "../src/index.ts";
 
 // Throwaway RS256 key standing in for the Clerk instance; tokens below are really signed and verified.
 const keys = await crypto.subtle.generateKey(

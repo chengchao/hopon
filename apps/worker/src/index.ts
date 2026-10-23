@@ -1,13 +1,13 @@
 // The Worker's entry point: the API, plus the classes Cloudflare binds by export name (the Talker, the Coder and the
-// containers library's ContainerProxy). index.ts stays importable in Node, where the tests run it; these need
+// containers library's ContainerProxy). api.ts stays importable in Node, where the tests run it; these need
 // `cloudflare:workers` and the Talker's packages.
-import app from "./index.ts";
+import app from "./api.ts";
 
 export { ContainerProxy } from "@cloudflare/containers";
 export { Coder } from "./coder.ts";
 export { Talker } from "./talker.ts";
 
-// `pnpm -F api dev:coder` sets CODER_DEV, so `smoke:coder` can post a job straight to a Draft's Coder:
+// `pnpm -F worker dev:coder` sets CODER_DEV, so `smoke:coder` can post a job straight to a Draft's Coder:
 // /__coder/<draftId>/<path> goes to that Coder's <path>. Deployed, CODER_DEV is never set and the path is the API's.
 const CODER_DEV_PATH = /^\/__coder\/(?<draftId>[^/]+)(?<path>\/.*)$/u;
 

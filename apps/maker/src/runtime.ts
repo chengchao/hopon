@@ -42,7 +42,7 @@ export const SERVED_PATH = path.join(
   import.meta.dirname,
   "..",
   "..",
-  "api",
+  "worker",
   "src",
   "runtime",
   "v1.json"

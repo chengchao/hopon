@@ -194,52 +194,6 @@ importers:
         specifier: 7.12.2
         version: 7.12.2(oxfmt@0.71.0)(oxlint@1.86.0)
 
-  apps/api:
-    dependencies:
-      '@clerk/backend':
-        specifier: ^3.22.0
-        version: 3.22.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      '@cloudflare/containers':
-        specifier: 0.3.7
-        version: 0.3.7
-      '@earendil-works/pi-ai':
-        specifier: 1.3.0
-        version: 1.3.0(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(supports-color@10.2.2)(undici@8.12.2)(ws@8.21.0)(zod@4.6.5)
-      '@earendil-works/pi-durable':
-        specifier: 1.3.0
-        version: 1.3.0(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(supports-color@10.2.2)(undici@8.12.2)(ws@8.21.0)(zod@4.6.5)
-      '@hono/zod-validator':
-        specifier: ^0.9.1
-        version: 0.9.1(hono@4.13.13)(zod@4.6.5)
-      '@hopon/model-fetch':
-        specifier: workspace:*
-        version: link:../../packages/model-fetch
-      '@hopon/schemas':
-        specifier: workspace:*
-        version: link:../../packages/schemas
-      agents:
-        specifier: 0.28.1
-        version: 0.28.1(@babel/core@8.0.7)(@babel/runtime@7.29.7)(@earendil-works/pi-ai@1.3.0(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(supports-color@10.2.2)(undici@8.12.2)(ws@8.21.0)(zod@4.6.5))(@earendil-works/pi-durable@1.3.0(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(supports-color@10.2.2)(undici@8.12.2)(ws@8.21.0)(zod@4.6.5))(@modelcontextprotocol/client@2.3.1)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.5))(@modelcontextprotocol/server@2.3.1)(react@19.2.3)(rolldown@1.2.14)(zod@4.6.5)
-      drizzle-orm:
-        specifier: ^0.45.3
-        version: 0.45.3
-      effect:
-        specifier: ^4.0.1
-        version: 4.0.1
-      hono:
-        specifier: ^4.13.13
-        version: 4.13.13
-      zod:
-        specifier: ^4.6.5
-        version: 4.6.5
-    devDependencies:
-      drizzle-kit:
-        specifier: ^0.31.11
-        version: 0.31.11
-      wrangler:
-        specifier: ^4.0.0
-        version: 4.130.0(@types/node@22.20.2)
-
   apps/maker:
     dependencies:
       '@earendil-works/chord':
@@ -391,6 +345,52 @@ importers:
       babel-preset-expo:
         specifier: ~57.0.13
         version: 57.0.13(@babel/core@7.29.7(supports-color@10.2.2))(@babel/runtime@7.29.7)(expo@57.0.26)(react-refresh@0.14.2)(supports-color@10.2.2)
+
+  apps/worker:
+    dependencies:
+      '@clerk/backend':
+        specifier: ^3.22.0
+        version: 3.22.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@cloudflare/containers':
+        specifier: 0.3.7
+        version: 0.3.7
+      '@earendil-works/pi-ai':
+        specifier: 1.3.0
+        version: 1.3.0(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(supports-color@10.2.2)(undici@8.12.2)(ws@8.21.0)(zod@4.6.5)
+      '@earendil-works/pi-durable':
+        specifier: 1.3.0
+        version: 1.3.0(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(supports-color@10.2.2)(undici@8.12.2)(ws@8.21.0)(zod@4.6.5)
+      '@hono/zod-validator':
+        specifier: ^0.9.1
+        version: 0.9.1(hono@4.13.13)(zod@4.6.5)
+      '@hopon/model-fetch':
+        specifier: workspace:*
+        version: link:../../packages/model-fetch
+      '@hopon/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
+      agents:
+        specifier: 0.28.1
+        version: 0.28.1(@babel/core@8.0.7)(@babel/runtime@7.29.7)(@earendil-works/pi-ai@1.3.0(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(supports-color@10.2.2)(undici@8.12.2)(ws@8.21.0)(zod@4.6.5))(@earendil-works/pi-durable@1.3.0(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.5))(@smithy/signature-v4@5.7.4)(supports-color@10.2.2)(undici@8.12.2)(ws@8.21.0)(zod@4.6.5))(@modelcontextprotocol/client@2.3.1)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.5))(@modelcontextprotocol/server@2.3.1)(react@19.2.3)(rolldown@1.2.14)(zod@4.6.5)
+      drizzle-orm:
+        specifier: ^0.45.3
+        version: 0.45.3
+      effect:
+        specifier: ^4.0.1
+        version: 4.0.1
+      hono:
+        specifier: ^4.13.13
+        version: 4.13.13
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+    devDependencies:
+      drizzle-kit:
+        specifier: ^0.31.11
+        version: 0.31.11
+      wrangler:
+        specifier: ^4.0.0
+        version: 4.130.0(@types/node@22.20.2)
 
   packages/model-fetch: {}
 
@@ -12588,7 +12588,7 @@ snapshots:
 
   tsx@4.23.15:
     dependencies:
-      esbuild: 0.28.1
+      esbuild: 0.28.2
     optionalDependencies:
       fsevents: 2.3.3
 

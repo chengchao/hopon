@@ -4,7 +4,7 @@
 
 ```
 apps/mobile/   Expo 应用（Expo Router、React Native Reusables/shadcn + NativeWind、Clerk 邮箱验证码登录）
-apps/api/      Cloudflare Worker API（D1 + Drizzle、Workers AI、Clerk JWT 校验）
+apps/worker/   Cloudflare Worker API（D1 + Drizzle、Workers AI、Clerk JWT 校验）
 ```
 
 技术栈：Expo SDK 57、Cloudflare Workers、D1、Drizzle ORM、Workers AI、Clerk。无外部生成服务或游戏引擎。
@@ -21,33 +21,33 @@ apps/api/      Cloudflare Worker API（D1 + Drizzle、Workers AI、Clerk JWT 校
    EXPO_PUBLIC_API_URL=http://localhost:8787   # Android 模拟器用 http://10.0.2.2:8787，真机用电脑局域网 IP
    ```
 
-3. Worker 用 Clerk 公钥离线校验登录（控制台 API keys → Show JWT public key → PEM Public Key），本地写入 `apps/api/.dev.vars`：
+3. Worker 用 Clerk 公钥离线校验登录（控制台 API keys → Show JWT public key → PEM Public Key），本地写入 `apps/worker/.dev.vars`：
 
    ```sh
-   printf 'CLERK_JWT_KEY="%s"\n' "$(cat clerk-public-key.pem)" >> apps/api/.dev.vars
+   printf 'CLERK_JWT_KEY="%s"\n' "$(cat clerk-public-key.pem)" >> apps/worker/.dev.vars
    ```
 
-4. Operator 的 Ban 通过 Clerk Backend API 封禁账户，Worker 需要 Secret key（控制台 API keys → Secret keys，`sk_test_...`），同样写入 `apps/api/.dev.vars`。它列在 `wrangler.jsonc` 的 `secrets.required` 里（只有列出的 secret 会从 `.dev.vars` 加载）；本地缺少时 wrangler 只警告，其他功能照常，只有 Ban 会失败：
+4. Operator 的 Ban 通过 Clerk Backend API 封禁账户，Worker 需要 Secret key（控制台 API keys → Secret keys，`sk_test_...`），同样写入 `apps/worker/.dev.vars`。它列在 `wrangler.jsonc` 的 `secrets.required` 里（只有列出的 secret 会从 `.dev.vars` 加载）；本地缺少时 wrangler 只警告，其他功能照常，只有 Ban 会失败：
 
    ```sh
-   echo 'CLERK_SECRET_KEY=sk_test_...' >> apps/api/.dev.vars
+   echo 'CLERK_SECRET_KEY=sk_test_...' >> apps/worker/.dev.vars
    ```
 
-5. 每条新 Report 会 POST 到 Operator 的 webhook（`OPERATOR_WEBHOOK_URL`），同样列在 `secrets.required` 里。本地想试 webhook 时写入 `apps/api/.dev.vars`；缺少时 wrangler 只警告，Report 照常保存，只是不发通知。通知末尾附有该内容在 `/operator` 上的链接。
+5. 每条新 Report 会 POST 到 Operator 的 webhook（`OPERATOR_WEBHOOK_URL`），同样列在 `secrets.required` 里。本地想试 webhook 时写入 `apps/worker/.dev.vars`；缺少时 wrangler 只警告，Report 照常保存，只是不发通知。通知末尾附有该内容在 `/operator` 上的链接。
 
-6. Operator 在 Worker 的 `/operator` 页面处理 Report（Delete、Dismiss、Ban），用浏览器的 Basic 认证登录：用户名随意，密码是 `OPERATOR_PASSWORD`（至少 32 位随机字符，用密码生成器生成），同样列在 `secrets.required` 里。本地写入 `apps/api/.dev.vars` 后打开 http://localhost:8787/operator；缺少或为空时谁都进不去：
+6. Operator 在 Worker 的 `/operator` 页面处理 Report（Delete、Dismiss、Ban），用浏览器的 Basic 认证登录：用户名随意，密码是 `OPERATOR_PASSWORD`（至少 32 位随机字符，用密码生成器生成），同样列在 `secrets.required` 里。本地写入 `apps/worker/.dev.vars` 后打开 http://localhost:8787/operator；缺少或为空时谁都进不去：
 
    ```sh
-   echo 'OPERATOR_PASSWORD=...' >> apps/api/.dev.vars
+   echo 'OPERATOR_PASSWORD=...' >> apps/worker/.dev.vars
    ```
 
-7. Maker 的 Coder 是一个 Cloudflare Container（`apps/maker/Dockerfile`），每个 Draft 一个实例。它的模型请求经 Worker 的 `modelFetch` 发出，要用 `CLOUDFLARE_API_KEY`（需 AI Gateway Run 和 Workers AI 权限）；它的 E2B box 要用 `E2B_API_KEY`，这是唯一进入容器的密钥。两者都列在 `secrets.required` 里，值与 `apps/maker/.env` 中的相同，写入 `apps/api/.dev.vars`：
+7. Maker 的 Coder 是一个 Cloudflare Container（`apps/maker/Dockerfile`），每个 Draft 一个实例。它的模型请求经 Worker 的 `modelFetch` 发出，要用 `CLOUDFLARE_API_KEY`（需 AI Gateway Run 和 Workers AI 权限）；它的 E2B box 要用 `E2B_API_KEY`，这是唯一进入容器的密钥。两者都列在 `secrets.required` 里，值与 `apps/maker/.env` 中的相同，写入 `apps/worker/.dev.vars`：
 
    ```sh
-   grep -E '^(CLOUDFLARE_API_KEY|E2B_API_KEY)=' apps/maker/.env >> apps/api/.dev.vars
+   grep -E '^(CLOUDFLARE_API_KEY|E2B_API_KEY)=' apps/maker/.env >> apps/worker/.dev.vars
    ```
 
-   `pnpm run api` 不启动容器。要本地跑 Coder，先打开 Docker Desktop，再运行 `pnpm -F api dev:coder`（首次会构建镜像），然后在另一个终端用 `pnpm -F api smoke:coder` 给一个新 Draft 发一个真实的构建任务（加 `--music` 带音乐）：它会逐条打印事件，最后删掉这个 Draft 的 box。用的是真实模型和 E2B，一次大约一分钟。
+   `pnpm run api` 不启动容器。要本地跑 Coder，先打开 Docker Desktop，再运行 `pnpm -F worker dev:coder`（首次会构建镜像），然后在另一个终端用 `pnpm -F worker smoke:coder` 给一个新 Draft 发一个真实的构建任务（加 `--music` 带音乐）：它会逐条打印事件，最后删掉这个 Draft 的 box。用的是真实模型和 E2B，一次大约一分钟。
 
 ## 本地运行
 
@@ -58,14 +58,14 @@ pnpm run api:offline   # 终端 1：本地 API，不连接 Workers AI
 pnpm run ios           # 终端 2：Expo Go + iOS 模拟器（或 pnpm run android）
 ```
 
-离线模式可以浏览和试玩两个原创游戏、登录、检查布局；生成会提示需要连接 Workers AI，评论不经 Screening 直接发出。要真实生成，先 `pnpm -F api exec wrangler login`，再用 `pnpm run api` 代替 `api:offline`。D1 仍是本地 SQLite；只有 AI 推理访问 Cloudflare，会消耗该账号 Workers AI 额度。模型配置在 `apps/api/wrangler.jsonc` 的 `AI_MODEL`，当前为 `@cf/moonshotai/kimi-k2.5`（`thinking: false`，最多 6000 tokens），输出经 JSON 与完整 HTML 校验后保存为私有草稿。想法句子和评论先经 Llama Guard 3（`@cf/meta/llama-guard-3-8b`）Screening，3 秒内没有结论就拒绝。
+离线模式可以浏览和试玩两个原创游戏、登录、检查布局；生成会提示需要连接 Workers AI，评论不经 Screening 直接发出。要真实生成，先 `pnpm -F worker exec wrangler login`，再用 `pnpm run api` 代替 `api:offline`。D1 仍是本地 SQLite；只有 AI 推理访问 Cloudflare，会消耗该账号 Workers AI 额度。模型配置在 `apps/worker/wrangler.jsonc` 的 `AI_MODEL`，当前为 `@cf/moonshotai/kimi-k2.5`（`thinking: false`，最多 6000 tokens），输出经 JSON 与完整 HTML 校验后保存为私有草稿。想法句子和评论先经 Llama Guard 3（`@cf/meta/llama-guard-3-8b`）Screening，3 秒内没有结论就拒绝。
 
 ## 数据库（Drizzle）
 
-表结构在 `apps/api/src/schema.ts`。修改后生成迁移并应用：
+表结构在 `apps/worker/src/schema.ts`。修改后生成迁移并应用：
 
 ```sh
-pnpm run db:generate --name <feature>   # drizzle-kit 写入 apps/api/migrations/（与 wrangler 的 migrations_dir 相同），文件名后缀为功能名，如 _comments
+pnpm run db:generate --name <feature>   # drizzle-kit 写入 apps/worker/migrations/（与 wrangler 的 migrations_dir 相同），文件名后缀为功能名，如 _comments
 pnpm run db:local
 ```
 
@@ -73,19 +73,19 @@ pnpm run db:local
 
 ## 部署
 
-已配置用户选择的 Chengchao60827@gmail.com 账号及专用 hopon D1 数据库（迁移到其他账号时才需要 `wrangler d1 create hopon`，并同时更新 `apps/api/wrangler.jsonc` 的 `account_id` 和 `apps/api/package.json` 里 `db:remote`、`deploy` 的 `CLOUDFLARE_ACCOUNT_ID`）。
+已配置用户选择的 Chengchao60827@gmail.com 账号及专用 hopon D1 数据库（迁移到其他账号时才需要 `wrangler d1 create hopon`，并同时更新 `apps/worker/wrangler.jsonc` 的 `account_id` 和 `apps/worker/package.json` 里 `db:remote`、`deploy` 的 `CLOUDFLARE_ACCOUNT_ID`）。
 
 ```sh
-pnpm -F api exec wrangler secret put CLERK_JWT_KEY < clerk-public-key.pem
-pnpm -F api exec wrangler secret put CLERK_SECRET_KEY   # 生产实例的 sk_live_...
-pnpm -F api exec wrangler secret put OPERATOR_WEBHOOK_URL
-pnpm -F api exec wrangler secret put OPERATOR_PASSWORD
+pnpm -F worker exec wrangler secret put CLERK_JWT_KEY < clerk-public-key.pem
+pnpm -F worker exec wrangler secret put CLERK_SECRET_KEY   # 生产实例的 sk_live_...
+pnpm -F worker exec wrangler secret put OPERATOR_WEBHOOK_URL
+pnpm -F worker exec wrangler secret put OPERATOR_PASSWORD
 pnpm run deploy
 ```
 
 `deploy` 先应用远程迁移（`db:remote`，需确认）再部署 Worker：新代码可能写入新列，而迁移只追加，正在运行的旧 Worker 不受影响。
 
-远程命令报 `[code: 7403]` 时先重跑一次：wrangler 的 OAuth 令牌过期后，刷新令牌的那一次请求会失败。仍然失败就运行 `pnpm -F api exec wrangler whoami`，Token Permissions 里没有 `d1` 和 `workers` 时，令牌权限不足，用 `pnpm -F api exec wrangler login` 重新登录。
+远程命令报 `[code: 7403]` 时先重跑一次：wrangler 的 OAuth 令牌过期后，刷新令牌的那一次请求会失败。仍然失败就运行 `pnpm -F worker exec wrangler whoami`，Token Permissions 里没有 `d1` 和 `workers` 时，令牌权限不足，用 `pnpm -F worker exec wrangler login` 重新登录。
 
 Worker 提供 `/api/*` 和三个静态页面：`/terms`（Rules，标题为 Terms of Use）、`/support`（联系地址，即 App Store 的 Support URL）与 `/privacy`（两个商店的隐私政策 URL，须与商店的隐私问卷一致）。原网页前端已移除。
 
@@ -112,7 +112,7 @@ Worker 测试在 wrangler 提供的真实本地 D1（workerd）上运行迁移�
 - 浏览和试玩无需登录；创建和发布需要 Clerk 邮箱验证码登录（新邮箱自动注册）。身份是 Clerk 用户 ID（JWT `sub`），存入 `games.owner`。Bearer token 不会被自动携带，因此无需 CSRF 检查。Clerk token 约 60 秒过期，应用每次请求都取新 token。
 - 草稿仅拥有者可预览（WebView 首次加载携带 Bearer 头）。服务器保留最新未发布草稿（`/api/drafts/latest`），应用被杀后重开创建页可恢复；不做草稿列表。创建页可退出登录和删除账户；删除账户后已发布游戏仍保留。
 - 游戏在 WebView 中运行。原生 WebView 没有 iframe 的 `sandbox` 属性，隔离依赖响应 CSP（`sandbox allow-scripts`，禁止网络、表单、嵌套框架和同源权限；脚本和媒体只能内联或来自本站，例如游戏运行时 `/runtime/v1.js`），并禁止导航、新窗口和文件访问。沙箱的不透明源没有存储；WebView 不用 incognito，以便缓存运行时。消息只从应用发往游戏（暂停、继续、静音），游戏无法向应用发消息。沙箱不是 CPU 配额，错误的游戏代码仍可能卡住 WebView。
-- 游戏运行时是 LittleJS 加 hopon 脚手架（`apps/maker/image/scaffold.js`），由 `pnpm -F maker build:runtime` 构建，同一份字节供 Coder 的试玩和 Worker 使用；`apps/api/src/runtime/v1.json` 已提交，过期时测试失败。v1 缓存为 immutable：上线后在 `apps/maker/src/runtime.ts` 设置 `V1_SHA256` 冻结它，之后的改动作为 v2 发布。
+- 游戏运行时是 LittleJS 加 hopon 脚手架（`apps/maker/image/scaffold.js`），由 `pnpm -F maker build:runtime` 构建，同一份字节供 Coder 的试玩和 Worker 使用；`apps/worker/src/runtime/v1.json` 已提交，过期时测试失败。v1 缓存为 immutable：上线后在 `apps/maker/src/runtime.ts` 设置 `V1_SHA256` 冻结它，之后的改动作为 v2 发布。
 - 每个 Clerk 账户每个 UTC 日最多 10 次生成尝试，失败也计数；批量注册可绕过，依赖 Clerk 的注册防护。
 - 评论：任何人可读；发表需登录并有 @handle，只能评论已发布游戏，1–300 字纯文本，每个账户每个 UTC 日最多 100 条。评论者本人或游戏创作者可删除（硬删除）。删除账户后评论保留，显示发表时的 handle。
 - 收藏（Save）：仅本人可见，不显示收藏数；需要登录（未登录不在设备上暂存），只能收藏已发布游戏。收藏列表按收藏时间倒序分页；从列表点开进入收藏流，从所点游戏开始向更早的收藏滑动。删除账户后收藏保留。

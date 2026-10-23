@@ -6,9 +6,9 @@ Accepted. Steps 1 and 2 are done; steps 3 and 4 are deferred.
 
 ## Decision
 
-The API (`apps/api`) moves to Effect v4 (`effect` on npm, source in `repos/effect`) in small slices. Each slice leaves `pnpm check` green, and the worker tests in `apps/api/test/worker.test.js` call the Worker over HTTP, so they don't change between slices.
+The API (`apps/worker`) moves to Effect v4 (`effect` on npm, source in `repos/effect`) in small slices. Each slice leaves `pnpm check` green, and the worker tests in `apps/worker/test/worker.test.js` call the Worker over HTTP, so they don't change between slices.
 
-Hono stays the HTTP shell: routing, `bodyLimit`, headers, `onError`. Route bodies are `Effect.gen` and are run with `Effect.runPromise`. This is Effect's own documented bridge (`repos/effect/ai-docs/src/04_integration/10_managed-runtime.ts`). Errors are `HttpError` (`apps/api/src/game.ts`), which Hono code throws and Effect code yields. `app.onError` renders both, because `runPromise` rejects with the failure itself. Database calls go through `Effect.promise`, so a D1 failure becomes a defect and returns a 500.
+Hono stays the HTTP shell: routing, `bodyLimit`, headers, `onError`. Route bodies are `Effect.gen` and are run with `Effect.runPromise`. This is Effect's own documented bridge (`repos/effect/ai-docs/src/04_integration/10_managed-runtime.ts`). Errors are `HttpError` (`apps/worker/src/game.ts`), which Hono code throws and Effect code yields. `app.onError` renders both, because `runPromise` rejects with the failure itself. Database calls go through `Effect.promise`, so a D1 failure becomes a defect and returns a 500.
 
 ## Order
 

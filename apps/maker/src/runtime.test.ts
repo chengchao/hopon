@@ -11,7 +11,7 @@ test("the Worker serves the runtime the box builds", async () => {
   assert.equal(
     served,
     await compileRuntime(),
-    "apps/api/src/runtime/v1.json is stale: run `pnpm -F maker build:runtime`, which says so if v1 is frozen"
+    "apps/worker/src/runtime/v1.json is stale: run `pnpm -F maker build:runtime`, which says so if v1 is frozen"
   );
 });
 

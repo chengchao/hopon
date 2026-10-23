@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && { [ -d apps/api/node_modules ] || pnpm install --frozen-lockfile >/dev/null 2>&1 || echo 'pnpm install failed in this checkout; run it before tests or the app.'; }"
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && { [ -d apps/worker/node_modules ] || pnpm install --frozen-lockfile >/dev/null 2>&1 || echo 'pnpm install failed in this checkout; run it before tests or the app.'; }"
           }
         ]
       }

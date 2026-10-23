@@ -1,5 +1,5 @@
 {
-  "name": "api",
+  "name": "worker",
   "private": true,
   "type": "module",
   "scripts": {

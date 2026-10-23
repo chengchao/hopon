@@ -4,13 +4,13 @@ import { Alert, Linking } from "react-native";
 import { API_URL } from "@/lib/api";
 
 // What signed-in people last agreed to, stored as Clerk `unsafeMetadata.rulesAgreed`. Bump it whenever the Rules at
-// /terms (apps/api/src/pages.ts) change, and everyone sees the Rules screen again.
+// /terms (apps/worker/src/pages.ts) change, and everyone sees the Rules screen again.
 export const RULES_VERSION = "2026-10-07";
 export const agreedToRules = (
   user?: { unsafeMetadata: { rulesAgreed?: unknown } } | null
 ) => user?.unsafeMetadata.rulesAgreed === RULES_VERSION;
 
-// The Worker has its own copy in apps/api/src/pages.ts.
+// The Worker has its own copy in apps/worker/src/pages.ts.
 export const CONTACT_EMAIL = "support@gethopon.app";
 
 export const openRules = () => openBrowserAsync(`${API_URL}/terms`);

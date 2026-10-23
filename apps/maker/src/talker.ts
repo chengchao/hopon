@@ -14,7 +14,7 @@ import {
 } from "@earendil-works/pi-durable";
 import type { AgentEvent } from "@earendil-works/pi-durable";
 
-import { TALKER_PROMPT } from "../../api/src/talker-prompt.ts";
+import { TALKER_PROMPT } from "../../worker/src/talker-prompt.ts";
 import type { Spec, Thinking } from "./coder.ts";
 import { createRegistry, resolve, talkerModelRef } from "./models.ts";
 
