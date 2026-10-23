@@ -9,26 +9,27 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
+// A published Game (#117); a Draft becomes one on Publish. Its files are in R2 under `games/<id>/`, index.html first.
+// `draft_id` is the Draft it came from, so the gateway's logs, keyed by Draft, still map to it (#120); null for Games
+// from before the Maker. `runtime` is the runtime its index.html loads ("v1"), null for plain DOM.
 export const games = sqliteTable(
   "games",
   {
-    // The creator's @handle when they published (Clerk username); null for drafts of users without one.
+    // The creator's @handle when they published (Clerk username).
     author: text("author"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
     description: text("description").notNull(),
-    html: text("html").notNull(),
+    draftId: text("draft_id").unique(),
     id: integer("id").primaryKey({ autoIncrement: true }),
     owner: text("owner").notNull(),
-    published: integer("published").notNull().default(0),
+    runtime: text("runtime"),
     title: text("title").notNull(),
   },
   (table) => [
-    index("games_feed").on(table.published, sql`${table.id} DESC`),
     check("games_title", sql`length(${table.title}) BETWEEN 1 AND 60`),
     check("games_description", sql`length(${table.description}) <= 180`),
-    check("games_published", sql`${table.published} IN (0, 1)`),
   ]
 );
 
@@ -163,12 +164,14 @@ export const blocks = sqliteTable(
 
 // A Draft: one Maker chat and its game, private to `owner` until published (#117). The row is a list cache: the chat
 // lives only in the Talker's SQLite. `id` is the Talker's name, 64 hex characters. `title` is null until the first
-// Revision. The Talker sets `updated_at` at the end of each turn; milliseconds, so the list's order has no ties.
+// Revision, and so is `description`, the Maker's line for the feed. The Talker sets `updated_at` at the end of each
+// turn; milliseconds, so the list's order has no ties.
 export const now = sql`(strftime('%Y-%m-%dT%H:%M:%fZ'))`;
 export const drafts = sqliteTable(
   "drafts",
   {
     createdAt: text("created_at").notNull().default(now),
+    description: text("description"),
     id: text("id").primaryKey(),
     owner: text("owner").notNull(),
     title: text("title"),

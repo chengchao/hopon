@@ -7,7 +7,7 @@ if (!apiUrl) {
   throw new Error("Set EXPO_PUBLIC_API_URL in the EAS environment");
 }
 export const API_URL = apiUrl;
-export const gameUrl = (id: number) => `${API_URL}/api/games/${id}/document`;
+export const gameUrl = (id: number) => `${API_URL}/games/${id}/index.html`;
 
 // `code` is set when the app acts on an error rather than just showing it.
 export class ApiError extends Error {

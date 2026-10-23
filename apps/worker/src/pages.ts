@@ -135,7 +135,7 @@ ${target.live ? "" : html`<p class="gone">Content deleted</p>`}
 )}</p>
 <p>${
   target.live && target.kind === "game"
-    ? html`<a class="action quiet" href="/api/games/${target.id}/document"
+    ? html`<a class="action quiet" href="/games/${target.id}/index.html"
         >Play</a
       >`
     : ""

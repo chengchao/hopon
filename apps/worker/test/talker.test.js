@@ -29,7 +29,7 @@ const pem = `-----BEGIN PUBLIC KEY-----\n${Buffer.from(await crypto.subtle.expor
 const b64 = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
 const token = async (sub) => {
   const now = Math.floor(Date.now() / 1000);
-  const body = `${b64({ alg: "RS256", typ: "JWT" })}.${b64({ exp: now + 600, iat: now, nbf: now, sub })}`;
+  const body = `${b64({ alg: "RS256", typ: "JWT" })}.${b64({ exp: now + 600, iat: now, nbf: now, sub, username: "maker" })}`;
   const signature = await crypto.subtle.sign(
     "RSASSA-PKCS1-v1_5",
     keys.privateKey,
@@ -288,6 +288,9 @@ test("build: a message makes and changes the game as Revisions in R2; failures, 
   let step = socket.after("the step label", stepLabel);
   const stopped = socket.turn("build wait");
   await step();
+  // Publish waits for the turn to end (#145).
+  const publishing = await call(`/api/drafts/${draft}/publish`, {});
+  assert.equal(publishing.status, 409);
   await call(`/api/drafts/${draft}/stop`, {});
   assert.equal(await stopped, "turn_failed");
   calls = await coderCalls(draft);
@@ -339,5 +342,29 @@ test("build: a message makes and changes the game as Revisions in R2; failures, 
     await lastReply(draft),
     /You've made 10 games today; come back tomorrow\./u
   );
+
+  // Between turns, Publish turns the last Revision into a Game with the Maker's title and description, and the Draft
+  // goes.
+  const published = await call(`/api/drafts/${draft}/publish`, {});
+  assert.equal(published.status, 201);
+  const { id: gameId } = await published.json();
+  const { games } = await json("/api/games");
+  assert.deepEqual(
+    { ...games[0], comments: undefined, likes: undefined },
+    {
+      author: "maker",
+      comments: undefined,
+      description: "Tap to jump from moon to moon.",
+      id: gameId,
+      liked: false,
+      likes: undefined,
+      mine: true,
+      saved: false,
+      title: "Moon Cat",
+    }
+  );
+  const game = await fetch(`${ORIGIN}/games/${gameId}/game.ts`);
+  assert.equal(await game.text(), "// revision 6");
+  assert.deepEqual(await json("/api/drafts"), { drafts: [] });
   socket.close();
 });

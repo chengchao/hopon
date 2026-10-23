@@ -11,7 +11,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { Effect } from "effect";
 import { decodeBase64 } from "hono/utils/encode";
 
-import { currentRevision, Db, spend } from "./api.ts";
+import { currentRevision, Db, removeFiles, spend } from "./api.ts";
 import { drafts, now } from "./schema.ts";
 
 // The Coder's NDJSON (apps/maker/src/coder.ts CoderEvent, plus its ping).
@@ -39,19 +39,13 @@ const LIMIT = "You've made 10 games today; come back tomorrow.";
 const MUSIC = "music.opus";
 const BUILT = new Set(["game.js", MUSIC]);
 
+// The title and description are what Publish shows in the feed, within games' limits (schema.ts).
 const Parameters = Type.Object({
   brief: Type.String(),
+  description: Type.String({ maxLength: 180 }),
   music: Type.Union([Type.String(), Type.Null()]),
-  title: Type.String(),
+  title: Type.String({ maxLength: 60, minLength: 1 }),
 });
-
-// Every object under `prefix` gone: an old Revision, or what a failed turn left of a new one.
-const remove = async (files: R2Bucket, prefix: string) => {
-  const { objects } = await files.list({ prefix });
-  if (objects.length > 0) {
-    await files.delete(objects.map((object) => object.key));
-  }
-};
 
 const read = async (files: R2Bucket, key: string) => {
   const object = await files.get(key);
@@ -185,7 +179,7 @@ export const buildTool = (
       // A rerun after the Revision was written only finishes the clean-up.
       const written = await api.memo<string>("summary", context);
       if (written !== undefined) {
-        await remove(env.FILES, current);
+        await removeFiles(env.FILES, current);
         return { output: [{ text: written, type: "text" as const }] };
       }
 
@@ -244,15 +238,19 @@ export const buildTool = (
         await writeRevision(env.FILES, { current, names, next }, event);
         await db
           .update(drafts)
-          .set({ title: spec.title, updatedAt: now })
+          .set({
+            description: spec.description,
+            title: spec.title,
+            updatedAt: now,
+          })
           .where(eq(drafts.id, draftId));
         await api.memo("summary", event.summary, context);
       } catch (error) {
         // A failed, stopped or half-written build leaves no <n+1>/, which the preview route would take as current.
-        await remove(env.FILES, next);
+        await removeFiles(env.FILES, next);
         throw error;
       }
-      await remove(env.FILES, current);
+      await removeFiles(env.FILES, current);
       return { output: [{ text: event.summary, type: "text" as const }] };
     },
     name: "build",

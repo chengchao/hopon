@@ -334,6 +334,15 @@ export class Talker extends Agent<Env> {
           yield* pi.abort;
           return new Response(null, { status: 204 });
         }
+        // Publish (#145) waits for a turn to end: one running, or a message queued for the next.
+        if (action === "busy") {
+          const stream = yield* pi.events;
+          yield* Effect.promise(() => stream.stop());
+          const { snapshot } = stream;
+          return Response.json({
+            busy: !!snapshot.run || snapshot.inbox.length > 0,
+          });
+        }
         // Delete (#144): the transcript, the schedules and the rest of the storage go, and the reset closes the
         // sockets. The Worker kills the box and deletes the files and the row.
         if (action === "delete") {

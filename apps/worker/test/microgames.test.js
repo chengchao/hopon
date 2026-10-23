@@ -3,11 +3,16 @@ import { readdirSync, readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import vm from "node:vm";
-// The originals live only in the seed migration; test exactly what gets deployed.
+// The originals live only in the seed migrations; test exactly what gets deployed. Their HTML is in D1 up to the
+// migration that moves Games' files to R2 (scripts/games-to-r2.mjs copies it there).
 const db = new DatabaseSync(":memory:");
-for (const f of readdirSync(new URL("../migrations", import.meta.url))
+const files = readdirSync(new URL("../migrations", import.meta.url))
   .filter((name) => name.endsWith(".sql"))
-  .toSorted()) {
+  .toSorted();
+for (const f of files.slice(
+  0,
+  files.findIndex((name) => name.endsWith("_games_are_files.sql"))
+)) {
   db.exec(
     readFileSync(new URL(`../migrations/${f}`, import.meta.url), "utf-8")
   );

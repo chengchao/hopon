@@ -86,6 +86,7 @@ const model = async (request: Request) => {
     {
       partial_json: JSON.stringify({
         brief: scenario,
+        description: "Tap to jump from moon to moon.",
         music: null,
         title: "Moon Cat",
       }),
@@ -170,6 +171,10 @@ export class Coder extends DurableObject {
     }
     if (pathname === "/release") {
       this.end(this.releasing ?? {});
+      return new Response(null, { status: 204 });
+    }
+    // A Draft's Delete (after Publish) kills its box.
+    if (pathname === "/box") {
       return new Response(null, { status: 204 });
     }
     // /jobs/<jobId> or /jobs/<jobId>/cancel

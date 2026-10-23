@@ -33,7 +33,6 @@
     ],
   },
   "vars": {
-    "AI_MODEL": "@cf/moonshotai/kimi-k2.5",
     // The Talker's model and effort (#116), through modelFetch on the account's gateway.
     "MAKER_TALKER_MODEL": "claude-haiku-5-5",
     "MAKER_TALKER_EFFORT": "high",

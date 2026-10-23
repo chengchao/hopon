@@ -10,10 +10,6 @@ export const MAX_DRAFTS = 20;
 // Counts characters like SQLite's length(), not UTF-16 units.
 export const characters = (text: string) => [...text].length;
 
-export const newGame = z.object({
-  prompt: z.string().check(z.maxLength(PROMPT_MAX), z.trim(), z.minLength(4)),
-});
-
 // A message to the Maker, the first of a new Draft or a later one.
 export const newMessage = z.object({
   text: z.string().check(z.maxLength(PROMPT_MAX), z.trim(), z.minLength(1)),
@@ -52,7 +48,7 @@ export interface DraftSummary {
   updatedAt: string;
 }
 
-/** A new game, or the signed-in user's latest draft. */
+/** A published game's id, title and description. */
 export interface GameSummary {
   id: number;
   title: string;

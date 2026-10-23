@@ -6,6 +6,7 @@
     "dev": "wrangler dev --ip 0.0.0.0",
     "dev:coder": "wrangler dev --enable-containers --var CODER_DEV:1 --ip 0.0.0.0",
     "smoke:coder": "node scripts/coder-smoke.mjs",
+    "games-to-r2": "node scripts/games-to-r2.mjs",
     "dev:offline": "wrangler dev --local --ip 0.0.0.0 --var HOPON_OFFLINE:1",
     "db:generate": "drizzle-kit generate",
     "db:local": "wrangler d1 migrations apply DB --local",
