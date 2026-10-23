@@ -1,4 +1,4 @@
-import { useAuth } from "@clerk/expo";
+import { useAuth, useUser } from "@clerk/expo";
 import { newMessage, PROMPT_MAX } from "@hopon/schemas";
 import type { DraftSummary } from "@hopon/schemas";
 import { Redirect, router } from "expo-router";
@@ -8,6 +8,7 @@ import { Keyboard, KeyboardAvoidingView, ScrollView, View } from "react-native";
 import type { TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AiSheet } from "@/components/ai-sheet";
 import { DraftList } from "@/components/draft-list";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
@@ -17,6 +18,7 @@ import { chatView, makerChat, NEW_CHAT } from "@/lib/maker-chat";
 import type { Frame, Row } from "@/lib/maker-chat";
 import { useMakerSocket } from "@/lib/maker-socket";
 import type { Link } from "@/lib/maker-socket";
+import { agreedToAi } from "@/lib/rules";
 import { COLORS } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
@@ -161,6 +163,9 @@ const LinkBar = ({ link, onRetry }: { link: Link; onRetry: () => void }) => {
 const Create = () => {
   const insets = useSafeAreaInsets();
   const { isLoaded, isSignedIn, getToken } = useAuth();
+  const { user } = useUser();
+  // A message held back until the Creator answers the AI sheet.
+  const [asking, setAsking] = useState<string>();
   // undefined until the Draft list answers; null for a new chat, whose Draft is born on its first message.
   const [draft, setDraft] = useState<DraftSummary | null>();
   const [chat, dispatch] = useReducer(makerChat, NEW_CHAT);
@@ -227,7 +232,7 @@ const Create = () => {
     return <Redirect href="/sign-in?next=create" />;
   }
 
-  const send = async (message: string) => {
+  const post = async (message: string) => {
     const key = `${keys.current}`;
     keys.current += 1;
     dispatch({ key, text: message, type: "send" });
@@ -268,6 +273,20 @@ const Create = () => {
     setDraft(next);
     setText("");
     setError("");
+  };
+
+  // Every Send, Try again included, asks first until the current AI_VERSION is agreed. Not now leaves the text where it
+  // was (the composer, or the Try again row), so nothing leaves the phone.
+  const send = (message: string) => {
+    if (agreedToAi(user)) {
+      post(message);
+    } else {
+      setAsking(message);
+    }
+  };
+  const agreed = (message: string) => {
+    setAsking(undefined);
+    post(message);
   };
 
   const stop = async () => {
@@ -405,6 +424,11 @@ const Create = () => {
           onClose={() => setListing(false)}
         />
       )}
+      <AiSheet
+        message={asking}
+        onAgreed={agreed}
+        onClose={() => setAsking(undefined)}
+      />
     </KeyboardAvoidingView>
   );
 };
