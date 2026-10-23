@@ -160,3 +160,21 @@ export const blocks = sqliteTable(
     index("blocks_blocked").on(table.blocked, table.blocker),
   ]
 );
+
+// A Draft: one Maker chat and its game, private to `owner` until published (#117). The row is a list cache: the chat
+// lives only in the Talker's SQLite. `id` is the Talker's name, 64 hex characters. `title` is null until the first
+// Revision. The Talker sets `updated_at` at the end of each turn; milliseconds, so the list's order has no ties.
+export const now = sql`(strftime('%Y-%m-%dT%H:%M:%fZ'))`;
+export const drafts = sqliteTable(
+  "drafts",
+  {
+    createdAt: text("created_at").notNull().default(now),
+    id: text("id").primaryKey(),
+    owner: text("owner").notNull(),
+    title: text("title"),
+    updatedAt: text("updated_at").notNull().default(now),
+  },
+  (table) => [
+    index("drafts_owner").on(table.owner, sql`${table.updatedAt} DESC`),
+  ]
+);

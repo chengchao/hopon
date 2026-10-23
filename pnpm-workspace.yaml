@@ -10,6 +10,7 @@ allowBuilds:
   protobufjs: false
   browser-tabs-lock: false
   core-js: false
+  core-js-pure: false
   esbuild: true
   fsevents: true
   lefthook: true

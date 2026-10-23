@@ -21,7 +21,8 @@
       "CLERK_SECRET_KEY",
       "OPERATOR_PASSWORD",
       "OPERATOR_WEBHOOK_URL",
-      // modelFetch's (#120): the token needs AI Gateway Run and Workers AI.
+      // modelFetch's Cloudflare API token (packages/model-fetch), for the Talker's and the Coder's model calls; it needs
+      // AI Gateway Run and Workers AI.
       "CLOUDFLARE_API_KEY",
       // The Coder's container gets this one and no other.
       "E2B_API_KEY",
@@ -29,11 +30,14 @@
   },
   "vars": {
     "AI_MODEL": "@cf/moonshotai/kimi-k2.5",
-    "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
-    "CLOUDFLARE_GATEWAY_ID": "default",
-    // #116's pick: Haiku 5.5 at low effort.
+    // The Talker's model and effort (#116), through modelFetch on the account's gateway.
+    "MAKER_TALKER_MODEL": "claude-haiku-5-5",
+    "MAKER_TALKER_EFFORT": "high",
+    // The Coder's (#116): Haiku 5.5 at low effort.
     "MAKER_CODER_MODEL": "claude-haiku-5-5",
     "MAKER_CODER_EFFORT": "low",
+    "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
+    "CLOUDFLARE_GATEWAY_ID": "default",
   },
   // The Coder (#112, #122): one instance per Draft. max_instances is the global cap on running builds, matching E2B
   // Hobby's 20 running boxes; a deploy waits up to 300 s for a running build.
@@ -50,10 +54,17 @@
   // A container needs Docker: `pnpm -F api dev:coder` runs the Coder locally; plain `dev` and the tests'
   // getPlatformProxy leave it out.
   "dev": { "enable_containers": false },
+  // One Talker (src/talker.ts) and one Coder (src/coder.ts) per Draft, each named by the Draft's id.
   "durable_objects": {
-    "bindings": [{ "class_name": "Coder", "name": "CODER" }],
+    "bindings": [
+      { "name": "TALKER", "class_name": "Talker" },
+      { "name": "CODER", "class_name": "Coder" },
+    ],
   },
-  "migrations": [{ "new_sqlite_classes": ["Coder"], "tag": "coder" }],
+  "migrations": [
+    { "tag": "talker", "new_sqlite_classes": ["Talker"] },
+    { "tag": "coder", "new_sqlite_classes": ["Coder"] },
+  ],
   "compatibility_flags": ["nodejs_compat"],
   // Repeated as CLOUDFLARE_ACCOUNT_ID in package.json's db:remote and deploy: on a login with several accounts, some
   // wrangler commands ignore this field when run non-interactively.
