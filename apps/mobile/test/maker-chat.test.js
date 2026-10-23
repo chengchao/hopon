@@ -290,3 +290,17 @@ test("a reconnect snapshot replaces the view; of the messages sent, those still 
   ]);
   assert.equal(v.running, true);
 });
+
+test("switching to another Draft starts from an empty chat, until its snapshot draws it", () => {
+  const v = view(
+    snapshot({
+      entries: [user(1, "A cat game"), maker(2, "On it!")],
+      run: { inputs: [1] },
+    }),
+    { key: "a", text: "Make it blue", type: "send" },
+    frame({ id: 1, reason: "model_error", type: "turn_failed" }),
+    { type: "reset" }
+  );
+  assert.deepEqual(lines(v), []);
+  assert.equal(v.running, false);
+});

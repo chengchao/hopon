@@ -4,11 +4,12 @@ import type { DraftSummary } from "@hopon/schemas";
 import { Redirect, router } from "expo-router";
 import { ArrowUp, ChevronDown, List, Square } from "lucide-react-native";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { KeyboardAvoidingView, ScrollView, View } from "react-native";
+import { Keyboard, KeyboardAvoidingView, ScrollView, View } from "react-native";
 import type { TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AiSheet } from "@/components/ai-sheet";
+import { DraftList } from "@/components/draft-list";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Textarea } from "@/components/ui/textarea";
@@ -97,7 +98,14 @@ const Bubble = ({
   );
 };
 
-const Header = ({ title }: { title: string }) => (
+const Header = ({
+  title,
+  onDrafts,
+}: {
+  title: string;
+  // Unset while the chat can't switch yet.
+  onDrafts?: () => void;
+}) => (
   <View className="flex-row items-center gap-1 px-2 pb-2 pt-3">
     <Button
       size="icon"
@@ -107,8 +115,13 @@ const Header = ({ title }: { title: string }) => (
     >
       <ChevronDown color={COLORS.paper} size={24} />
     </Button>
-    {/* The Draft list is its own ticket. */}
-    <Button size="icon" variant="ghost" accessibilityLabel="Drafts" disabled>
+    <Button
+      size="icon"
+      variant="ghost"
+      accessibilityLabel="Drafts"
+      disabled={!onDrafts}
+      onPress={onDrafts}
+    >
       <List color={COLORS.paper} size={22} />
     </Button>
     <Text
@@ -158,6 +171,7 @@ const Create = () => {
   const [chat, dispatch] = useReducer(makerChat, NEW_CHAT);
   const [text, setText] = useState("");
   const [error, setError] = useState("");
+  const [listing, setListing] = useState(false);
   const keys = useRef(0);
   const opened = useRef(false);
   const scroll = useRef<ScrollView>(null);
@@ -250,6 +264,17 @@ const Create = () => {
     }
   };
 
+  // Another Draft, or a new chat (null), from the Draft list; its socket brings its chat.
+  const openDraft = (next: DraftSummary | null) => {
+    if (next?.id === draft?.id) {
+      return;
+    }
+    dispatch({ type: "reset" });
+    setDraft(next);
+    setText("");
+    setError("");
+  };
+
   // Every Send, Try again included, asks first until the current AI_VERSION is agreed. Not now leaves the text where it
   // was (the composer, or the Try again row), so nothing leaves the phone.
   const send = (message: string) => {
@@ -288,7 +313,18 @@ const Create = () => {
 
   return (
     <KeyboardAvoidingView behavior="padding" className="flex-1 bg-background">
-      <Header title={draft?.title ?? "New game"} />
+      <Header
+        title={draft?.title ?? "New game"}
+        // Not before the list has answered, nor while a new chat's Draft is being born.
+        onDrafts={
+          ready
+            ? () => {
+                Keyboard.dismiss();
+                setListing(true);
+              }
+            : undefined
+        }
+      />
       {draft && <LinkBar link={link} onRetry={retry} />}
 
       <ScrollView
@@ -381,6 +417,13 @@ const Create = () => {
           </Text>
         )}
       </View>
+      {listing && (
+        <DraftList
+          openId={draft?.id}
+          onOpen={openDraft}
+          onClose={() => setListing(false)}
+        />
+      )}
       <AiSheet
         message={asking}
         onAgreed={agreed}
