@@ -5,10 +5,20 @@ import { API_URL } from "@/lib/api";
 
 // What signed-in people last agreed to, stored as Clerk `unsafeMetadata.rulesAgreed`. Bump it whenever the Rules at
 // /terms (apps/worker/src/pages.ts) change, and everyone sees the Rules screen again.
-export const RULES_VERSION = "2026-10-07";
+export const RULES_VERSION = "2026-10-23";
 export const agreedToRules = (
   user?: { unsafeMetadata: { rulesAgreed?: unknown } } | null
 ) => user?.unsafeMetadata.rulesAgreed === RULES_VERSION;
+
+// The Maker's AI disclosure (#125), stored as `unsafeMetadata.aiAgreed`. Bump it only when WHAT the Maker sends changes
+// (or a provider would train on it); a new model or provider is an edit to /privacy#maker, not a new version.
+export const AI_VERSION = "2026-10-23";
+export const agreedToAi = (
+  user?: { unsafeMetadata: { aiAgreed?: unknown } } | null
+) => user?.unsafeMetadata.aiAgreed === AI_VERSION;
+
+export const openMakerPrivacy = () =>
+  openBrowserAsync(`${API_URL}/privacy#maker`);
 
 // The Worker has its own copy in apps/worker/src/pages.ts.
 export const CONTACT_EMAIL = "support@gethopon.app";

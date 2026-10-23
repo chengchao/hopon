@@ -2155,6 +2155,23 @@ test("pages: /terms has the Rules, /support the contact address and /privacy the
   assert.equal(privacy.status, 200);
   assert.match(await privacy.text(), /<title>Privacy Policy<\/title>/u);
 });
+
+// #125's copy: the app's AI sheet links to /privacy#maker, which names who processes messages.
+test("pages: /privacy#maker names the Maker's processors and the Terms screen every message to the Maker", async (t) => {
+  const { call } = await setup(t);
+  const privacy = await call("/privacy", { user: "" }).then((r) => r.text());
+  assert.match(privacy, /<h2 id="maker">The Maker<\/h2>/u);
+  for (const company of ["Anthropic", "Cloudflare", "E2B"]) {
+    assert.match(privacy, new RegExp(`<strong>${company}</strong>`, "u"));
+  }
+  assert.match(privacy, /within 30 days/u);
+  assert.match(privacy, /your chats with the Maker/iu);
+  assert.match(privacy, /and all your Drafts with their chats/u);
+  assert.doesNotMatch(privacy, /Workers AI/u);
+  const terms = await call("/terms", { user: "" }).then((r) => r.text());
+  assert.match(terms, /every message to the Maker/u);
+  assert.doesNotMatch(terms, /the sentence a game is made from/u);
+});
 // `commented`, plus a published game by user_fan that user_owner saved, and a comment from each of them on an Original.
 const feuding = async (call) => {
   const posted = await commented(call);
