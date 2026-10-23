@@ -21,10 +21,17 @@ const JOB = {
 };
 
 // The box: files in a Map, the playtest always green, every other command a no-op.
-// `open` resolves after `openMs`, or fails when `openFails`; `kill` fails when `killFails`.
-const fakeBox = ({ openMs = 0, openFails = false, killFails = false } = {}) => {
+// `open` resolves after `openMs`, or fails when `openFails`; `pause` takes `pauseMs`; `kill` empties the box, or fails
+// when `killFails`.
+const fakeBox = ({
+  openMs = 0,
+  pauseMs = 0,
+  openFails = false,
+  killFails = false,
+} = {}) => {
   const files = new Map<string, string>();
-  const state = { paused: 0 };
+  // `overlapped`: a job opened the box while another still had it (before its pause).
+  const state = { inUse: false, opened: 0, overlapped: false, paused: 0 };
   const sandbox = {
     commands: {
       run: (command: string, options?: { background?: boolean }) => {
@@ -70,18 +77,27 @@ const fakeBox = ({ openMs = 0, openFails = false, killFails = false } = {}) => {
     },
   } as unknown as Sandbox;
   const box = Layer.succeed(Box)({
-    kill: () =>
-      killFails ? Promise.reject(new Error("E2B is down")) : Promise.resolve(),
+    kill: () => {
+      if (killFails) {
+        return Promise.reject(new Error("E2B is down"));
+      }
+      files.clear();
+      return Promise.resolve();
+    },
     open: async () => {
       await sleep(openMs);
       if (openFails) {
         throw new Error("E2B is down");
       }
+      state.opened += 1;
+      state.overlapped ||= state.inUse;
+      state.inUse = true;
       return sandbox;
     },
-    pause: () => {
+    pause: async () => {
       state.paused += 1;
-      return Promise.resolve();
+      await sleep(pauseMs);
+      state.inUse = false;
     },
   });
   return { box, files, state };
@@ -292,6 +308,22 @@ test("a job that isn't for this Draft, or isn't a job, is refused", async () => 
   assert.equal(broken.status, 400);
 });
 
+test("after DELETE /box a job still builds, in a box restored from its source", async () => {
+  const box = fakeBox();
+  const handle = coder(scripted(buildsADot()), box);
+  box.files.set("/workspace/old.ts", "stale");
+  const killed = await handle(
+    new Request("http://coder/box", { method: "DELETE" })
+  );
+  assert.equal(killed.status, 204);
+  assert.equal(box.files.size, 0);
+  const sent = await events(
+    await post(handle, "/jobs/job-14", { ...JOB, source: { "a.ts": "a" } })
+  );
+  assert.equal(sent.at(-1)?.type, "done");
+  assert.equal(box.files.get("/workspace/a.ts"), "a");
+});
+
 test("DELETE /box answers 502 when the box can't be killed", async () => {
   const handle = coder(scripted([]), fakeBox({ killFails: true }));
   const response = await handle(
@@ -306,4 +338,47 @@ test("a job whose box won't open fails with the box's own error", async () => {
   assert.deepEqual(sent, [
     { reason: "coder error: Error: E2B is down", type: "failed" },
   ]);
+});
+
+test("the same job posted again while it runs attaches: one run, the same events", async () => {
+  const box = fakeBox({ openMs: 100 });
+  const handle = coder(scripted(buildsADot()), box);
+  const first = post(handle, "/jobs/job-11", JOB);
+  await sleep(20);
+  const second = post(handle, "/jobs/job-11", JOB);
+  const [a, b] = await Promise.all([first.then(events), second.then(events)]);
+  assert.equal(a.at(-1)?.type, "done");
+  assert.deepEqual(b, a);
+  assert.equal(box.state.opened, 1);
+});
+
+test("cancel while the box opens ends the job at once; the next job waits for the box and starts from its source", async () => {
+  const box = fakeBox({ openMs: 300, pauseMs: 300 });
+  const handle = coder(
+    scripted([
+      toolCall("write", { content: "junk", path: "junk.ts" }),
+      ...buildsADot(),
+    ]),
+    box
+  );
+  const running = post(handle, "/jobs/job-12", JOB);
+  await sleep(50);
+  const began = Date.now();
+  await post(handle, "/jobs/job-12/cancel");
+  assert.deepEqual(await events(await running), [
+    { reason: "cancelled", type: "failed" },
+  ]);
+  assert.ok(Date.now() - began < 200, `ended after ${Date.now() - began} ms`);
+
+  const next = await events(
+    await post(handle, "/jobs/job-13", { ...JOB, source: { "old.ts": "x" } })
+  );
+  assert.deepEqual(next.at(-1), {
+    deleted: [],
+    files: { "game.js": "// emitted", "game.ts": GAME },
+    summary: "A dot to tap.",
+    type: "done",
+  });
+  assert.equal(box.files.get("/workspace/old.ts"), "x");
+  assert.equal(box.state.overlapped, false);
 });

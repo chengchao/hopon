@@ -409,7 +409,11 @@ export const runJob = async ({
   if (signal?.aborted) {
     cancel();
   }
+  // A job stopped before its prompt (cancelled while the box opened) never prompts.
   const prompted = async () => {
+    if (halted.signal.aborted) {
+      return;
+    }
     try {
       await session.prompt(prompt(job));
     } catch (error) {
@@ -417,7 +421,9 @@ export const runJob = async ({
     }
   };
   const settled = async () => {
-    await once(halted.signal, "abort");
+    if (!halted.signal.aborted) {
+      await once(halted.signal, "abort");
+    }
     await sleep(SETTLE_MS, undefined, { ref: false });
   };
   await Promise.race([prompted(), settled()]);
