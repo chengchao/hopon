@@ -6,6 +6,7 @@ import {
   makerChat,
   NEW_CHAT,
   newVersion,
+  publishable,
 } from "../lib/maker-chat.ts";
 
 // pi's frames as the Talker sends them (apps/worker/src/talker.ts).
@@ -532,4 +533,16 @@ test("Play shows the Reload pill only when a newer Revision than the one playing
   assert.equal(newVersion(preview(1, 100), preview(1, 160)), false);
   assert.equal(newVersion(preview(1, 100), preview(2, 160)), true);
   assert.equal(newVersion(preview(9, 100), preview(10, 160)), true);
+});
+
+test("Publish waits for a Revision (the Maker's title) and for the turn to end", () => {
+  const titled = { description: "Tap to jump.", id: "d", title: "Moon Cat" };
+  const untitled = { ...titled, description: null, title: null };
+  const start = snapshot({ entries: [maker(1, "Hi!")] });
+  const turn = batch({ inputs: [7], type: "run_start" });
+  const done = batch({ type: "run_end" });
+  assert.equal(publishable(undefined, view(start)), false);
+  assert.equal(publishable(untitled, view(start)), false);
+  assert.equal(publishable(titled, view(start, turn)), false);
+  assert.equal(publishable(titled, view(start, turn, done)), true);
 });
