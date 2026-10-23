@@ -602,8 +602,11 @@ app.post(
         if (!meta.changes) {
           return yield* fail(409, "Delete a Draft to start a new one.");
         }
-        yield* talker(c.env, id, "message", { text });
-        return c.json({ id }, 201);
+        const response = yield* talker(c.env, id, "message", { text });
+        const message = yield* Effect.promise(() =>
+          response.json<{ id: string }>()
+        );
+        return c.json({ id, message: message.id }, 201);
       })
     )
 );
