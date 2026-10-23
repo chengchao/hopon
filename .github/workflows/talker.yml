@@ -1,0 +1,34 @@
+# The Talker under wrangler with real model calls (apps/api/scripts/talker-check.mjs), the upgrade test for PiHarness
+# and pi-durable. It spends model calls and takes about two minutes, so it runs only on PRs that can change the Talker:
+# its code, its config, modelFetch, or a dependency bump. Needs the CLOUDFLARE_API_KEY repository secret.
+name: Talker
+
+on:
+  pull_request:
+    paths:
+      - "apps/api/src/talker*.ts"
+      - "apps/api/src/worker.ts"
+      - "apps/api/wrangler.jsonc"
+      - "apps/api/scripts/talker-check.mjs"
+      - "packages/model-fetch/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/talker.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  talker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node apps/api/scripts/talker-check.mjs
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
