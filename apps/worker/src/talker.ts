@@ -208,9 +208,40 @@ export class Talker extends Agent<Env> {
             .update(drafts)
             .set({ updatedAt: now })
             .where(eq(drafts.id, this.name));
+          // oxlint-disable-next-line no-await-in-loop -- one run ends per batch at most.
+          await this.idle();
         }
       }
     });
+  }
+
+  // The box is killed once the Draft has had no turn for MAKER_BOX_IDLE_S (a day, #144); the next build restores it from
+  // the job's source files. Each turn's end puts the alarm off again.
+  async idle() {
+    for (const schedule of await this.listSchedules({ type: "delayed" })) {
+      if (schedule.callback === "killBox") {
+        // oxlint-disable-next-line no-await-in-loop -- there is one at most.
+        await this.cancelSchedule(schedule.id);
+      }
+    }
+    await this.schedule(Number(this.env.MAKER_BOX_IDLE_S), "killBox");
+  }
+
+  async killBox() {
+    // A turn that started just before the alarm puts it off again when it ends.
+    if (this.ticker) {
+      return;
+    }
+    // talker-check looks for this line: under plain `wrangler dev` there is no container to answer.
+    console.log(`Talker ${this.name}: idle, DELETE /box`);
+    const response = await this.env.CODER.getByName(this.name).fetch(
+      "http://coder/box",
+      { method: "DELETE" }
+    );
+    // Thrown, the schedule retries it.
+    if (!response.ok) {
+      throw new Error(`Coder DELETE /box: ${response.status}`);
+    }
   }
 
   // From a run's start to its end (watch), every socket hears something at least every 15 s, and dead ones are closed.
@@ -295,6 +326,12 @@ export class Talker extends Agent<Env> {
         }
         if (action === "stop") {
           yield* pi.abort;
+          return new Response(null, { status: 204 });
+        }
+        // Delete (#144): the transcript, the schedules and the rest of the storage go, and the reset closes the
+        // sockets. The Worker kills the box and deletes the files and the row.
+        if (action === "delete") {
+          yield* Effect.promise(() => this.destroy());
           return new Response(null, { status: 204 });
         }
         if (action === "ticket") {

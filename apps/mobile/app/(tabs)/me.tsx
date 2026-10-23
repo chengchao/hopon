@@ -58,12 +58,17 @@ const Me = () => {
   const deleteAccount = () => {
     Alert.alert(
       "Delete your account?",
-      "You will be signed out and your account removed. Published games stay public.",
+      "You will be signed out and your account and Drafts removed. Published games stay public.",
       [
         { style: "cancel", text: "Cancel" },
         {
           onPress: async () => {
             try {
+              // The Drafts go first: if that fails, the account stays and the error shows (#144).
+              await api("/api/drafts", {
+                method: "DELETE",
+                token: await getToken(),
+              });
               await user?.delete();
             } catch (deleteError) {
               setError((deleteError as Error).message);
