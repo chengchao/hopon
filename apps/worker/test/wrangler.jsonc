@@ -1,8 +1,10 @@
-// The tests' bindings: only the local D1 they migrate and query. The Worker's own wrangler.jsonc also binds the Talker,
-// whose class getPlatformProxy never loads, and lists secrets the tests pass by hand, so every test would warn twice.
+// The tests' bindings: only the local D1 they migrate and query, and the local R2 that holds Drafts' files. The Worker's
+// own wrangler.jsonc also binds the Talker, whose class getPlatformProxy never loads, and lists secrets the tests pass
+// by hand, so every test would warn twice.
 {
   "compatibility_date": "2026-09-01",
   "d1_databases": [
     { "binding": "DB", "database_name": "hopon", "database_id": "local" },
   ],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "hopon" }],
 }

@@ -49,6 +49,12 @@ apps/worker/   Cloudflare Worker API（D1 + Drizzle、Workers AI、Clerk JWT 校
 
    `pnpm run api` 不启动容器。要本地跑 Coder，先打开 Docker Desktop，再运行 `pnpm -F worker dev:coder`（首次会构建镜像），然后在另一个终端用 `pnpm -F worker smoke:coder` 给一个新 Draft 发一个真实的构建任务（加 `--music` 带音乐）：它会逐条打印事件，最后删掉这个 Draft 的 box。用的是真实模型和 E2B，一次大约一分钟。
 
+8. Draft 的试玩链接（`GET /api/drafts/:id/preview`）用 `PREVIEW_SECRET` 签名（HMAC-SHA256，一小时有效），同样列在 `secrets.required` 里。本地随便生成一个写入 `apps/worker/.dev.vars`；缺少时签发和打开试玩链接都会失败。Draft 的文件放在 R2 的 `FILES` 绑定（bucket `hopon`），本地由 wrangler 模拟：
+
+   ```sh
+   echo "PREVIEW_SECRET=$(openssl rand -base64 32)" >> apps/worker/.dev.vars
+   ```
+
 ## 本地运行
 
 ```sh
@@ -80,6 +86,8 @@ pnpm -F worker exec wrangler secret put CLERK_JWT_KEY < clerk-public-key.pem
 pnpm -F worker exec wrangler secret put CLERK_SECRET_KEY   # 生产实例的 sk_live_...
 pnpm -F worker exec wrangler secret put OPERATOR_WEBHOOK_URL
 pnpm -F worker exec wrangler secret put OPERATOR_PASSWORD
+openssl rand -base64 32 | pnpm -F worker exec wrangler secret put PREVIEW_SECRET
+pnpm -F worker exec wrangler r2 bucket create hopon   # 只需一次
 pnpm run deploy
 ```
 
