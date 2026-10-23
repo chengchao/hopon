@@ -30,6 +30,7 @@ import { bodyLimit } from "hono/body-limit";
 import { csrf } from "hono/csrf";
 import { HTTPException } from "hono/http-exception";
 import { timingSafeEqual } from "hono/utils/buffer";
+import { decodeBase64Url, encodeBase64Url } from "hono/utils/encode";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type * as z from "zod/mini";
 
@@ -668,6 +669,90 @@ app.post(`/api/drafts/${DRAFT}/ws-ticket`, (c) =>
     })
   )
 );
+
+// A Draft's preview link (#118). The WebView sends no token with a page's subresources, so the link carries its own
+// proof in the path: `sig` = HMAC-SHA256(PREVIEW_SECRET, `draftId.exp`). Revocation is free: the next Revision deletes
+// `<n>/` and Delete deletes `drafts/<id>/`, so an old link finds nothing.
+const PREVIEW_LIFETIME = 60 * 60;
+const previewKey = (env: HoponEnv) =>
+  crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(env.PREVIEW_SECRET),
+    { hash: "SHA-256", name: "HMAC" },
+    false,
+    ["sign", "verify"]
+  );
+const previewData = (id: string, exp: string) =>
+  new TextEncoder().encode(`${id}.${exp}`);
+
+// For the app: a link to the current Revision's index.html, good for an hour.
+app.get(`/api/drafts/${DRAFT}/preview`, (c) =>
+  run(
+    c,
+    Effect.gen(function* () {
+      const id = c.req.param("id");
+      yield* ownDraft(id);
+      // The Talker keeps n; R2 has only the current `<n>/`, or `<n+1>/` too for a moment at the end of a turn.
+      const { delimitedPrefixes } = yield* Effect.promise(() =>
+        c.env.FILES.list({ delimiter: "/", prefix: `drafts/${id}/` })
+      );
+      const n = Math.max(
+        ...delimitedPrefixes.map((prefix) => Number(prefix.split("/")[2]))
+      );
+      if (!Number.isInteger(n)) {
+        return yield* fail(404, "This Draft has no game yet.");
+      }
+      const exp = `${Math.floor(Date.now() / 1000) + PREVIEW_LIFETIME}`;
+      const sig = yield* Effect.promise(async () =>
+        encodeBase64Url(
+          await crypto.subtle.sign(
+            "HMAC",
+            await previewKey(c.env),
+            previewData(id, exp)
+          )
+        ).replace(/[=]$/u, "")
+      );
+      return c.json({
+        url: new URL(`/drafts/${id}/${n}/${exp}.${sig}/index.html`, c.req.url)
+          .href,
+      });
+    })
+  )
+);
+
+// A file of a Draft's Revision, through a preview link. It's signed out, so `no-store` comes from the middleware.
+const PREVIEW_TOKEN = /^(?<exp>\d{1,12})\.(?<sig>[\w-]{43})$/u;
+const FILE_TYPES: Record<string, string> = {
+  html: "text/html; charset=utf-8",
+  js: "text/javascript; charset=utf-8",
+  json: "application/json",
+  mjs: "text/javascript; charset=utf-8",
+  opus: "audio/ogg",
+};
+app.get(`/drafts/${DRAFT}/:n{[0-9]{1,9}}/:token/:file{[\\w.-]+}`, async (c) => {
+  const { file, id, n, token } = c.req.param();
+  const { exp = "", sig = "" } = PREVIEW_TOKEN.exec(token)?.groups ?? {};
+  const signed =
+    !!sig &&
+    (await crypto.subtle.verify(
+      "HMAC",
+      await previewKey(c.env),
+      decodeBase64Url(sig),
+      previewData(id, exp)
+    ));
+  if (!signed || Number(exp) * 1000 < Date.now()) {
+    throw fail(403, "This link has expired.");
+  }
+  const object = await c.env.FILES.get(`drafts/${id}/${n}/${file}`);
+  if (!object) {
+    throw fail(404, "File not found.");
+  }
+  return c.body(object.body, 200, {
+    "Content-Security-Policy": GAME_CSP,
+    "Content-Type":
+      FILE_TYPES[file.split(".").pop() ?? ""] ?? "application/octet-stream",
+  });
+});
 
 app.post(
   "/api/games",

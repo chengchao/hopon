@@ -47,6 +47,7 @@ const generated = {
   title: "星星小游戏",
 };
 const OPERATOR_PASSWORD = "test-operator-password-of-32-chars!";
+const PREVIEW_SECRET = "test-preview-secret-of-32-chars!!";
 // Seeded by migrations/*_originals.sql and *_runtime_original.sql.
 const ORIGINALS = 3;
 const migrations = readdirSync(new URL("../migrations", import.meta.url))
@@ -120,7 +121,9 @@ const setup = async (t) => {
     AI_MODEL: "@cf/moonshotai/kimi-k2.5",
     CLERK_JWT_KEY,
     DB,
+    FILES: proxy.env.FILES,
     OPERATOR_PASSWORD,
+    PREVIEW_SECRET,
     TALKER,
   };
   const count = async (table) => {
@@ -2581,4 +2584,124 @@ test("drafts: another account gets 404 on every Draft route; the socket needs a 
     forwarded.some((f) => f.draft === missing),
     false
   );
+});
+
+// A Draft with one Revision in R2, as the Talker leaves it at the end of a turn that builds (#117).
+const INDEX_HTML =
+  '<!doctype html><html><body><script src="/runtime/v1.js"></script><script src="game.js"></script></body></html>';
+const withRevision = async ({ call, env }, n = 3) => {
+  const { id } = await json(
+    call("/api/drafts", { body: { text: "A cat game" }, method: "POST" })
+  );
+  await env.FILES.put(`drafts/${id}/${n}/index.html`, INDEX_HTML);
+  await env.FILES.put(`drafts/${id}/${n}/game.js`, "engineInit();");
+  return id;
+};
+// The path of the link the app gets for a Draft, and a signed-out request for one of its files.
+const preview = async (call, id) => {
+  const { url } = await json(call(`/api/drafts/${id}/preview`));
+  return new URL(url).pathname;
+};
+const open = (call, path, file = "index.html") =>
+  call(path.replace(/index\.html$/u, file), { user: "" });
+
+test("preview: the minted link serves the current Revision's files, signed out, with the game CSP and no-store", async (t) => {
+  const context = await setup(t);
+  const { call } = context;
+  const id = await withRevision(context);
+  const path = await preview(call, id);
+  assert.match(
+    path,
+    new RegExp(`^/drafts/${id}/3/\\d+\\.[\\w-]+/index\\.html$`, "u")
+  );
+  const page = await open(call, path);
+  assert.equal(page.status, 200);
+  assert.equal(await page.text(), INDEX_HTML);
+  assert.match(page.headers.get("Content-Type"), /^text\/html/u);
+  assert.equal(page.headers.get("Content-Security-Policy"), GAME_CSP);
+  assert.equal(page.headers.get("Cache-Control"), "no-store");
+  // index.html's relative sibling, under the same link.
+  const game = await open(call, path, "game.js");
+  assert.equal(game.status, 200);
+  assert.equal(await game.text(), "engineInit();");
+  assert.match(game.headers.get("Content-Type"), /^text\/javascript/u);
+  assert.equal(game.headers.get("Content-Security-Policy"), GAME_CSP);
+});
+
+test("preview: a link is 403 once its hour is up, or with its signature, expiry or Draft changed", async (t) => {
+  const context = await setup(t);
+  const { call } = context;
+  const id = await withRevision(context);
+  const other = await withRevision(context);
+  const path = await preview(call, id);
+  // /drafts/<id>/<n>/<exp>.<sig>/index.html
+  const [n, token] = path.split("/").slice(3, 5);
+  const [exp, sig] = token.split(".");
+  const flipped = `${sig[0] === "A" ? "B" : "A"}${sig.slice(1)}`;
+  const otherPath = await preview(call, other);
+  const [otherToken] = otherPath.split("/").slice(4, 5);
+  for (const forged of [
+    `/drafts/${id}/${n}/${exp}.${flipped}/index.html`,
+    `/drafts/${id}/${n}/${Number(exp) + 3600}.${sig}/index.html`,
+    `/drafts/${id}/${n}/${exp}/index.html`,
+    `/drafts/${id}/${n}/${otherToken}/index.html`,
+    `/drafts/${other}/${n}/${token}/index.html`,
+  ]) {
+    // oxlint-disable-next-line no-await-in-loop -- one link at a time
+    assert.equal(await status(open(call, forged)), 403, forged);
+  }
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() + 59 * 60 * 1000 });
+  assert.equal(await status(open(call, path)), 200);
+  t.mock.timers.setTime(Date.now() + 2 * 60 * 1000);
+  const expired = await open(call, path, "game.js");
+  assert.equal(expired.status, 403);
+  assert.deepEqual(await expired.json(), { error: "This link has expired." });
+});
+
+test("preview: the next Revision or a Delete turns a live link into a 404; the next link points at the new Revision", async (t) => {
+  const context = await setup(t);
+  const { call, env } = context;
+  const id = await withRevision(context);
+  const old = await preview(call, id);
+  assert.equal(await status(open(call, old, "music.opus")), 404);
+  // End of a turn that builds: <4>/ is written, then <3>/ deleted. A link minted in between gets the new one.
+  await env.FILES.put(`drafts/${id}/4/index.html`, "<!doctype html>v4");
+  assert.match(await preview(call, id), new RegExp(`^/drafts/${id}/4/`, "u"));
+  await env.FILES.delete([
+    `drafts/${id}/3/index.html`,
+    `drafts/${id}/3/game.js`,
+  ]);
+  const gone = await open(call, old);
+  assert.equal(gone.status, 404);
+  assert.deepEqual(await gone.json(), { error: "File not found." });
+  const current = await preview(call, id);
+  const page = await open(call, current);
+  assert.equal(await page.text(), "<!doctype html>v4");
+  await env.FILES.delete(`drafts/${id}/4/index.html`);
+  assert.equal(await status(open(call, current)), 404);
+});
+
+test("preview: only the Draft's owner can mint a link, and only once it has a game", async (t) => {
+  const context = await setup(t);
+  const { call } = context;
+  const id = await withRevision(context);
+  const mint = (draft, user) =>
+    call(`/api/drafts/${draft}/preview`, user === undefined ? {} : { user });
+  assert.equal(await status(mint(id, "")), 401);
+  for (const [draft, user] of [
+    [id, "user_other"],
+    ["a".repeat(64), undefined],
+  ]) {
+    // oxlint-disable-next-line no-await-in-loop -- one Draft at a time
+    const response = await mint(draft, user);
+    assert.equal(response.status, 404);
+    // oxlint-disable-next-line no-await-in-loop -- one Draft at a time
+    assert.deepEqual(await response.json(), { error: "Draft not found." });
+  }
+  const { id: empty } = await json(
+    call("/api/drafts", { body: { text: "A dog game" }, method: "POST" })
+  );
+  const none = await mint(empty);
+  assert.equal(none.status, 404);
+  assert.deepEqual(await none.json(), { error: "This Draft has no game yet." });
 });

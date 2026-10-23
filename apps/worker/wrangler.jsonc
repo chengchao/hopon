@@ -11,6 +11,8 @@
       "migrations_dir": "migrations",
     },
   ],
+  // A Draft's current Revision is drafts/<id>/<n>/ (#117), served by its signed preview links.
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "hopon" }],
   "ai": {
     "binding": "AI",
     "remote": true,
@@ -26,6 +28,8 @@
       "CLOUDFLARE_API_KEY",
       // The Coder's container gets this one and no other.
       "E2B_API_KEY",
+      // Signs a Draft's preview links (#118): HMAC-SHA256 over `draftId.exp`.
+      "PREVIEW_SECRET",
     ],
   },
   "vars": {
