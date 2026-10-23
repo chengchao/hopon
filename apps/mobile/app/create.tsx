@@ -5,6 +5,7 @@ import { Redirect, router } from "expo-router";
 import { ArrowUp, ChevronDown, List, Square } from "lucide-react-native";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { KeyboardAvoidingView, ScrollView, View } from "react-native";
+import type { TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "@/components/ui/button";
@@ -155,6 +156,7 @@ const Create = () => {
   const keys = useRef(0);
   const opened = useRef(false);
   const scroll = useRef<ScrollView>(null);
+  const composer = useRef<TextInput>(null);
   const view = useMemo(() => chatView(chat), [chat]);
 
   const fetchDrafts = async () => {
@@ -216,6 +218,8 @@ const Create = () => {
     keys.current += 1;
     dispatch({ key, text: message, type: "send" });
     setText("");
+    // Typed text with an autocorrect suggestion pending survives the state change alone.
+    composer.current?.clear();
     setError("");
     try {
       const token = await getToken();
@@ -273,10 +277,12 @@ const Create = () => {
         className="flex-1"
         contentContainerClassName="gap-3 px-4 py-4"
         keyboardShouldPersistTaps="handled"
-        // Every redraw, a snapshot's included, lands at the bottom (#119).
+        // Every redraw, a snapshot's included, lands at the bottom (#119), and so does the view when the
+        // Reconnecting bar comes or goes.
         onContentSizeChange={() =>
           scroll.current?.scrollToEnd({ animated: false })
         }
+        onLayout={() => scroll.current?.scrollToEnd({ animated: false })}
       >
         {fresh && (
           <View className="gap-3 pt-4">
@@ -315,6 +321,7 @@ const Create = () => {
       >
         <View className="flex-row items-end gap-2">
           <Textarea
+            ref={composer}
             value={text}
             onChangeText={setText}
             maxLength={PROMPT_MAX}

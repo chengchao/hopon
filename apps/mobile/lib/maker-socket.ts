@@ -40,7 +40,7 @@ export const useMakerSocket = ({
   useEffect(() => {
     latest.current = { getToken, onFrame, running };
   });
-  const reconnect = useRef<() => void>();
+  const reconnect = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!draft) {
