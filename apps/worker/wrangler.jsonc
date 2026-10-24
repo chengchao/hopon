@@ -49,15 +49,16 @@
     "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
     "CLOUDFLARE_GATEWAY_ID": "default",
   },
-  // The Coder (#112, #122): one instance per Draft. max_instances is the global cap on running builds, matching E2B
-  // Hobby's 20 running boxes; a deploy waits up to 300 s for a running build.
+  // The Coder (#112, #122): one instance per Draft. max_instances is the global cap on running builds: E2B Hobby's 20
+  // running boxes, less staging's 2 (env.staging below), since both run in one E2B team. A deploy waits up to 300 s for
+  // a running build.
   "containers": [
     {
       "class_name": "Coder",
       "image": "../maker/Dockerfile",
       "image_build_context": "../..",
       "instance_type": "basic",
-      "max_instances": 20,
+      "max_instances": 18,
       "rollout_active_grace_period": 300,
     },
   ],
@@ -114,8 +115,8 @@
         "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
         "CLOUDFLARE_GATEWAY_ID": "default",
       },
-      // ponytail: staging and production share one E2B team's 20 running boxes, so a busy staging can cost production
-      // 2 of them; give staging its own E2B team if that ever bites.
+      // Staging and production share one E2B team's 20 running boxes: staging's 2 plus production's 18. ponytail: give
+      // staging its own E2B team if production ever needs all 20.
       "containers": [
         {
           "class_name": "Coder",
