@@ -6,6 +6,7 @@
 !apps/maker/package.json
 !apps/maker/agent-home
 !apps/maker/src
+!apps/maker/image/page.ts
 !packages/model-fetch/package.json
 !packages/model-fetch/index.ts
 **/*.test.ts

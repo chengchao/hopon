@@ -13,6 +13,7 @@
     "db:remote": "CLOUDFLARE_ACCOUNT_ID=51a5a41f7bd8425703a6f1d92f867f4d wrangler d1 migrations apply DB --remote",
     "deploy": "pnpm -F maker template && node scripts/games-to-r2.mjs --remote && pnpm db:remote && CLOUDFLARE_ACCOUNT_ID=51a5a41f7bd8425703a6f1d92f867f4d wrangler deploy --env=\"\"",
     "deploy:staging": "MAKER_E2B_TEMPLATE=hopon-maker-staging pnpm -F maker template && CLOUDFLARE_ACCOUNT_ID=51a5a41f7bd8425703a6f1d92f867f4d wrangler d1 migrations apply DB --remote --env staging && CLOUDFLARE_ACCOUNT_ID=51a5a41f7bd8425703a6f1d92f867f4d wrangler deploy --env staging",
+    "deploy:preview": "MAKER_E2B_TEMPLATE=hopon-maker-preview pnpm -F maker template && CLOUDFLARE_ACCOUNT_ID=51a5a41f7bd8425703a6f1d92f867f4d wrangler d1 migrations apply DB --remote --env staging && CLOUDFLARE_ACCOUNT_ID=51a5a41f7bd8425703a6f1d92f867f4d wrangler preview",
     "test": "node --test \"test/*.test.js\"",
     "types": "wrangler types",
     "typecheck": "wrangler types --check && tsc --noEmit"
@@ -33,6 +34,6 @@
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.11",
-    "wrangler": "^4.0.0"
+    "wrangler": "^4.152.0"
   }
 }

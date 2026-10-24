@@ -77,6 +77,54 @@
     { "tag": "coder", "new_sqlite_classes": ["Coder"] },
   ],
   "compatibility_flags": ["nodejs_compat"],
+  // A Worker Preview of the hopon Worker for each branch but production (Workers Builds runs `pnpm run deploy:preview`).
+  // Like env.staging, it inherits nothing, so the bindings, vars, secrets and container are repeated, and
+  // test/staging.test.js keeps them in step. Each Preview gets its own Talker and Coder namespaces and its own container
+  // app; D1 and R2 are hopon-staging's, shared by every Preview. Its secrets are the Preview base config's (README).
+  "previews": {
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "hopon-staging",
+        "database_id": "b0cd8575-00b5-4533-93fb-ba6e6e409dda",
+        "migrations_dir": "migrations",
+      },
+    ],
+    "r2_buckets": [{ "binding": "FILES", "bucket_name": "hopon-staging" }],
+    "ai": { "binding": "AI", "remote": true },
+    // No `secrets` here: wrangler 4.152 rejects previews.secrets, so a Preview missing one deploys anyway.
+    "vars": {
+      "MAKER_TALKER_MODEL": "claude-haiku-5-5",
+      "MAKER_TALKER_EFFORT": "high",
+      "MAKER_CODER_MODEL": "claude-haiku-5-5",
+      "MAKER_CODER_EFFORT": "low",
+      "MAKER_BOX_IDLE_S": "86400",
+      "MAKER_BUILD_ABORT_S": "150",
+      // Every Preview build rebuilds this one from its branch, so a Preview runs its own box image. ponytail: shared by
+      // all Previews, last build wins; name it per Preview if two branches change apps/maker/image at once.
+      "MAKER_E2B_TEMPLATE": "hopon-maker-preview",
+      "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
+      "CLOUDFLARE_GATEWAY_ID": "default",
+    },
+    // Per Preview: each has its own container app. ponytail: Previews building at once can pass the E2B team's 20
+    // running boxes on top of production's 18 and staging's 2; E2B then refuses the box and that build fails.
+    "containers": [
+      {
+        "class_name": "Coder",
+        "image": "../maker/Dockerfile",
+        "image_build_context": "../..",
+        "instance_type": "basic",
+        "max_instances": 2,
+        "rollout_active_grace_period": 300,
+      },
+    ],
+    "durable_objects": {
+      "bindings": [
+        { "name": "TALKER", "class_name": "Talker" },
+        { "name": "CODER", "class_name": "Coder" },
+      ],
+    },
+  },
   // The hopon-staging Worker (#37): Workers Builds deploys it from main with `pnpm run deploy:staging`, and the hopon
   // Worker from the production branch with `pnpm run deploy`. A wrangler env doesn't inherit bindings, vars, secrets
   // or containers, so they are repeated here with staging's own D1, R2 bucket and E2B template; test/staging.test.js
