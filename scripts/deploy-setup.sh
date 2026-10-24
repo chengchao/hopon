@@ -355,7 +355,8 @@ run_stage "Production Worker secrets" stage_production_secrets
 
 stage_games_to_r2() {
   say "The first production deploy applies *_games_are_files.sql (#145), which drops every published Game's HTML"
-  say "from D1. Before it runs, that HTML has to be copied to R2, once."
+  say "from D1. The deploy copies that HTML to R2 bucket hopon first (games-to-r2 --remote, which does nothing once"
+  say "D1 is past the migration), so the bucket has to exist."
   if wr r2 bucket info hopon </dev/null >/dev/null 2>&1; then
     note "R2 hopon exists"
   elif confirm "Create R2 bucket hopon?"; then
@@ -364,19 +365,9 @@ stage_games_to_r2() {
   else
     stop "Production's deploy needs it."
   fi
-  local pending
-  pending=$(wr d1 migrations list DB --remote --env "" </dev/null 2>&1) || stop "Couldn't list production's migrations: $pending"
-  if ! grep -q games_are_files <<<"$pending"; then
-    note "Production D1 already has *_games_are_files.sql; nothing to copy."
-  elif confirm "Copy every published Game's HTML from production D1 to R2 now?"; then
-    pnpm -F worker games-to-r2 --remote || stop "games-to-r2 --remote failed."
-    note "It should have said: Remote: copied N games to R2."
-  else
-    stop "Don't push the production branch until this has run."
-  fi
   pause
 }
-run_stage "Published Games' files, before production migrates" stage_games_to_r2
+run_stage "R2 for published Games, before production migrates" stage_games_to_r2
 
 stage_production_branch() {
   say "The hopon Worker deploys from the production branch; you promote main by pushing it there."
@@ -465,7 +456,8 @@ stage_promote() {
   step "with the Clerk Development publishable key, and make a game in a new Draft."
   step "Once, check a deploy mid-build: while a build runs, merge a PR to main. The turn should still finish."
   pause "Staging checked?"
-  say "Promoting runs production's migrations (with *_games_are_files.sql) and deploys the hopon Worker."
+  say "Promoting copies published Games' HTML to R2, runs production's migrations (with *_games_are_files.sql)"
+  say "and deploys the hopon Worker."
   if confirm "Push origin/main to production now?"; then
     git push origin "origin/main:production"
     step "Watch hopon → Deployments until it's green."

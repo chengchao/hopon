@@ -1,7 +1,8 @@
-// `pnpm -F worker games-to-r2 [--remote]`: once, BEFORE migrations/*_games_are_files.sql reaches that D1 (#145). Copies
+// `pnpm -F worker games-to-r2 [--remote]`: BEFORE migrations/*_games_are_files.sql reaches that D1 (#145). Copies
 // each published Game's HTML from D1 to R2 `games/<id>/index.html`, where the Worker now serves it; the migration then
-// drops the HTML, so a D1 migrated first has lost it. --remote is production (the deploy applies migrations); without it,
-// the local D1 and R2 that `wrangler dev` uses. Running it again rewrites the same objects. Bubble Pop's page moves to
+// drops the HTML, so a D1 migrated first has lost it. --remote is production, and production's `pnpm run deploy` runs
+// it before applying migrations: once D1 is past the migration it does nothing. Without --remote, the local D1 and R2
+// that `wrangler dev` uses. Running it again rewrites the same objects. Bubble Pop's page moves to
 // the runtime's v2: v1 is no longer served.
 import { readdirSync, readFileSync } from "node:fs";
 
@@ -64,13 +65,18 @@ if (import.meta.main) {
   const { results } = await target.env.DB.prepare(
     "SELECT name FROM pragma_table_info('games') WHERE name = 'html'"
   ).all();
-  const source = remote || results.length > 0 ? target : await seeded();
-  try {
-    const ids = await copyGames(source.env.DB, target.env.FILES);
-    console.log(
-      `${remote ? "Remote" : "Local"}: copied ${ids.length} games to R2 (ids ${ids.join(", ")}).`
-    );
-  } finally {
-    await Promise.all([...new Set([source, target])].map((p) => p.dispose()));
+  if (remote && results.length === 0) {
+    await target.dispose();
+    console.log("Remote: D1 is past the migration; nothing to copy.");
+  } else {
+    const source = results.length > 0 ? target : await seeded();
+    try {
+      const ids = await copyGames(source.env.DB, target.env.FILES);
+      console.log(
+        `${remote ? "Remote" : "Local"}: copied ${ids.length} games to R2 (ids ${ids.join(", ")}).`
+      );
+    } finally {
+      await Promise.all([...new Set([source, target])].map((p) => p.dispose()));
+    }
   }
 }

@@ -11,7 +11,7 @@
     "db:generate": "drizzle-kit generate",
     "db:local": "wrangler d1 migrations apply DB --local",
     "db:remote": "CLOUDFLARE_ACCOUNT_ID=51a5a41f7bd8425703a6f1d92f867f4d wrangler d1 migrations apply DB --remote",
-    "deploy": "pnpm -F maker template && pnpm db:remote && CLOUDFLARE_ACCOUNT_ID=51a5a41f7bd8425703a6f1d92f867f4d wrangler deploy --env=\"\"",
+    "deploy": "pnpm -F maker template && node scripts/games-to-r2.mjs --remote && pnpm db:remote && CLOUDFLARE_ACCOUNT_ID=51a5a41f7bd8425703a6f1d92f867f4d wrangler deploy --env=\"\"",
     "deploy:staging": "MAKER_E2B_TEMPLATE=hopon-maker-staging pnpm -F maker template && CLOUDFLARE_ACCOUNT_ID=51a5a41f7bd8425703a6f1d92f867f4d wrangler d1 migrations apply DB --remote --env staging && CLOUDFLARE_ACCOUNT_ID=51a5a41f7bd8425703a6f1d92f867f4d wrangler deploy --env staging",
     "test": "node --test \"test/*.test.js\"",
     "types": "wrangler types",
