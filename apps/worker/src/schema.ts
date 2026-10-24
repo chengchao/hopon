@@ -1,3 +1,4 @@
+import { GAME_DESCRIPTION_MAX, GAME_TITLE_MAX } from "@hopon/schemas";
 import { sql } from "drizzle-orm";
 import {
   check,
@@ -9,7 +10,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
-// A published Game (#117); a Draft becomes one on Publish. Its files are in R2 under `games/<id>/`, index.html first.
+// A published Game (#117); a Draft becomes one on Publish. Its files are in R2 (storage.ts).
 // `draft_id` is the Draft it came from, so the gateway's logs, keyed by Draft, still map to it (#120); null for Games
 // from before the Maker. `runtime` is the runtime its index.html loads ("v2"), null for plain DOM.
 export const games = sqliteTable(
@@ -28,8 +29,14 @@ export const games = sqliteTable(
     title: text("title").notNull(),
   },
   (table) => [
-    check("games_title", sql`length(${table.title}) BETWEEN 1 AND 60`),
-    check("games_description", sql`length(${table.description}) <= 180`),
+    check(
+      "games_title",
+      sql`length(${table.title}) BETWEEN 1 AND ${sql.raw(`${GAME_TITLE_MAX}`)}`
+    ),
+    check(
+      "games_description",
+      sql`length(${table.description}) <= ${sql.raw(`${GAME_DESCRIPTION_MAX}`)}`
+    ),
   ]
 );
 

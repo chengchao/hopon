@@ -50,11 +50,19 @@ import {
   comments,
   drafts,
   games,
-  generationLimits,
   likes,
   reports,
   saves,
 } from "./schema.ts";
+import {
+  currentRevision,
+  draftFiles,
+  gameFiles,
+  killBox,
+  removeFiles,
+  revisionFiles,
+  spend,
+} from "./storage.ts";
 
 // Set only by `pnpm api:offline` (`--var`), so it isn't in wrangler.jsonc or the generated `Env`. Secrets go in
 // wrangler.jsonc's `secrets.required`, never here: `wrangler dev` loads only those (test/declared.test.js checks).
@@ -96,9 +104,7 @@ const jsonBody = <T extends z.ZodMiniType>(schema: T, message: string) =>
   });
 
 // Per-request dependencies of route Effects, provided by `run` from what the middleware put on the Hono context.
-export class Db extends Context.Service<Db, DrizzleD1Database>()(
-  "hopon/api/Db"
-) {}
+class Db extends Context.Service<Db, DrizzleD1Database>()("hopon/api/Db") {}
 class Viewer extends Context.Service<
   Viewer,
   { owner?: string; username: string | null }
@@ -136,42 +142,6 @@ const cursor = (raw: string | undefined) =>
     ? Effect.fail(fail(400, "Invalid pagination cursor."))
     : Effect.succeed(raw ? Number(raw) : Number.MAX_SAFE_INTEGER);
 
-const today = (key: string) =>
-  `${key}:${new Date().toISOString().slice(0, 10)}`;
-
-// Atomically counts one use against a per-account UTC-day bucket; false once `max` is reached. Failed attempts still count.
-export const spend = Effect.fn("spend")(function* (key: string, max: number) {
-  const bucket = today(key);
-  const row = yield* query((db) =>
-    db
-      .insert(generationLimits)
-      .values({ bucket, count: 1 })
-      .onConflictDoUpdate({
-        set: { count: sql`${generationLimits.count} + 1` },
-        setWhere: sql`${generationLimits.count} < ${max}`,
-        target: generationLimits.bucket,
-      })
-      .returning({ count: generationLimits.count })
-      .get()
-  );
-  return !!row;
-});
-
-// Gives back a use spent on an attempt that never ran (a busy build).
-export const refund = Effect.fn("refund")(function* (key: string) {
-  yield* query((db) =>
-    db
-      .update(generationLimits)
-      .set({ count: sql`${generationLimits.count} - 1` })
-      .where(
-        and(
-          eq(generationLimits.bucket, today(key)),
-          sql`${generationLimits.count} > 0`
-        )
-      )
-  );
-});
-
 // Llama Guard categories hopon's Rules allow: S6 specialized advice, S8 intellectual property, S13 elections.
 const ALLOWED_CATEGORIES = new Set(["S6", "S8", "S13"]);
 
@@ -181,12 +151,12 @@ const REFUSED = {
     "This looks like it breaks hopon's rules. Please change it and try again.",
   game: "This game's title or description breaks hopon's rules. Ask the Maker to change it.",
   handle: "Your name breaks hopon's rules. Pick a different one.",
-  prompt:
+  message:
     "This looks like it breaks hopon's rules. Please change it and try again.",
 };
 
 // Screening: refuses text that breaks the Rules before it's stored, without saying which category it hit.
-// Fails closed: no verdict, no post. Offline mode has no AI, so it skips Screening (and can't create games anyway).
+// Fails closed: no verdict, no post. Offline mode has no AI, so it skips Screening.
 const screen = Effect.fn("screen")(function* (
   env: HoponEnv,
   owner: string,
@@ -561,7 +531,7 @@ app.post(
       Effect.gen(function* () {
         const owner = yield* signedIn("Sign in to continue.");
         const { text } = c.req.valid("json");
-        yield* screen(c.env, owner, "prompt", text);
+        yield* screen(c.env, owner, "message", text);
         // Agent needs a named object, so the id newUniqueId() makes is the Talker's name.
         const id = c.env.TALKER.newUniqueId().toString();
         // One statement, so two at once can't both take the last place.
@@ -610,7 +580,7 @@ app.post(
         const id = c.req.param("id");
         const owner = yield* ownDraft(id);
         const { text } = c.req.valid("json");
-        yield* screen(c.env, owner, "prompt", text);
+        yield* screen(c.env, owner, "message", text);
         const response = yield* talker(c.env, id, "message", { text });
         return c.json(yield* Effect.promise(() => response.json()), 202);
       })
@@ -629,28 +599,14 @@ app.post(`/api/drafts/${DRAFT}/stop`, (c) =>
   )
 );
 
-// Every R2 object under `prefix`: a Draft's or a Revision's files, or a Game's. A Draft holds a Revision or two and a
-// Game one, well under a list's 1000 keys.
-export const removeFiles = async (files: R2Bucket, prefix: string) => {
-  const { objects } = await files.list({ prefix });
-  if (objects.length > 0) {
-    await files.delete(objects.map((object) => object.key));
-  }
-};
-
 // Delete (#144): the Talker's storage and sockets, the box, the files, then the row. The row goes last, so a Delete
 // that fails on the way leaves the Draft listed and a retry finishes it. Each step is fine to repeat.
 const deleteDraft = (env: HoponEnv, id: string) =>
   Effect.gen(function* () {
     yield* talker(env, id, "delete");
     yield* Effect.promise(async () => {
-      const response = await env.CODER.getByName(id).fetch("http://coder/box", {
-        method: "DELETE",
-      });
-      if (!response.ok) {
-        throw new Error(`Coder DELETE /box: ${response.status}`);
-      }
-      await removeFiles(env.FILES, `drafts/${id}/`);
+      await killBox(env, id);
+      await removeFiles(env.FILES, draftFiles(id));
     });
     yield* query((db) => db.delete(drafts).where(eq(drafts.id, id)));
   });
@@ -713,19 +669,6 @@ const previewKey = (env: HoponEnv) =>
   );
 const previewData = (id: string, exp: string) =>
   new TextEncoder().encode(`${id}.${exp}`);
-
-// A Draft's current Revision n, 0 before its first: the highest `drafts/<id>/<n>/` in R2. R2 holds only the current
-// `<n>/`, or `<n+1>/` too for a moment at the end of a turn that builds (src/talker-build.ts).
-export const currentRevision = async (files: R2Bucket, id: string) => {
-  const { delimitedPrefixes } = await files.list({
-    delimiter: "/",
-    prefix: `drafts/${id}/`,
-  });
-  return Math.max(
-    0,
-    ...delimitedPrefixes.map((prefix) => Number(prefix.split("/")[2]))
-  );
-};
 
 // For the app: a link to the current Revision's index.html, good for an hour.
 app.get(`/api/drafts/${DRAFT}/preview`, (c) =>
@@ -795,7 +738,7 @@ app.get(`/drafts/${DRAFT}/:n{[0-9]{1,9}}/:token/${FILE}`, async (c) => {
   if (!signed || Number(exp) * 1000 < Date.now()) {
     throw fail(403, "This link has expired.");
   }
-  return gameFile(c, `drafts/${id}/${n}/${file}`);
+  return gameFile(c, `${revisionFiles(id, Number(n))}${file}`);
 });
 
 // Publish (#117, #120): the Draft's current Revision becomes a Game, `games/<gameId>/`, and the Draft is Deleted. The
@@ -841,7 +784,7 @@ app.post(`/api/drafts/${DRAFT}/publish`, (c) =>
         "game",
         `${title}\n${description}`
       );
-      const revision = `drafts/${id}/${n}/`;
+      const revision = revisionFiles(id, n);
       const index = yield* Effect.promise(async () => {
         const object = await c.env.FILES.get(`${revision}index.html`);
         return (await object?.text()) ?? "";
@@ -871,7 +814,7 @@ app.post(`/api/drafts/${DRAFT}/publish`, (c) =>
               throw new Error(`${key} is missing`);
             }
             await c.env.FILES.put(
-              `games/${game.id}/${key.slice(revision.length)}`,
+              `${gameFiles(game.id)}${key.slice(revision.length)}`,
               await object.arrayBuffer()
             );
           })
@@ -889,7 +832,7 @@ app.post(`/api/drafts/${DRAFT}/publish`, (c) =>
 
 // A published Game's file, public: the feed loads `/games/<id>/index.html`.
 app.get(`/games/${ID}/${FILE}`, (c) =>
-  gameFile(c, `games/${c.req.param("id")}/${c.req.param("file")}`)
+  gameFile(c, `${gameFiles(Number(c.req.param("id")))}${c.req.param("file")}`)
 );
 
 // Deletes a comment, closing its open reports as `how`.
@@ -965,7 +908,7 @@ const deleteGames = (db: DrizzleD1Database, which: SQL | undefined) => {
 // finishes the job.
 const removeGameFiles = (env: HoponEnv, ids: number[]) =>
   Effect.promise(() =>
-    Promise.all(ids.map((id) => removeFiles(env.FILES, `games/${id}/`)))
+    Promise.all(ids.map((id) => removeFiles(env.FILES, gameFiles(id))))
   );
 
 // Deletes a game with its files, and its likes, comments and saves in one batch. Reports outlive it, but the open ones
@@ -1070,7 +1013,7 @@ app.post(
           return yield* fail(404, GAME_UNAVAILABLE);
         }
         const { body } = c.req.valid("json");
-        if (!(yield* spend(`comment:${owner}`, 100))) {
+        if (!(yield* query((db) => spend(db, `comment:${owner}`, 100)))) {
           return yield* fail(
             429,
             "Daily limit reached: 100 comments per account. Try again tomorrow."

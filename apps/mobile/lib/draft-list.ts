@@ -1,4 +1,9 @@
 // The Draft list (#119, #149): the part of components/draft-list.tsx the tests drive.
+import type { DraftSummary } from "@hopon/schemas";
+
+// A Draft's name wherever it shows: the Maker's title, once it has named the game.
+export const draftTitle = (draft: DraftSummary | null | undefined) =>
+  draft?.title ?? "New game";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;

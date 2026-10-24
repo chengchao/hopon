@@ -4,6 +4,9 @@ import * as z from "zod/mini";
 
 export const PROMPT_MAX = 2000;
 export const COMMENT_MAX = 300;
+// A Game's title and description, as the Maker writes them and the games table keeps them.
+export const GAME_TITLE_MAX = 60;
+export const GAME_DESCRIPTION_MAX = 180;
 // A Creator's 21st Draft is refused: the API checks it, and the app disables New game.
 export const MAX_DRAFTS = 20;
 

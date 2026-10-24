@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api, HANDLE_REJECTED, handleRejected } from "@/lib/api";
+import { draftTitle } from "@/lib/draft-list";
 
 // Publish's confirm sheet (#119, #150): the Maker's title and description, which the Creator changes by asking the
 // Maker. Publish runs today's flow: the handle first, then Screening on the server, then Discover. A refusal keeps the
@@ -89,7 +90,7 @@ export const PublishSheet = ({
             accessibilityRole="header"
             className="font-display text-[32px] leading-[36px]"
           >
-            {`Publish '${draft?.title ?? "New game"}'?`}
+            {`Publish '${draftTitle(draft)}'?`}
           </Text>
           {!!draft?.description && (
             <Text className="text-base leading-[22px]">

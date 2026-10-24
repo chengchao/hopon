@@ -6,12 +6,19 @@ import { once } from "node:events";
 
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, LiveDoc } from "@earendil-works/pi-durable";
+import { GAME_DESCRIPTION_MAX, GAME_TITLE_MAX } from "@hopon/schemas";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
-import { Effect } from "effect";
 
-import { currentRevision, Db, refund, removeFiles, spend } from "./api.ts";
 import { drafts, now } from "./schema.ts";
+import {
+  currentRevision,
+  refund,
+  removeFiles,
+  revisionFiles,
+  spend,
+} from "./storage.ts";
+import { BUSY, DAILY_BUILDS, LIMIT } from "./talker-prompt.ts";
 
 // The Coder's NDJSON (apps/maker/src/coder.ts CoderEvent, plus its ping).
 type CoderEvent =
@@ -28,21 +35,17 @@ type CoderEvent =
 type Done = Extract<CoderEvent, { type: "done" }>;
 type Final = Done | Extract<CoderEvent, { type: "failed" }>;
 
-const DAILY_BUILDS = 10;
 // A build with music gets this much more than MAKER_BUILD_ABORT_S, as the Coder's deadline does.
 const MUSIC_EXTRA_S = 30;
-// What the Talker says for these (its prompt has the lines too).
-const BUSY = "The Maker is busy. Try again in a minute.";
-const LIMIT = "You've made 10 games today; come back tomorrow.";
 // A Revision's files the Coder makes rather than edits (from game.ts and music.mjs), so the job never carries them.
 const BUILT = new Set(["game.js", "music.js"]);
 
 // The title and description are what Publish shows in the feed, within games' limits (schema.ts).
 const Parameters = Type.Object({
   brief: Type.String(),
-  description: Type.String({ maxLength: 180 }),
+  description: Type.String({ maxLength: GAME_DESCRIPTION_MAX }),
   music: Type.Union([Type.String(), Type.Null()]),
-  title: Type.String({ maxLength: 60, minLength: 1 }),
+  title: Type.String({ maxLength: GAME_TITLE_MAX, minLength: 1 }),
 });
 
 const read = async (files: R2Bucket, key: string) => {
@@ -53,7 +56,7 @@ const read = async (files: R2Bucket, key: string) => {
   return object;
 };
 
-// A Revision's files by name, from `drafts/<id>/<n>/`.
+// A Revision's files by name.
 const listRevision = async (files: R2Bucket, prefix: string) => {
   const { objects } = await files.list({ prefix });
   return objects.map((object) => object.key.slice(prefix.length));
@@ -170,8 +173,8 @@ export const buildTool = (
       const n = await memo("revision", () =>
         currentRevision(env.FILES, draftId)
       );
-      const current = `drafts/${draftId}/${n}/`;
-      const next = `drafts/${draftId}/${n + 1}/`;
+      const current = revisionFiles(draftId, n);
+      const next = revisionFiles(draftId, n + 1);
       const db = drizzle(env.DB);
 
       // A rerun after the Revision was written only finishes the clean-up.
@@ -189,11 +192,9 @@ export const buildTool = (
           .get();
         return draft?.owner;
       };
-      const quota = <A>(effect: Effect.Effect<A, never, Db>) =>
-        Effect.runPromise(effect.pipe(Effect.provideService(Db, db)));
       const spent = await memo("spent", async () => {
         const account = await owner();
-        return !!account && (await quota(spend(account, DAILY_BUILDS)));
+        return !!account && (await spend(db, account, DAILY_BUILDS));
       });
       if (!spent) {
         throw new Error(
@@ -237,7 +238,7 @@ export const buildTool = (
             await memo("refunded", async () => {
               const account = await owner();
               if (account) {
-                await quota(refund(account));
+                await refund(db, account);
               }
               return true;
             });

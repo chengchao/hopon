@@ -14,6 +14,7 @@ import { GameView } from "@/components/game-view";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
+import { draftTitle } from "@/lib/draft-list";
 import { newRevision } from "@/lib/maker-chat";
 import { COLORS } from "@/lib/theme";
 
@@ -76,7 +77,7 @@ export const Play = ({
     setLoads((n) => n + 1);
   };
   const height = feedGameHeight();
-  const title = draft.title ?? "New game";
+  const title = draftTitle(draft);
 
   return (
     <Animated.View

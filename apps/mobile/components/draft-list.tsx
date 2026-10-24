@@ -11,7 +11,7 @@ import Animated, { SlideInRight, SlideOutRight } from "react-native-reanimated";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
-import { ago } from "@/lib/draft-list";
+import { ago, draftTitle } from "@/lib/draft-list";
 import { COLORS } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
@@ -35,7 +35,7 @@ const DraftRow = ({
   // The drag's end and the snap's end can both ask.
   const asking = useRef(false);
   const [deleting, setDeleting] = useState(false);
-  const title = draft.title ?? "New game";
+  const title = draftTitle(draft);
 
   const close = () => {
     asking.current = false;

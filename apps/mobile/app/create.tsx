@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { draftTitle } from "@/lib/draft-list";
 import { chatView, makerChat, NEW_CHAT, publishable } from "@/lib/maker-chat";
 import type { Frame, Row } from "@/lib/maker-chat";
 import { useMakerSocket } from "@/lib/maker-socket";
@@ -184,7 +185,7 @@ const Header = ({
       numberOfLines={1}
       className="flex-1 text-center font-strong text-base"
     >
-      {draft?.title ?? "New game"}
+      {draftTitle(draft)}
     </Text>
     <Button size="sm" variant="ghost" disabled={!canPlay} onPress={onPlay}>
       <Text>Play</Text>
@@ -296,10 +297,10 @@ const Create = () => {
     // The Talker names the game at the end of a turn that builds it.
     if (frame.type === "turn_done" && draft) {
       const drafts = await fetchDrafts().catch(() => []);
-      const fresh = drafts.find((d) => d.id === draft.id);
+      const listed = drafts.find((d) => d.id === draft.id);
       // Unless the Creator has opened another Draft meanwhile.
-      if (fresh && openId.current === fresh.id) {
-        setDraft(fresh);
+      if (listed && openId.current === listed.id) {
+        setDraft(listed);
       }
     }
   };
@@ -413,7 +414,8 @@ const Create = () => {
   const ready = draft !== undefined && !(draft === null && chat.pending.length);
   const canSend = ready && newMessage.safeParse({ text: message }).success;
   const showStop = view.running && !message;
-  const fresh = draft === null && view.rows.length === 0;
+  // A new chat with nothing in it yet: the welcome and the example ideas.
+  const blank = draft === null && view.rows.length === 0;
   const game = withGame(draft, view.rows);
   const play = () => {
     Keyboard.dismiss();
@@ -457,7 +459,7 @@ const Create = () => {
         }
         onLayout={() => scroll.current?.scrollToEnd({ animated: false })}
       >
-        {fresh && (
+        {blank && (
           <View className="gap-3 pt-4">
             <Text className="font-display text-[52px] leading-[52px]">
               What should we play?
@@ -500,7 +502,7 @@ const Create = () => {
             maxLength={PROMPT_MAX}
             numberOfLines={5}
             accessibilityLabel="Message to the Maker"
-            placeholder={fresh ? "A cat on the moon…" : "Ask for a change"}
+            placeholder={blank ? "A cat on the moon…" : "Ask for a change"}
             className="min-h-11 flex-1 rounded-3xl border-0 bg-card px-4 py-3 text-base leading-5"
           />
           {showStop ? (

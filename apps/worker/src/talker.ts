@@ -20,6 +20,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { Context, Data, Effect, Layer, ManagedRuntime } from "effect";
 
 import { drafts, now } from "./schema.ts";
+import { killBox } from "./storage.ts";
 import { buildTool } from "./talker-build.ts";
 import { TALKER_PROMPT } from "./talker-prompt.ts";
 
@@ -240,14 +241,8 @@ export class Talker extends Agent<Env> {
     }
     // talker-check looks for this line: under plain `wrangler dev` there is no container to answer.
     console.log(`Talker ${this.name}: idle, DELETE /box`);
-    const response = await this.env.CODER.getByName(this.name).fetch(
-      "http://coder/box",
-      { method: "DELETE" }
-    );
     // Thrown, the schedule retries it.
-    if (!response.ok) {
-      throw new Error(`Coder DELETE /box: ${response.status}`);
-    }
+    await killBox(this.env, this.name);
   }
 
   // From a run's start to its end (watch), every socket hears something at least every 15 s, and dead ones are closed.

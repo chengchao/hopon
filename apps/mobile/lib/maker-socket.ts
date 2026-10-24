@@ -149,7 +149,7 @@ export const useMakerSocket = ({
     };
 
     // Retry, or the network or the app coming back: try at once.
-    const now = () => {
+    const connectNow = () => {
       if (!away && !socket) {
         failures = 0;
         // Retry starts the ~30 s over.
@@ -161,7 +161,7 @@ export const useMakerSocket = ({
         connect();
       }
     };
-    reconnect.current = now;
+    reconnect.current = connectNow;
 
     // `background`, not `inactive`: pulling down Control Center keeps the socket (#126).
     const appState = AppState.addEventListener("change", (state) => {
@@ -171,7 +171,7 @@ export const useMakerSocket = ({
         drop();
       } else if (state === "active" && away) {
         away = false;
-        now();
+        connectNow();
       }
     });
     let online = true;
@@ -179,7 +179,7 @@ export const useMakerSocket = ({
       const back = state.isConnected !== false && !online;
       online = state.isConnected !== false;
       if (back) {
-        now();
+        connectNow();
       }
     });
     connect();
