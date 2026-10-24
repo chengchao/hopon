@@ -4,11 +4,10 @@ import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { Effect } from "effect";
 import { getPlatformProxy, unstable_splitSqlQuery } from "wrangler";
 
 import worker from "../src/api.ts";
-import { parseGame, GAME_CSP } from "../src/game.ts";
+import { GAME_CSP } from "../src/game.ts";
 
 // Throwaway RS256 key standing in for the Clerk instance; tokens below are really signed and verified.
 const keys = await crypto.subtle.generateKey(
@@ -41,12 +40,17 @@ const json = async (pending) => {
   const response = await pending;
   return response.json();
 };
-const generated = {
+// A plain-DOM game as the Maker leaves it: its index.html, title and description.
+const made = {
   description: "点击星星得分",
   html: '<!doctype html><html><body><button>星星</button><script>document.querySelector("button").onclick=e=>e.target.textContent="1"</script></body></html>',
   title: "星星小游戏",
 };
+// A runtime game's index.html, which loads its game.js.
+const INDEX_HTML =
+  '<!doctype html><html><body><script src="/runtime/v2.js"></script><script src="game.js"></script></body></html>';
 const OPERATOR_PASSWORD = "test-operator-password-of-32-chars!";
+const PREVIEW_SECRET = "test-preview-secret-of-32-chars!!";
 // Seeded by migrations/*_originals.sql and *_runtime_original.sql.
 const ORIGINALS = 3;
 const migrations = readdirSync(new URL("../migrations", import.meta.url))
@@ -68,17 +72,14 @@ const setup = async (t) => {
   t.after(() => proxy.dispose());
   const { DB } = proxy.env;
   await DB.batch(migrations.map((sql) => DB.prepare(sql)));
-  // Workers AI answers by model: Llama Guard's verdict for Screening, a game for generation. Tests swap either.
+  // Workers AI is only Llama Guard's verdict for Screening. Tests swap it.
   const ai = {
-    game: () =>
-      Promise.resolve({
-        choices: [{ message: { content: JSON.stringify(generated) } }],
-      }),
     screen: () => Promise.resolve({ response: { categories: [], safe: true } }),
   };
   // Each Draft's Talker, faked: it records what the Worker forwards (src/talker.ts is checked under wrangler, in
-  // scripts/). A ticket is good once, for its own Draft only.
+  // test/talker.test.js). A ticket is good once, for its own Draft only. A test sets `talker.busy` for a running turn.
   const forwarded = [];
+  const talker = { busy: false };
   const answer = (draft, request, init) => {
     if (request instanceof Request) {
       forwarded.push({ action: "upgrade", draft });
@@ -102,6 +103,9 @@ const setup = async (t) => {
     if (action === "message") {
       return Response.json({ id: "op" }, { status: 202 });
     }
+    if (action === "busy") {
+      return Response.json({ busy: talker.busy });
+    }
     return new Response(null, { status: 204 });
   };
   const TALKER = {
@@ -110,17 +114,32 @@ const setup = async (t) => {
     }),
     newUniqueId: () => ({ toString: () => randomBytes(32).toString("hex") }),
   };
+  // Each Draft's Coder, faked: only `DELETE /box` is the Worker's to call. A test sets `coder.status` to make it fail.
+  const coder = { status: 204 };
+  const CODER = {
+    getByName: (draft) => ({
+      fetch: (url, init) => {
+        forwarded.push({
+          action: `${init.method} ${new URL(url).pathname}`,
+          draft,
+        });
+        return Promise.resolve(new Response(null, { status: coder.status }));
+      },
+    }),
+  };
   const env = {
     AI: {
-      run: (model, input) =>
-        model === "@cf/meta/llama-guard-3-8b"
-          ? ai.screen(input)
-          : ai.game(model, input),
+      run: (model, input) => {
+        assert.equal(model, "@cf/meta/llama-guard-3-8b");
+        return ai.screen(input);
+      },
     },
-    AI_MODEL: "@cf/moonshotai/kimi-k2.5",
     CLERK_JWT_KEY,
+    CODER,
     DB,
+    FILES: proxy.env.FILES,
     OPERATOR_PASSWORD,
+    PREVIEW_SECRET,
     TALKER,
   };
   const count = async (table) => {
@@ -199,106 +218,164 @@ const setup = async (t) => {
       env,
       ctx
     );
-  return { ai, call, count, env, forwarded, operate, owner, settled };
-};
-test("AI JSON boundary rejects invalid and truncated output", async () => {
-  assert.deepEqual(
-    await Effect.runPromise(
-      parseGame(`\`\`\`json\n${JSON.stringify(generated)}\n\`\`\``)
-    ),
-    generated
-  );
-  await Promise.all(
-    [
-      undefined,
-      "no",
-      "null",
-      "{}",
-      JSON.stringify({ ...generated, title: "" }),
-      JSON.stringify({ ...generated, html: "<html><script>" }),
-    ].map((output) =>
-      assert.rejects(Effect.runPromise(parseGame(output)), { status: 502 })
+  // A Draft of `user`'s with one Revision, `1/`, as the Talker leaves it after a build: its files in R2, and the
+  // Maker's title and description on its row.
+  const draft = async ({
+    description = made.description,
+    files = { "index.html": made.html },
+    title = made.title,
+    user = owner,
+  } = {}) => {
+    const created = await call("/api/drafts", {
+      body: { text: "A star game" },
+      method: "POST",
+      user,
+    });
+    const { id } = await created.json();
+    await DB.prepare(
+      "UPDATE drafts SET title = ?, description = ? WHERE id = ?"
     )
-  );
-});
-test("generation, private preview, latest draft, owned publish, public discovery, sandbox", async (t) => {
-  const { call } = await setup(t);
+      .bind(title, description, id)
+      .run();
+    await Promise.all(
+      Object.entries(files).map(([name, body]) =>
+        proxy.env.FILES.put(`drafts/${id}/1/${name}`, body)
+      )
+    );
+    return id;
+  };
+  // A published Game: a Draft of `user`'s, published as `username`. Its id.
+  const publish = async ({
+    user = owner,
+    username = "maya_makes",
+    ...options
+  } = {}) => {
+    const id = await draft({ user, ...options });
+    const published = await call(`/api/drafts/${id}/publish`, {
+      method: "POST",
+      user,
+      username,
+    });
+    assert.equal(published.status, 201);
+    const game = await published.json();
+    return game.id;
+  };
+  return {
+    ai,
+    call,
+    coder,
+    count,
+    draft,
+    env,
+    forwarded,
+    operate,
+    owner,
+    publish,
+    settled,
+    talker,
+  };
+};
+// The ids /api/drafts lists for `user` (the owner by default).
+const draftIds = async (call, user) => {
+  const { drafts } = await json(call("/api/drafts", user ? { user } : {}));
+  return drafts.map((d) => d.id);
+};
+// Every key in R2 under `prefix`.
+const filesIn = async (env, prefix) => {
+  const { objects } = await env.FILES.list({ prefix });
+  return objects.map((object) => object.key);
+};
+
+test("publish: every file of the current Revision becomes the Game's, the row keeps the Draft's id, and the Draft is Deleted", async (t) => {
+  const { call, draft, env, forwarded } = await setup(t);
   const { games } = await json(call("/api/games"));
   assert.deepEqual(
     games.map((g) => g.title),
     ["Bubble Pop", "Odd Duck", "Toast Panic"]
   );
-  assert.equal(await status(call("/api/drafts/latest", { user: "" })), 401);
-  assert.deepEqual(await json(call("/api/drafts/latest")), {
-    draft: null,
+  const art = new Uint8Array([0, 255, 128, 7]);
+  const id = await draft({
+    files: {
+      "art.bin": art,
+      "game.js": "engineInit();",
+      "index.html": INDEX_HTML,
+      "music.js": "hopon.music('T2dnUw==');",
+    },
   });
-  const response = await call("/api/games", {
-    body: { prompt: "点击星星的小游戏" },
-    method: "POST",
-  });
-  assert.equal(response.status, 201);
-  const draft = await response.json();
-  const discovery = await json(call("/api/games"));
-  assert.equal(discovery.games.length, ORIGINALS);
-  const latest = await json(call("/api/drafts/latest"));
-  assert.deepEqual(latest.draft, draft);
-  assert.deepEqual(
-    await json(call("/api/drafts/latest", { user: "user_other" })),
-    { draft: null }
-  );
-  assert.equal(
-    await status(
-      call(`/api/games/${draft.id}/document`, { user: "user_other" })
-    ),
-    404
-  );
-  assert.equal(
-    await status(call(`/api/games/${draft.id}/document`, { user: "" })),
-    404
-  );
-  assert.equal(await status(call(`/api/games/${draft.id}/document`)), 200);
-  assert.equal(
-    await status(
-      call(`/api/games/${draft.id}/publish`, {
-        method: "POST",
-        user: "user_other",
-      })
-    ),
-    404
-  );
-  const nameless = await call(`/api/games/${draft.id}/publish`, {
-    method: "POST",
-    username: null,
-  });
+  const publish = (options) =>
+    call(`/api/drafts/${id}/publish`, { method: "POST", ...options });
+  assert.equal(await status(publish({ user: "" })), 401);
+  const theirs = await publish({ user: "user_other" });
+  assert.equal(theirs.status, 404);
+  assert.deepEqual(await theirs.json(), { error: "Draft not found." });
+  const nameless = await publish({ username: null });
   assert.equal(nameless.status, 400);
   assert.deepEqual(await nameless.json(), {
     error: "Pick your name before publishing.",
   });
-  assert.equal(
-    await status(call(`/api/games/${draft.id}/publish`, { method: "POST" })),
-    200
+  forwarded.length = 0;
+  const published = await publish();
+  assert.equal(published.status, 201);
+  const { id: gameId } = await published.json();
+  assert.deepEqual(forwarded, [
+    { action: "busy", draft: id },
+    { action: "delete", draft: id },
+    { action: "DELETE /box", draft: id },
+  ]);
+  // The Draft is gone: its row, its files, and every route.
+  assert.deepEqual(await draftIds(call), []);
+  assert.deepEqual(await filesIn(env, "drafts/"), []);
+  assert.equal(await status(publish()), 404);
+  const row = await env.DB.prepare("SELECT * FROM games WHERE id = ?")
+    .bind(gameId)
+    .first();
+  assert.deepEqual(
+    { ...row, created_at: undefined },
+    {
+      author: "maya_makes",
+      created_at: undefined,
+      description: made.description,
+      draft_id: id,
+      id: gameId,
+      owner: "user_owner",
+      runtime: "v2",
+      title: made.title,
+    }
   );
-  assert.equal(
-    await status(call(`/api/games/${draft.id}/publish`, { method: "POST" })),
-    200
-  );
-  const document = await call(`/api/games/${draft.id}/document`, { user: "" });
-  assert.equal(document.status, 200);
-  assert.equal(document.headers.get("Content-Security-Policy"), GAME_CSP);
+  assert.deepEqual(await filesIn(env, `games/${gameId}/`), [
+    `games/${gameId}/art.bin`,
+    `games/${gameId}/game.js`,
+    `games/${gameId}/index.html`,
+    `games/${gameId}/music.js`,
+  ]);
+  // Public, under the game CSP, each file typed by its extension.
+  const file = (name) => call(`/games/${gameId}/${name}`, { user: "" });
+  const page = await file("index.html");
+  assert.equal(page.status, 200);
+  assert.equal(await page.text(), INDEX_HTML);
+  assert.match(page.headers.get("Content-Type"), /^text\/html/u);
+  assert.equal(page.headers.get("Content-Security-Policy"), GAME_CSP);
+  assert.equal(page.headers.get("Cache-Control"), "no-store");
   assert.ok(!GAME_CSP.includes("allow-same-origin"));
   assert.ok(GAME_CSP.includes("connect-src 'none'"));
-  // 'self' lets a game load /runtime/v1.js and its own media.
+  // 'self' lets a game load /runtime/v2.js and its own files.
   assert.match(GAME_CSP, /script-src 'self'/u);
   assert.match(GAME_CSP, /media-src 'self'/u);
-  assert.equal(document.headers.get("Cache-Control"), "no-store");
-  assert.equal(await document.text(), generated.html);
-  assert.deepEqual(await json(call("/api/drafts/latest")), {
-    draft: null,
-  });
+  for (const name of ["game.js", "music.js"]) {
+    // oxlint-disable-next-line no-await-in-loop -- one file at a time
+    const script = await file(name);
+    assert.match(script.headers.get("Content-Type"), /^text\/javascript/u);
+    assert.equal(script.headers.get("Content-Security-Policy"), GAME_CSP);
+  }
+  const binary = await file("art.bin");
+  assert.equal(binary.headers.get("Content-Type"), "application/octet-stream");
+  assert.deepEqual(new Uint8Array(await binary.arrayBuffer()), art);
+  const missing = await file("nope.js");
+  assert.equal(missing.status, 404);
+  assert.deepEqual(await missing.json(), { error: "File not found." });
   const list = await json(call("/api/games"));
   assert.equal(list.games.length, ORIGINALS + 1);
-  assert.equal(list.games[0].id, draft.id);
-  assert.equal(list.games[0].html, undefined);
+  assert.equal(list.games[0].id, gameId);
   assert.equal(list.games[0].owner, undefined);
   // The handle from the publisher's token.
   assert.equal(list.games[0].author, "maya_makes");
@@ -306,21 +383,83 @@ test("generation, private preview, latest draft, owned publish, public discovery
     list.games.slice(1).map((g) => g.author),
     Array.from({ length: ORIGINALS }, () => "hopon")
   );
+  // A plain-DOM game loads no runtime.
+  const plain = await draft();
+  const { id: plainId } = await json(
+    call(`/api/drafts/${plain}/publish`, { method: "POST" })
+  );
+  const { runtime } = await env.DB.prepare(
+    "SELECT runtime FROM games WHERE id = ?"
+  )
+    .bind(plainId)
+    .first();
+  assert.equal(runtime, null);
   const unknown = await call("/index.html");
   assert.equal(unknown.status, 404);
   assert.deepEqual(await unknown.json(), { error: "Endpoint not found." });
 });
-test("Clerk auth, request validation and atomic per-account quota", async (t) => {
-  const { call } = await setup(t);
-  const options = { body: { prompt: "造一个小游戏" }, method: "POST" };
-  assert.equal(await status(call("/api/games", { ...options, user: "" })), 401);
+
+test("publish: refused before the first Revision or while a turn runs; the Draft stays as it is", async (t) => {
+  const { call, count, draft, env, forwarded, talker } = await setup(t);
+  const { id: empty } = await json(
+    call("/api/drafts", { body: { text: "A dog game" }, method: "POST" })
+  );
+  const id = await draft();
+  const publish = (draftId) =>
+    call(`/api/drafts/${draftId}/publish`, { method: "POST" });
+  const none = await publish(empty);
+  assert.equal(none.status, 409);
+  assert.deepEqual(await none.json(), { error: "This Draft has no game yet." });
+  talker.busy = true;
+  const busy = await publish(id);
+  assert.equal(busy.status, 409);
+  assert.deepEqual(await busy.json(), {
+    error: "Wait for the Maker to finish, then publish.",
+  });
   assert.equal(
-    await status(call("/api/games", { ...options, token: "not.a.jwt" })),
+    forwarded.some((f) => f.action === "delete"),
+    false
+  );
+  const listed = await draftIds(call);
+  assert.deepEqual(listed.toSorted(), [empty, id].toSorted());
+  assert.deepEqual(await filesIn(env, `drafts/${id}/`), [
+    `drafts/${id}/1/index.html`,
+  ]);
+  assert.equal(await count("games"), ORIGINALS);
+  talker.busy = false;
+  assert.equal(await status(publish(id)), 201);
+});
+
+test("publish: a failed Delete leaves the Draft listed, and a retry finishes it with the same Game", async (t) => {
+  const { call, coder, count, draft, env } = await setup(t);
+  const id = await draft();
+  coder.status = 502;
+  const publish = () => call(`/api/drafts/${id}/publish`, { method: "POST" });
+  assert.equal(await status(publish()), 500);
+  assert.deepEqual(await draftIds(call), [id]);
+  coder.status = 204;
+  const { id: gameId } = await json(publish());
+  assert.deepEqual(await draftIds(call), []);
+  assert.equal(await count("games"), ORIGINALS + 1);
+  assert.deepEqual(await filesIn(env, "games/"), [
+    `games/${gameId}/index.html`,
+  ]);
+});
+
+test("Clerk auth and request validation", async (t) => {
+  const { call } = await setup(t);
+  const options = { body: { text: "造一个小游戏" }, method: "POST" };
+  assert.equal(
+    await status(call("/api/drafts", { ...options, user: "" })),
+    401
+  );
+  assert.equal(
+    await status(call("/api/drafts", { ...options, token: "not.a.jwt" })),
     401
   );
   assert.equal(
     await status(
-      call("/api/games", {
+      call("/api/drafts", {
         ...options,
         token: await sign("user_owner", { exp: -120 }),
       })
@@ -339,7 +478,7 @@ test("Clerk auth, request validation and atomic per-account quota", async (t) =>
   );
   assert.equal(
     await status(
-      call("/api/games", {
+      call("/api/drafts", {
         ...options,
         token: await sign("user_owner", { key: forger.privateKey }),
       })
@@ -347,43 +486,35 @@ test("Clerk auth, request validation and atomic per-account quota", async (t) =>
     401
   );
   assert.equal(
-    await status(call("/api/games", { ...options, body: "null" })),
+    await status(call("/api/drafts", { ...options, body: "null" })),
     400
   );
   // Hono's own malformed-JSON refusal still renders as `{ error }`, unlike the responses basicAuth and csrf carry.
-  const malformed = await call("/api/games", { ...options, body: "{" });
+  const malformed = await call("/api/drafts", { ...options, body: "{" });
   assert.equal(malformed.status, 400);
   assert.deepEqual(await malformed.json(), {
     error: "Malformed JSON in request body",
   });
   assert.equal(
-    await status(call("/api/games", { ...options, contentType: "text/plain" })),
+    await status(
+      call("/api/drafts", { ...options, contentType: "text/plain" })
+    ),
     415
   );
   assert.equal(
-    await status(call("/api/games", { ...options, body: "x".repeat(12_001) })),
+    await status(call("/api/drafts", { ...options, body: "x".repeat(12_001) })),
     413
   );
   assert.equal(await status(call("/api/games?before=NaN")), 400);
-  const attempts = await Promise.all(
-    Array.from({ length: 11 }, () => call("/api/games", options))
-  );
-  assert.equal(attempts.filter((r) => r.status === 201).length, 10);
-  assert.equal(attempts.filter((r) => r.status === 429).length, 1);
-  assert.equal(
-    await status(call("/api/games", { ...options, user: "user_other" })),
-    201
-  );
+  assert.equal(await status(call("/api/drafts", options)), 201);
 });
-test("cursor pages have no duplicates; invalid AI never inserts a game", async (t) => {
-  const { ai, call, env, count, owner } = await setup(t);
+test("cursor pages have no duplicates", async (t) => {
+  const { call, env, owner } = await setup(t);
   const insert = env.DB.prepare(
-    "INSERT INTO games(owner,title,description,html,published) VALUES (?,?,?,?,1)"
+    "INSERT INTO games(owner,title,description) VALUES (?,?,?)"
   );
   await env.DB.batch(
-    Array.from({ length: 17 }, (_, i) =>
-      insert.bind(owner, `game ${i}`, "", generated.html)
-    )
+    Array.from({ length: 17 }, (_, i) => insert.bind(owner, `game ${i}`, ""))
   );
   const first = await json(call("/api/games"));
   const second = await json(call(`/api/games?before=${first.next}`));
@@ -394,47 +525,21 @@ test("cursor pages have no duplicates; invalid AI never inserts a game", async (
     17 + ORIGINALS
   );
   assert.equal(third.next, null);
-  ai.game = () =>
-    Promise.resolve({ choices: [{ message: { content: "bad json" } }] });
-  assert.equal(
-    await status(
-      call("/api/games", {
-        body: { prompt: "造一个小游戏" },
-        method: "POST",
-      })
-    ),
-    502
-  );
-  ai.game = () => Promise.reject(new Error("AI down"));
-  assert.deepEqual(
-    await json(
-      call("/api/games", {
-        body: { prompt: "造一个小游戏" },
-        method: "POST",
-      })
-    ),
-    { error: "AI is temporarily unavailable. Please try again." }
-  );
-  assert.equal(await count("games"), 17 + ORIGINALS);
 });
 
-test("offline mode never invokes AI or consumes creation quota", async (t) => {
-  const { call, env, count } = await setup(t);
+test("offline mode never invokes AI: messages to the Maker and comments go unscreened", async (t) => {
+  const { call, env } = await setup(t);
   env.HOPON_OFFLINE = "1";
   env.AI.run = () => {
     throw new Error("must not call AI");
   };
   assert.equal(
     await status(
-      call("/api/games", {
-        body: { prompt: "造一个小游戏" },
-        method: "POST",
-      })
+      call("/api/drafts", { body: { text: "造一个小游戏" }, method: "POST" })
     ),
-    503
+    201
   );
-  assert.equal(await count("generation_limits"), 0);
-  // Comments still post, unscreened: offline mode is local dev only.
+  // Offline mode is local dev only.
   const {
     games: [game],
   } = await json(call("/api/games"));
@@ -442,27 +547,6 @@ test("offline mode never invokes AI or consumes creation quota", async (t) => {
     await status(
       call(`/api/games/${game.id}/comments`, {
         body: { body: "hi" },
-        method: "POST",
-      })
-    ),
-    201
-  );
-});
-
-test("generation uses Kimi non-thinking mode with a bounded output budget", async (t) => {
-  const { ai, call } = await setup(t);
-  ai.game = (model, input) => {
-    assert.equal(model, "@cf/moonshotai/kimi-k2.5");
-    assert.deepEqual(input.chat_template_kwargs, { thinking: false });
-    assert.equal(input.max_completion_tokens, 6000);
-    return Promise.resolve({
-      choices: [{ message: { content: JSON.stringify(generated) } }],
-    });
-  };
-  assert.equal(
-    await status(
-      call("/api/games", {
-        body: { prompt: "A five-second button game" },
         method: "POST",
       })
     ),
@@ -495,18 +579,15 @@ const flagOnly =
         ? { categories: ["S10"], safe: false }
         : { categories: [], safe: true },
     });
-test("screening: a flagged prompt is refused before generation, saves nothing and costs no creation", async (t) => {
+test("screening: a flagged message to the Maker is refused before it starts a Draft and costs nothing", async (t) => {
   const { ai, call, count } = await setup(t);
   const screened = [];
   ai.screen = (input) => {
     screened.push(input);
     return flag("S1")(input);
   };
-  ai.game = () => {
-    throw new Error("must not generate");
-  };
-  const response = await call("/api/games", {
-    body: { prompt: "A game about hurting people" },
+  const response = await call("/api/drafts", {
+    body: { text: "A game about hurting people" },
     method: "POST",
   });
   assert.equal(response.status, 422);
@@ -517,7 +598,7 @@ test("screening: a flagged prompt is refused before generation, saves nothing an
       response_format: { type: "json_object" },
     },
   ]);
-  assert.equal(await count("games"), ORIGINALS);
+  assert.equal(await count("drafts"), 0);
   assert.equal(await count("generation_limits"), 0);
 });
 
@@ -574,7 +655,7 @@ test("screening: fails closed when it errors, answers oddly or takes over 3 s", 
   assert.deepEqual(await comment(), tryAgain);
   assert.equal(
     await status(
-      call("/api/games", { body: { prompt: "造一个小游戏" }, method: "POST" })
+      call("/api/drafts", { body: { text: "造一个小游戏" }, method: "POST" })
     ),
     503
   );
@@ -604,49 +685,57 @@ const HANDLE_REJECTED = {
   error: "Your name breaks hopon's rules. Pick a different one.",
 };
 
-test("screening: a Draft with a flagged title or description stays a private Draft", async (t) => {
-  const { ai, call } = await setup(t);
-  const draft = await json(
-    call("/api/games", { body: { prompt: "点击星星的小游戏" }, method: "POST" })
-  );
+test("screening: a flagged title or description refuses Publish and leaves the Draft as it is", async (t) => {
+  const { ai, call, count, draft, env, forwarded } = await setup(t);
+  const id = await draft();
   const screened = [];
   ai.screen = (input) => {
     screened.push(input.messages[0].content);
-    return flagOnly(`${generated.title}\n${generated.description}`)(input);
+    return flagOnly(`${made.title}\n${made.description}`)(input);
   };
-  const response = await call(`/api/games/${draft.id}/publish`, {
+  const response = await call(`/api/drafts/${id}/publish`, {
     method: "POST",
   });
   assert.equal(response.status, 422);
   assert.deepEqual(await response.json(), {
     error:
-      "This game's title or description breaks hopon's rules. Try making a new one.",
+      "This game's title or description breaks hopon's rules. Ask the Maker to change it.",
   });
   assert.deepEqual(screened.toSorted(), [
     "maya_makes",
-    `${generated.title}\n${generated.description}`,
+    `${made.title}\n${made.description}`,
   ]);
-  assert.deepEqual(await json(call("/api/drafts/latest")), { draft });
-  const { games } = await json(call("/api/games"));
-  assert.equal(games.length, ORIGINALS);
+  // Still listed with the title and description Publish's confirm sheet shows.
+  const { drafts } = await json(call("/api/drafts"));
+  assert.deepEqual(
+    drafts.map(({ description, title }) => ({ description, title })),
+    [{ description: made.description, title: made.title }]
+  );
+  assert.deepEqual(await filesIn(env, `drafts/${id}/`), [
+    `drafts/${id}/1/index.html`,
+  ]);
+  assert.deepEqual(await filesIn(env, "games/"), []);
+  assert.equal(await count("games"), ORIGINALS);
+  assert.equal(
+    forwarded.some((f) => f.action === "delete"),
+    false
+  );
 });
 
 test("screening: a flagged Handle refuses publishing and commenting with handle_rejected", async (t) => {
-  const { ai, call, count } = await setup(t);
-  const draft = await json(
-    call("/api/games", { body: { prompt: "点击星星的小游戏" }, method: "POST" })
-  );
+  const { ai, call, count, draft } = await setup(t);
+  const id = await draft();
   const {
     games: [game],
   } = await json(call("/api/games"));
   ai.screen = flagOnly("bad_name");
-  const publish = await call(`/api/games/${draft.id}/publish`, {
+  const publish = await call(`/api/drafts/${id}/publish`, {
     method: "POST",
     username: "bad_name",
   });
   assert.equal(publish.status, 422);
   assert.deepEqual(await publish.json(), HANDLE_REJECTED);
-  assert.deepEqual(await json(call("/api/drafts/latest")), { draft });
+  assert.deepEqual(await draftIds(call), [id]);
   const comment = await call(`/api/games/${game.id}/comments`, {
     body: { body: "nice" },
     method: "POST",
@@ -658,19 +747,17 @@ test("screening: a flagged Handle refuses publishing and commenting with handle_
 });
 
 test("screening: when the text and the Handle are both flagged, the response says the Handle", async (t) => {
-  const { ai, call, count } = await setup(t);
-  const draft = await json(
-    call("/api/games", { body: { prompt: "点击星星的小游戏" }, method: "POST" })
-  );
+  const { ai, call, count, draft } = await setup(t);
+  const id = await draft();
   const {
     games: [game],
   } = await json(call("/api/games"));
   ai.screen = flagOnly(
     "bad_name",
     "a slur",
-    `${generated.title}\n${generated.description}`
+    `${made.title}\n${made.description}`
   );
-  const publish = await call(`/api/games/${draft.id}/publish`, {
+  const publish = await call(`/api/drafts/${id}/publish`, {
     method: "POST",
     username: "bad_name",
   });
@@ -696,10 +783,10 @@ test("screening: when the text and the Handle are both flagged, the response say
     REFUSED
   );
   assert.equal(await count("comments"), 0);
-  assert.deepEqual(await json(call("/api/drafts/latest")), { draft });
+  assert.deepEqual(await draftIds(call), [id]);
 });
 
-test("likes: published only, one per user, counted in the feed, removable", async (t) => {
+test("likes: games only, one per user, counted in the feed, removable", async (t) => {
   const { call, env } = await setup(t);
   await assert.rejects(
     env.DB.prepare(
@@ -713,13 +800,7 @@ test("likes: published only, one per user, counted in the feed, removable", asyn
   const like = (id, options) =>
     call(`/api/games/${id}/like`, { method: "PUT", ...options });
   assert.equal(await status(like(game.id, { user: "" })), 401);
-  const draft = await json(
-    call("/api/games", {
-      body: { prompt: "点击星星的小游戏" },
-      method: "POST",
-    })
-  );
-  assert.equal(await status(like(draft.id)), 404);
+  assert.equal(await status(like(999_999)), 404);
   assert.deepEqual(await json(like(game.id)), {
     liked: true,
     likes: 1,
@@ -748,7 +829,7 @@ test("likes: published only, one per user, counted in the feed, removable", asyn
   );
   assert.equal(await status(call("/api/likes/count", { user: "" })), 401);
 });
-test("comments: anyone reads, posting needs sign-in and a handle, published games only", async (t) => {
+test("comments: anyone reads, posting needs sign-in and a handle, games only", async (t) => {
   const { call } = await setup(t);
   const {
     games: [game],
@@ -770,14 +851,8 @@ test("comments: anyone reads, posting needs sign-in and a handle, published game
   assert.equal(noHandle.status, 400);
   const { error } = await noHandle.json();
   assert.match(error, /Pick your name/u);
-  const draft = await json(
-    call("/api/games", {
-      body: { prompt: "点击星星的小游戏" },
-      method: "POST",
-    })
-  );
-  assert.equal(await status(post(draft.id, "nice")), 404);
-  assert.equal(await status(call(`/api/games/${draft.id}/comments`)), 404);
+  assert.equal(await status(post(999_999, "nice")), 404);
+  assert.equal(await status(call("/api/games/999999/comments")), 404);
 
   const created = await post(game.id, "  beat 40!\nso good  ");
   assert.equal(created.status, 201);
@@ -850,8 +925,8 @@ test("comments: newest first, 30 per page, no duplicates", async (t) => {
     400
   );
 });
-test("comments: atomic 100 per account per day, separate from the generation quota", async (t) => {
-  const { call } = await setup(t);
+test("comments: atomic 100 per account per day, separate from the build quota", async (t) => {
+  const { call, env } = await setup(t);
   const {
     games: [game],
   } = await json(call("/api/games"));
@@ -865,28 +940,21 @@ test("comments: atomic 100 per account per day, separate from the generation quo
   assert.equal(attempts.filter((r) => r.status === 201).length, 100);
   assert.equal(attempts.filter((r) => r.status === 429).length, 1);
   assert.equal(await status(post("user_other")), 201);
-  assert.equal(
-    await status(
-      call("/api/games", {
-        body: { prompt: "造一个小游戏" },
-        method: "POST",
-      })
-    ),
-    201
+  // The Maker's builds count in the account's own bucket (src/talker-build.ts), which comments never touch.
+  const { results } = await env.DB.prepare(
+    "SELECT bucket FROM generation_limits ORDER BY bucket"
+  ).all();
+  assert.deepEqual(
+    results.map((r) => r.bucket.split(":").slice(0, 2).join(":")),
+    ["comment:user_other", "comment:user_owner"]
   );
 });
 test("comments: deleted by their author or the game's creator, hidden from everyone else", async (t) => {
-  const { call } = await setup(t);
-  const draft = await json(
-    call("/api/games", {
-      body: { prompt: "点击星星的小游戏" },
-      method: "POST",
-    })
-  );
-  await call(`/api/games/${draft.id}/publish`, { method: "POST" });
+  const { call, publish } = await setup(t);
+  const gameId = await publish();
   const post = (user, body) =>
     json(
-      call(`/api/games/${draft.id}/comments`, {
+      call(`/api/games/${gameId}/comments`, {
         body: { body },
         method: "POST",
         user,
@@ -897,7 +965,7 @@ test("comments: deleted by their author or the game's creator, hidden from every
   const second = await post("user_fan", "second");
   const list = async (user) => {
     const { comments } = await json(
-      call(`/api/games/${draft.id}/comments`, { user })
+      call(`/api/games/${gameId}/comments`, { user })
     );
     return comments;
   };
@@ -967,72 +1035,60 @@ test("comments: the Operator deletes any from /operator; in the app the Operator
     404
   );
 });
-test("games: deleted by their creator or the Operator, with likes, comments and saves; reports stay", async (t) => {
-  const { call, count, operate } = await setup(t);
-  const publish = async () => {
-    const draft = await json(
-      call("/api/games", {
-        body: { prompt: "点击星星的小游戏" },
-        method: "POST",
-      })
-    );
-    await call(`/api/games/${draft.id}/publish`, { method: "POST" });
+test("games: deleted by their creator or the Operator, with their files, likes, comments and saves; reports stay", async (t) => {
+  const { call, count, env, operate, publish } = await setup(t);
+  const published = async () => {
+    const id = await publish({ files: { "game.js": "x", "index.html": "y" } });
     await Promise.all([
       ...["user_fan", "user_other"].flatMap((user) => [
-        call(`/api/games/${draft.id}/like`, { method: "PUT", user }),
-        call(`/api/games/${draft.id}/save`, { method: "PUT", user }),
-        call(`/api/games/${draft.id}/comments`, {
+        call(`/api/games/${id}/like`, { method: "PUT", user }),
+        call(`/api/games/${id}/save`, { method: "PUT", user }),
+        call(`/api/games/${id}/comments`, {
           body: { body: "nice" },
           method: "POST",
           user,
         }),
       ]),
-      call(`/api/games/${draft.id}/report`, {
+      call(`/api/games/${id}/report`, {
         body: { reason: "spam" },
         method: "POST",
         user: "user_fan",
       }),
     ]);
-    return draft.id;
+    return id;
   };
   const remove = (id, user) =>
     call(`/api/games/${id}`, { method: "DELETE", user });
   const counts = () =>
     Promise.all(["games", "likes", "comments", "saves", "reports"].map(count));
-  const mine = await publish();
-  const theirs = await publish();
+  const mine = await published();
+  const theirs = await published();
   const before = await counts();
   assert.equal(await status(remove(mine, "")), 401);
   assert.equal(await status(remove(mine, "user_fan")), 404);
   assert.equal(await status(remove(theirs, "user_operator")), 404);
   assert.deepEqual(await counts(), before);
+  const stored = await filesIn(env, "games/");
+  assert.equal(stored.length, 4);
   assert.equal(await status(remove(mine, "user_owner")), 204);
   assert.equal(await status(remove(mine, "user_owner")), 404);
+  assert.deepEqual(await filesIn(env, `games/${mine}/`), []);
+  assert.equal(
+    await status(call(`/games/${mine}/index.html`, { user: "" })),
+    404
+  );
   assert.equal(
     await status(
       operate(`/operator/games/${theirs}/delete`, { method: "POST" })
     ),
     303
   );
-  assert.equal(await status(call(`/api/games/${theirs}/document`)), 404);
+  assert.deepEqual(await filesIn(env, "games/"), []);
+  assert.equal(
+    await status(call(`/games/${theirs}/index.html`, { user: "" })),
+    404
+  );
   assert.deepEqual(await counts(), [ORIGINALS, 0, 0, 0, 2]);
-});
-test("games: a draft isn't Deleted, even by its creator or the Operator", async (t) => {
-  const { call, operate } = await setup(t);
-  const draft = await json(
-    call("/api/games", { body: { prompt: "点击星星的小游戏" }, method: "POST" })
-  );
-  assert.equal(
-    await status(call(`/api/games/${draft.id}`, { method: "DELETE" })),
-    404
-  );
-  assert.equal(
-    await status(
-      operate(`/operator/games/${draft.id}/delete`, { method: "POST" })
-    ),
-    404
-  );
-  assert.equal(await status(call(`/api/games/${draft.id}/document`)), 200);
 });
 test("comments: counted in the feed", async (t) => {
   const { call } = await setup(t);
@@ -1058,7 +1114,7 @@ test("comments: counted in the feed", async (t) => {
   const afterDelete = await feed();
   assert.equal(afterDelete.comments, 1);
 });
-test("saves: sign-in, published only, one per user, flagged in the feed, removable", async (t) => {
+test("saves: sign-in, games only, one per user, flagged in the feed, removable", async (t) => {
   const { call, env, count } = await setup(t);
   await assert.rejects(
     env.DB.prepare(
@@ -1080,13 +1136,6 @@ test("saves: sign-in, published only, one per user, flagged in the feed, removab
   );
   assert.equal(await status(call("/api/saves", { user: "" })), 401);
   assert.equal(await status(call("/api/saves/count", { user: "" })), 401);
-  const draft = await json(
-    call("/api/games", {
-      body: { prompt: "点击星星的小游戏" },
-      method: "POST",
-    })
-  );
-  assert.equal(await status(save(draft.id)), 404);
   assert.equal(await status(save(999_999)), 404);
   assert.deepEqual(await json(save(game.id)), { saved: true });
   assert.deepEqual(await json(save(game.id)), { saved: true });
@@ -1145,12 +1194,10 @@ test("saves: private to the person who saved", async (t) => {
 test("saves: newest save first, 8 per page, no duplicates", async (t) => {
   const { call, env, owner } = await setup(t);
   const insert = env.DB.prepare(
-    "INSERT INTO games(owner,title,description,html,published) VALUES (?,?,?,?,1)"
+    "INSERT INTO games(owner,title,description) VALUES (?,?,?)"
   );
   await env.DB.batch(
-    Array.from({ length: 17 }, (_, i) =>
-      insert.bind(owner, `game ${i}`, "", generated.html)
-    )
+    Array.from({ length: 17 }, (_, i) => insert.bind(owner, `game ${i}`, ""))
   );
   // Save newest game first, then the older ones: save order, not game order, decides the list.
   const { results } = await env.DB.prepare(
@@ -1180,8 +1227,8 @@ test("saves: newest save first, 8 per page, no duplicates", async (t) => {
   const reopened = await page(`?before=${tapped.saveId + 1}`);
   assert.equal(reopened.games[0].id, tapped.id);
 });
-test("reports: someone else's published game, a known reason, signed in", async (t) => {
-  const { call, count } = await setup(t);
+test("reports: someone else's game, a known reason, signed in", async (t) => {
+  const { call, count, publish } = await setup(t);
   const {
     games: [game],
   } = await json(call("/api/games"));
@@ -1195,15 +1242,7 @@ test("reports: someone else's published game, a known reason, signed in", async 
   assert.equal(await status(report(game.id, "boring")), 400);
   assert.equal(await status(report(game.id)), 400);
   assert.equal(await status(report(999_999, "spam")), 404);
-  const draft = await json(
-    call("/api/games", { body: { prompt: "点击星星的小游戏" }, method: "POST" })
-  );
-  assert.equal(
-    await status(report(draft.id, "spam", { user: "user_other" })),
-    404
-  );
-  await call(`/api/games/${draft.id}/publish`, { method: "POST" });
-  const own = await report(draft.id, "spam");
+  const own = await report(await publish(), "spam");
   assert.equal(own.status, 400);
   assert.deepEqual(await own.json(), {
     error: "You can't report your own game.",
@@ -1329,11 +1368,8 @@ test("reports: each new report POSTs the reason and snapshot to the Operator; a 
   assert.equal(await count("reports"), 2);
 });
 test("feed: `mine` marks the viewer's own games", async (t) => {
-  const { call } = await setup(t);
-  const draft = await json(
-    call("/api/games", { body: { prompt: "点击星星的小游戏" }, method: "POST" })
-  );
-  await call(`/api/games/${draft.id}/publish`, { method: "POST" });
+  const { call, publish } = await setup(t);
+  await publish();
   const mine = async (user) => {
     const { games } = await json(call("/api/games", { user }));
     return games.map((g) => g.mine);
@@ -1343,13 +1379,10 @@ test("feed: `mine` marks the viewer's own games", async (t) => {
   assert.deepEqual(await mine(""), [false, false, false, false]);
 });
 // A published game by user_owner with a comment from user_fan on it.
-const commented = async (call) => {
-  const draft = await json(
-    call("/api/games", { body: { prompt: "点击星星的小游戏" }, method: "POST" })
-  );
-  await call(`/api/games/${draft.id}/publish`, { method: "POST" });
+const commented = async ({ call, publish }) => {
+  const gameId = await publish();
   const comment = await json(
-    call(`/api/games/${draft.id}/comments`, {
+    call(`/api/games/${gameId}/comments`, {
       body: { body: "you stink" },
       method: "POST",
       user: "user_fan",
@@ -1362,11 +1395,11 @@ const commented = async (call) => {
       method: "POST",
       ...options,
     });
-  return { comment, gameId: draft.id, reportComment };
+  return { comment, gameId, reportComment };
 };
 test("comment reports: someone else's comment, even on your own game; never your own", async (t) => {
-  const { call, count, env } = await setup(t);
-  const { comment, gameId, reportComment } = await commented(call);
+  const { call, count, env, publish } = await setup(t);
+  const { comment, gameId, reportComment } = await commented({ call, publish });
   assert.equal(await status(reportComment("spam", { user: "" })), 401);
   assert.equal(await status(reportComment("boring")), 400);
   assert.equal(
@@ -1423,8 +1456,8 @@ test("comment reports: someone else's comment, even on your own game; never your
   assert.equal(await count("reports"), 2);
 });
 test("comment reports: the comment disappears for the reporter only; its game stays", async (t) => {
-  const { call } = await setup(t);
-  const { comment, gameId, reportComment } = await commented(call);
+  const { call, publish } = await setup(t);
+  const { comment, gameId, reportComment } = await commented({ call, publish });
   await call(`/api/games/${gameId}/save`, { method: "PUT" });
   await reportComment("hate");
   const bodies = async (user) => {
@@ -1446,7 +1479,7 @@ test("comment reports: the comment disappears for the reporter only; its game st
   assert.deepEqual(await json(call("/api/saves/count")), { count: 1 });
 });
 test("comment reports: each new one POSTs the reason and snapshot to the Operator", async (t) => {
-  const { call, env, settled } = await setup(t);
+  const { call, env, publish, settled } = await setup(t);
   env.OPERATOR_WEBHOOK_URL = "https://operator.test/hook";
   const sent = [];
   const realFetch = globalThis.fetch;
@@ -1457,7 +1490,7 @@ test("comment reports: each new one POSTs the reason and snapshot to the Operato
     sent.push(JSON.parse(init.body));
     return Promise.resolve(new Response(null, { status: 200 }));
   });
-  const { comment, gameId, reportComment } = await commented(call);
+  const { comment, gameId, reportComment } = await commented({ call, publish });
   await reportComment("age");
   await reportComment("age");
   await settled();
@@ -1475,8 +1508,8 @@ test("comment reports: each new one POSTs the reason and snapshot to the Operato
   );
 });
 test("comments: `mine` marks the viewer's own comments", async (t) => {
-  const { call } = await setup(t);
-  const { gameId } = await commented(call);
+  const { call, publish } = await setup(t);
+  const { gameId } = await commented({ call, publish });
   const mine = async (user) => {
     const { comments } = await json(
       call(`/api/games/${gameId}/comments`, { user })
@@ -1569,8 +1602,8 @@ const stubClerk = (t, roles = {}) => {
   return clerk;
 };
 test("operator: every /operator route asks for the password, and the old /api/ Operator routes are gone", async (t) => {
-  const { call, env, operate } = await setup(t);
-  const posted = await commented(call);
+  const { call, env, operate, publish } = await setup(t);
+  const posted = await commented({ call, publish });
   const { comment, gameId, reportComment } = posted;
   await reportComment("spam", { user: "user_a" });
   const routes = [
@@ -1635,10 +1668,10 @@ test("operator: every /operator route asks for the password, and the old /api/ O
   );
 });
 test("operator: a write from another site is refused, even with the password, and changes nothing", async (t) => {
-  const { call, count, env, operate } = await setup(t);
+  const { call, count, env, operate, publish } = await setup(t);
   env.CLERK_SECRET_KEY = "sk_test_hopon";
   const clerk = stubClerk(t);
-  const { comment, gameId, reportComment } = await commented(call);
+  const { comment, gameId, reportComment } = await commented({ call, publish });
   await reportComment("hate", { user: "user_a" });
   await call(`/api/games/${gameId}/report`, {
     body: { reason: "spam" },
@@ -1675,7 +1708,7 @@ const actions = (kind, id) =>
     (action) => `/operator/${kind}s/${id}/${action}`
   );
 test("operator: the queue lists open reports by target, oldest first, with reasons and counts, and marks deleted content", async (t) => {
-  const { call, env, operate } = await setup(t);
+  const { call, env, operate, publish } = await setup(t);
   const {
     games: [newer, older],
   } = await json(call("/api/games"));
@@ -1686,7 +1719,7 @@ test("operator: the queue lists open reports by target, oldest first, with reaso
       user,
     });
   await reportGame(older, "spam", "user_a");
-  const { comment, gameId, reportComment } = await commented(call);
+  const { comment, gameId, reportComment } = await commented({ call, publish });
   await reportComment("hate");
   await reportGame(older, "age", "user_b");
   await reportGame(older, "spam", "user_c");
@@ -1699,10 +1732,7 @@ test("operator: the queue lists open reports by target, oldest first, with reaso
   assert.equal(count, 3);
   assert.deepEqual(targets, [
     {
-      actions: [
-        `/api/games/${older.id}/document`,
-        ...actions("game", older.id),
-      ],
+      actions: [`/games/${older.id}/index.html`, ...actions("game", older.id)],
       id: `game-${older.id}`,
       text: `Game · @hopon · DATE UTC ${older.title} ${older.description} Not suitable for ages 13+ × 1 Spam or scam × 2 Play Delete Ban Dismiss`,
     },
@@ -1847,11 +1877,11 @@ test("operator: Dismiss closes every open report on the target and leaves the co
   assert.equal(await comments("user_a"), 0);
 });
 test("operator: Delete closes the content's open reports as deleted, its poster deleting it as creator_deleted", async (t) => {
-  const { call, env, operate } = await setup(t);
+  const { call, env, operate, publish } = await setup(t);
   // Games by user_owner, each with a comment by user_fan; every game and comment reported once.
-  const first = await commented(call);
-  const second = await commented(call);
-  const third = await commented(call);
+  const first = await commented({ call, publish });
+  const second = await commented({ call, publish });
+  const third = await commented({ call, publish });
   for (const { gameId, reportComment } of [first, second, third]) {
     // oxlint-disable-next-line no-await-in-loop -- report ids follow this order
     await call(`/api/games/${gameId}/report`, {
@@ -1881,9 +1911,9 @@ test("operator: Delete closes the content's open reports as deleted, its poster 
     { ...commentReport(third), ...OPEN },
   ]);
   // A comment deleted by its commenter, one by the Operator, and one by the Creator of the game it's on.
-  const fourth = await commented(call);
+  const fourth = await commented({ call, publish });
   await fourth.reportComment("spam", { user: "user_a" });
-  const fifth = await commented(call);
+  const fifth = await commented({ call, publish });
   await fifth.reportComment("spam", { user: "user_a" });
   assert.equal(
     await status(
@@ -1918,17 +1948,14 @@ test("operator: Delete closes the content's open reports as deleted, its poster 
   );
 });
 test("ban: Clerk bans the poster first, then all their published games and comments go, their reports closing as banned", async (t) => {
-  const { call, count, env, operate } = await setup(t);
+  const { call, count, draft, env, operate, publish } = await setup(t);
   env.CLERK_SECRET_KEY = "sk_test_hopon";
   const clerk = stubClerk(t);
   const fan = { user: "user_fan", username: "fan" };
   // user_fan comments on user_owner's game, and publishes a game of their own that others like, save and comment on.
-  const { comment, gameId, reportComment } = await commented(call);
-  const create = (prompt) =>
-    json(call("/api/games", { body: { prompt }, method: "POST", ...fan }));
-  const theirs = await create("点击月亮的小游戏");
-  await call(`/api/games/${theirs.id}/publish`, { method: "POST", ...fan });
-  const draft = await create("点击太阳的小游戏");
+  const { comment, gameId, reportComment } = await commented({ call, publish });
+  const theirs = { id: await publish(fan) };
+  const fanDraft = await draft({ user: "user_fan" });
   const reply = await json(
     call(`/api/games/${theirs.id}/comments`, {
       body: { body: "nice" },
@@ -2011,13 +2038,15 @@ test("ban: Clerk bans the poster first, then all their published games and comme
     [["GET", "/v1/users/user_fan"]]
   );
 
-  const { results } = await env.DB.prepare(
-    "SELECT id, owner, published FROM games WHERE owner = 'user_fan'"
-  ).all();
-  assert.deepEqual(
-    results.map((r) => ({ ...r })),
-    [{ id: draft.id, owner: "user_fan", published: 0 }]
-  );
+  // Their game's files went with it; their Draft stays.
+  assert.equal(await count("games"), ORIGINALS + 1);
+  assert.deepEqual(await filesIn(env, "games/"), [
+    `games/${gameId}/index.html`,
+  ]);
+  assert.deepEqual(await draftIds(call, "user_fan"), [fanDraft]);
+  assert.deepEqual(await filesIn(env, `drafts/${fanDraft}/`), [
+    `drafts/${fanDraft}/1/index.html`,
+  ]);
   const left = async (sql) => {
     const rows = await env.DB.prepare(sql).all();
     return rows.results.map((r) => ({ ...r }));
@@ -2044,10 +2073,10 @@ test("ban: Clerk bans the poster first, then all their published games and comme
   assert.equal(await count("reports"), 4);
 });
 test("ban: asks first, bans an account whatever its Clerk role, and only a reported poster", async (t) => {
-  const { call, env, operate } = await setup(t);
+  const { call, env, operate, publish } = await setup(t);
   env.CLERK_SECRET_KEY = "sk_test_hopon";
   const clerk = stubClerk(t, { user_fan: "operator" });
-  const posted = await commented(call);
+  const posted = await commented({ call, publish });
   const { comment, reportComment } = posted;
   const path = `/operator/comments/${comment.id}/ban`;
   assert.equal(await status(operate(path)), 404);
@@ -2087,9 +2116,9 @@ test("ban: asks first, bans an account whatever its Clerk role, and only a repor
   ]);
 });
 
-test("runtime: /runtime/v1.js is the maker's build, long-cached, signed out", async (t) => {
+test("runtime: /runtime/v2.js and /dom/v1.js are the maker's scaffolds, long-cached, signed out", async (t) => {
   const { call } = await setup(t);
-  const runtime = await call("/runtime/v1.js", { user: "" });
+  const runtime = await call("/runtime/v2.js", { user: "" });
   assert.equal(runtime.status, 200);
   assert.match(runtime.headers.get("Content-Type"), /^text\/javascript/u);
   assert.equal(
@@ -2100,13 +2129,29 @@ test("runtime: /runtime/v1.js is the maker's build, long-cached, signed out", as
   assert.equal(
     code,
     JSON.parse(
-      readFileSync(new URL("../src/runtime/v1.json", import.meta.url), "utf-8")
+      readFileSync(new URL("../src/runtime/v2.json", import.meta.url), "utf-8")
     )
   );
   // LittleJS and the scaffold, with the feed's bridge.
   assert.match(code, /engineInit/u);
   assert.match(code, /"pause"/u);
-  assert.equal(await status(call("/runtime/v2.js", { user: "" })), 404);
+  // The plain-DOM scaffold, the box's bytes.
+  const dom = await call("/dom/v1.js", { user: "" });
+  assert.equal(dom.status, 200);
+  assert.match(dom.headers.get("Content-Type"), /^text\/javascript/u);
+  assert.equal(
+    dom.headers.get("Cache-Control"),
+    "public, max-age=31536000, immutable"
+  );
+  assert.equal(
+    await dom.text(),
+    readFileSync(new URL("../../maker/image/dom.js", import.meta.url), "utf-8")
+  );
+  // v1 changed before any Creator's Game used it, so it's gone rather than stale.
+  for (const gone of ["/runtime/v1.js", "/runtime/v3.js"]) {
+    // oxlint-disable-next-line no-await-in-loop -- two requests
+    assert.equal(await status(call(gone, { user: "" })), 404);
+  }
 });
 
 test("pages: /terms has the Rules, /support the contact address and /privacy the policy, signed out", async (t) => {
@@ -2128,19 +2173,29 @@ test("pages: /terms has the Rules, /support the contact address and /privacy the
   assert.equal(privacy.status, 200);
   assert.match(await privacy.text(), /<title>Privacy Policy<\/title>/u);
 });
+
+// #125's copy: the app's AI sheet links to /privacy#maker, which names who processes messages.
+test("pages: /privacy#maker names the Maker's processors and the Terms screen every message to the Maker", async (t) => {
+  const { call } = await setup(t);
+  const privacy = await call("/privacy", { user: "" }).then((r) => r.text());
+  assert.match(privacy, /<h2 id="maker">The Maker<\/h2>/u);
+  for (const company of ["Anthropic", "Cloudflare", "E2B"]) {
+    assert.match(privacy, new RegExp(`<strong>${company}</strong>`, "u"));
+  }
+  assert.match(privacy, /within 30 days/u);
+  assert.match(privacy, /your chats with the Maker/iu);
+  assert.match(privacy, /and all your Drafts with their chats/u);
+  assert.doesNotMatch(privacy, /Workers AI/u);
+  const terms = await call("/terms", { user: "" }).then((r) => r.text());
+  assert.match(terms, /every message to the Maker/u);
+  assert.doesNotMatch(terms, /the sentence a game is made from/u);
+});
 // `commented`, plus a published game by user_fan that user_owner saved, and a comment from each of them on an Original.
-const feuding = async (call) => {
-  const posted = await commented(call);
+const feuding = async ({ call, publish }) => {
+  const posted = await commented({ call, publish });
   const fan = { user: "user_fan", username: "fan" };
-  const draft = await json(
-    call("/api/games", {
-      body: { prompt: "点击月亮的小游戏" },
-      method: "POST",
-      ...fan,
-    })
-  );
-  await call(`/api/games/${draft.id}/publish`, { method: "POST", ...fan });
-  await call(`/api/games/${draft.id}/save`, { method: "PUT" });
+  const fanGameId = await publish(fan);
+  await call(`/api/games/${fanGameId}/save`, { method: "PUT" });
   await call(`/api/games/${posted.gameId}/save`, { method: "PUT", ...fan });
   await call(`/api/games/${posted.gameId}/like`, { method: "PUT", ...fan });
   const { games } = await json(call("/api/games", { user: "" }));
@@ -2153,11 +2208,11 @@ const feuding = async (call) => {
       ...who,
     });
   }
-  return { ...posted, fan, fanGameId: draft.id, originalId: original.id };
+  return { ...posted, fan, fanGameId, originalId: original.id };
 };
 test("blocks: from a game or a comment, one per pair keyed on the account, never yourself", async (t) => {
-  const { call, env } = await setup(t);
-  const { comment, fanGameId, gameId } = await feuding(call);
+  const { call, env, publish } = await setup(t);
+  const { comment, fanGameId, gameId } = await feuding({ call, publish });
   const block = (path, options) => call(path, { method: "POST", ...options });
   assert.equal(
     await status(block(`/api/games/${fanGameId}/block`, { user: "" })),
@@ -2165,14 +2220,6 @@ test("blocks: from a game or a comment, one per pair keyed on the account, never
   );
   assert.equal(await status(block("/api/games/999999/block")), 404);
   assert.equal(await status(block("/api/comments/999999/block")), 404);
-  const draft = await json(
-    call("/api/games", {
-      body: { prompt: "点击太阳的小游戏" },
-      method: "POST",
-      user: "user_fan",
-    })
-  );
-  assert.equal(await status(block(`/api/games/${draft.id}/block`)), 404);
   for (const path of [
     `/api/games/${gameId}/block`,
     `/api/comments/${comment.id}/block`,
@@ -2197,8 +2244,11 @@ test("blocks: from a game or a comment, one per pair keyed on the account, never
   );
 });
 test("blocks: neither person sees the other's games or comments; everyone else does, and nothing changes or goes away", async (t) => {
-  const { call, count } = await setup(t);
-  const { comment, fanGameId, gameId, originalId } = await feuding(call);
+  const { call, count, publish } = await setup(t);
+  const { comment, fanGameId, gameId, originalId } = await feuding({
+    call,
+    publish,
+  });
   const before = {
     comments: await count("comments"),
     likes: await count("likes"),
@@ -2262,8 +2312,8 @@ test("blocks: neither person sees the other's games or comments; everyone else d
   );
 });
 test("blocks: neither person can comment on the other's games, and isn't told why", async (t) => {
-  const { call } = await setup(t);
-  const { fan, fanGameId, gameId } = await feuding(call);
+  const { call, publish } = await setup(t);
+  const { fan, fanGameId, gameId } = await feuding({ call, publish });
   await call(`/api/games/${fanGameId}/block`, { method: "POST" });
   const comment = (id, who) =>
     call(`/api/games/${id}/comments`, {
@@ -2294,8 +2344,8 @@ test("blocks: neither person can comment on the other's games, and isn't told wh
   );
 });
 test("blocked accounts: newest first by the handle at block time; only the blocker sees and unblocks them", async (t) => {
-  const { call } = await setup(t);
-  const { fan, fanGameId, originalId } = await feuding(call);
+  const { call, publish } = await setup(t);
+  const { fan, fanGameId, originalId } = await feuding({ call, publish });
   await call(`/api/games/${originalId}/comments`, {
     body: { body: "hi from other" },
     method: "POST",
@@ -2340,8 +2390,11 @@ test("blocked accounts: newest first by the handle at block time; only the block
   );
 });
 test("blocked accounts: Unblock brings back both people's games and comments, except ones the viewer reported", async (t) => {
-  const { call } = await setup(t);
-  const { comment, fan, fanGameId, gameId, originalId } = await feuding(call);
+  const { call, publish } = await setup(t);
+  const { comment, fan, fanGameId, gameId, originalId } = await feuding({
+    call,
+    publish,
+  });
   const { comments: before } = await json(
     call(`/api/games/${originalId}/comments`)
   );
@@ -2350,14 +2403,7 @@ test("blocked accounts: Unblock brings back both people's games and comments, ex
     body: { reason: "spam" },
     method: "POST",
   });
-  const reported = await json(
-    call("/api/games", {
-      body: { prompt: "点击太阳的小游戏" },
-      method: "POST",
-      ...fan,
-    })
-  );
-  await call(`/api/games/${reported.id}/publish`, { method: "POST", ...fan });
+  const reported = { id: await publish(fan) };
   await call(`/api/games/${reported.id}/report`, {
     body: { reason: "spam" },
     method: "POST",
@@ -2416,8 +2462,10 @@ test("drafts: born on a screened first message, listed newest first for their ow
     method: "POST",
   });
   assert.equal(first.status, 201);
-  const { id: a } = await first.json();
+  // With the message's operation id, which the Talker's submission events name, as the messages route answers.
+  const { id: a, message } = await first.json();
   assert.match(a, /^[0-9a-f]{64}$/u);
+  assert.equal(message, "op");
   assert.deepEqual(forwarded, [
     { action: "message", draft: a, text: "A cat that jumps over moons" },
   ]);
@@ -2579,4 +2627,229 @@ test("drafts: another account gets 404 on every Draft route; the socket needs a 
     forwarded.some((f) => f.draft === missing),
     false
   );
+});
+
+// A Draft with one Revision in R2, as the Talker leaves it at the end of a turn that builds (#117).
+const withRevision = async ({ call, env }, n = 3) => {
+  const { id } = await json(
+    call("/api/drafts", { body: { text: "A cat game" }, method: "POST" })
+  );
+  await env.FILES.put(`drafts/${id}/${n}/index.html`, INDEX_HTML);
+  await env.FILES.put(`drafts/${id}/${n}/game.js`, "engineInit();");
+  return id;
+};
+// The path of the link the app gets for a Draft, and a signed-out request for one of its files.
+const preview = async (call, id) => {
+  const { url } = await json(call(`/api/drafts/${id}/preview`));
+  return new URL(url).pathname;
+};
+const open = (call, path, file = "index.html") =>
+  call(path.replace(/index\.html$/u, file), { user: "" });
+
+test("preview: the minted link serves the current Revision's files, signed out, with the game CSP and no-store", async (t) => {
+  const context = await setup(t);
+  const { call } = context;
+  const id = await withRevision(context);
+  const path = await preview(call, id);
+  assert.match(
+    path,
+    new RegExp(`^/drafts/${id}/3/\\d+\\.[\\w-]+/index\\.html$`, "u")
+  );
+  const page = await open(call, path);
+  assert.equal(page.status, 200);
+  assert.equal(await page.text(), INDEX_HTML);
+  assert.match(page.headers.get("Content-Type"), /^text\/html/u);
+  assert.equal(page.headers.get("Content-Security-Policy"), GAME_CSP);
+  assert.equal(page.headers.get("Cache-Control"), "no-store");
+  // index.html's relative sibling, under the same link.
+  const game = await open(call, path, "game.js");
+  assert.equal(game.status, 200);
+  assert.equal(await game.text(), "engineInit();");
+  assert.match(game.headers.get("Content-Type"), /^text\/javascript/u);
+  assert.equal(game.headers.get("Content-Security-Policy"), GAME_CSP);
+});
+
+test("preview: a link is 403 once its hour is up, or with its signature, expiry or Draft changed", async (t) => {
+  const context = await setup(t);
+  const { call } = context;
+  const id = await withRevision(context);
+  const other = await withRevision(context);
+  const path = await preview(call, id);
+  // /drafts/<id>/<n>/<exp>.<sig>/index.html
+  const [n, token] = path.split("/").slice(3, 5);
+  const [exp, sig] = token.split(".");
+  const flipped = `${sig[0] === "A" ? "B" : "A"}${sig.slice(1)}`;
+  const otherPath = await preview(call, other);
+  const [otherToken] = otherPath.split("/").slice(4, 5);
+  for (const forged of [
+    `/drafts/${id}/${n}/${exp}.${flipped}/index.html`,
+    `/drafts/${id}/${n}/${Number(exp) + 3600}.${sig}/index.html`,
+    `/drafts/${id}/${n}/${exp}/index.html`,
+    `/drafts/${id}/${n}/${otherToken}/index.html`,
+    `/drafts/${other}/${n}/${token}/index.html`,
+  ]) {
+    // oxlint-disable-next-line no-await-in-loop -- one link at a time
+    assert.equal(await status(open(call, forged)), 403, forged);
+  }
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() + 59 * 60 * 1000 });
+  assert.equal(await status(open(call, path)), 200);
+  t.mock.timers.setTime(Date.now() + 2 * 60 * 1000);
+  const expired = await open(call, path, "game.js");
+  assert.equal(expired.status, 403);
+  assert.deepEqual(await expired.json(), { error: "This link has expired." });
+});
+
+test("preview: the next Revision or a Delete turns a live link into a 404; the next link points at the new Revision", async (t) => {
+  const context = await setup(t);
+  const { call, env } = context;
+  const id = await withRevision(context);
+  const old = await preview(call, id);
+  assert.equal(await status(open(call, old, "music.js")), 404);
+  // End of a turn that builds: <4>/ is written, then <3>/ deleted. A link minted in between gets the new one.
+  await env.FILES.put(`drafts/${id}/4/index.html`, "<!doctype html>v4");
+  assert.match(await preview(call, id), new RegExp(`^/drafts/${id}/4/`, "u"));
+  await env.FILES.delete([
+    `drafts/${id}/3/index.html`,
+    `drafts/${id}/3/game.js`,
+  ]);
+  const gone = await open(call, old);
+  assert.equal(gone.status, 404);
+  assert.deepEqual(await gone.json(), { error: "File not found." });
+  const current = await preview(call, id);
+  const page = await open(call, current);
+  assert.equal(await page.text(), "<!doctype html>v4");
+  await env.FILES.delete(`drafts/${id}/4/index.html`);
+  assert.equal(await status(open(call, current)), 404);
+});
+
+test("preview: only the Draft's owner can mint a link, and only once it has a game", async (t) => {
+  const context = await setup(t);
+  const { call } = context;
+  const id = await withRevision(context);
+  const mint = (draft, user) =>
+    call(`/api/drafts/${draft}/preview`, user === undefined ? {} : { user });
+  assert.equal(await status(mint(id, "")), 401);
+  for (const [draft, user] of [
+    [id, "user_other"],
+    ["a".repeat(64), undefined],
+  ]) {
+    // oxlint-disable-next-line no-await-in-loop -- one Draft at a time
+    const response = await mint(draft, user);
+    assert.equal(response.status, 404);
+    // oxlint-disable-next-line no-await-in-loop -- one Draft at a time
+    assert.deepEqual(await response.json(), { error: "Draft not found." });
+  }
+  const { id: empty } = await json(
+    call("/api/drafts", { body: { text: "A dog game" }, method: "POST" })
+  );
+  const none = await mint(empty);
+  assert.equal(none.status, 404);
+  assert.deepEqual(await none.json(), { error: "This Draft has no game yet." });
+});
+
+test("delete: a Draft goes with its row, its files, its Talker and its box; anyone else's is a 404", async (t) => {
+  const context = await setup(t);
+  const { call, count, env, forwarded } = context;
+  const id = await withRevision(context);
+  const kept = await withRevision(context);
+  const link = await preview(call, id);
+  const { ticket } = await json(
+    call(`/api/drafts/${id}/ws-ticket`, { method: "POST" })
+  );
+  assert.equal(
+    await status(call(`/api/drafts/${id}`, { method: "DELETE", user: "" })),
+    401
+  );
+  for (const [draft, user] of [
+    [id, "user_other"],
+    ["a".repeat(64), undefined],
+  ]) {
+    // oxlint-disable-next-line no-await-in-loop -- one Draft at a time
+    const response = await call(`/api/drafts/${draft}`, {
+      method: "DELETE",
+      ...(user ? { user } : {}),
+    });
+    assert.equal(response.status, 404);
+    // oxlint-disable-next-line no-await-in-loop -- one Draft at a time
+    assert.deepEqual(await response.json(), { error: "Draft not found." });
+  }
+  assert.equal(await count("drafts"), 2);
+  forwarded.length = 0;
+  assert.equal(
+    await status(call(`/api/drafts/${id}`, { method: "DELETE" })),
+    204
+  );
+  assert.deepEqual(forwarded, [
+    { action: "delete", draft: id },
+    { action: "DELETE /box", draft: id },
+  ]);
+  assert.deepEqual(await draftIds(call), [kept]);
+  const { objects } = await env.FILES.list({ prefix: "drafts/" });
+  assert.deepEqual(
+    objects.map((o) => o.key.split("/")[1]),
+    [kept, kept]
+  );
+  // The preview link and the socket are gone with it, and so is every route.
+  assert.equal(await status(open(call, link)), 404);
+  assert.equal(
+    await status(
+      call(`/api/drafts/${id}/ws?ticket=${encodeURIComponent(ticket)}`, {
+        user: "",
+      })
+    ),
+    404
+  );
+  assert.equal(
+    await status(call(`/api/drafts/${id}`, { method: "DELETE" })),
+    404
+  );
+});
+
+test("delete: a failure on the way keeps the Draft listed, so a retry finishes the job", async (t) => {
+  const context = await setup(t);
+  const { call, coder, env } = context;
+  const id = await withRevision(context);
+  coder.status = 502;
+  assert.equal(
+    await status(call(`/api/drafts/${id}`, { method: "DELETE" })),
+    500
+  );
+  assert.deepEqual(await draftIds(call), [id]);
+  coder.status = 204;
+  assert.equal(
+    await status(call(`/api/drafts/${id}`, { method: "DELETE" })),
+    204
+  );
+  assert.deepEqual(await json(call("/api/drafts")), { drafts: [] });
+  const { objects } = await env.FILES.list({ prefix: "drafts/" });
+  assert.deepEqual(objects, []);
+});
+
+test("delete: DELETE /api/drafts takes every Draft of the caller and none of anyone else's", async (t) => {
+  const context = await setup(t);
+  const { call, forwarded } = context;
+  const mine = [await withRevision(context), await withRevision(context)];
+  const { id: theirs } = await json(
+    call("/api/drafts", {
+      body: { text: "A dog game" },
+      method: "POST",
+      user: "user_other",
+    })
+  );
+  assert.equal(
+    await status(call("/api/drafts", { method: "DELETE", user: "" })),
+    401
+  );
+  forwarded.length = 0;
+  assert.equal(await status(call("/api/drafts", { method: "DELETE" })), 204);
+  assert.deepEqual(
+    forwarded.map((f) => `${f.action} ${f.draft}`).toSorted(),
+    mine.flatMap((id) => [`delete ${id}`, `DELETE /box ${id}`]).toSorted()
+  );
+  assert.deepEqual(await json(call("/api/drafts")), { drafts: [] });
+  assert.deepEqual(await draftIds(call, "user_other"), [theirs]);
+  const { objects } = await context.env.FILES.list({ prefix: "drafts/" });
+  assert.deepEqual(objects, []);
+  // Nothing left: still a 204.
+  assert.equal(await status(call("/api/drafts", { method: "DELETE" })), 204);
 });

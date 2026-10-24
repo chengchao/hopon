@@ -49,16 +49,23 @@ apps/worker/   Cloudflare Worker API（D1 + Drizzle、Workers AI、Clerk JWT 校
 
    `pnpm run api` 不启动容器。要本地跑 Coder，先打开 Docker Desktop，再运行 `pnpm -F worker dev:coder`（首次会构建镜像），然后在另一个终端用 `pnpm -F worker smoke:coder` 给一个新 Draft 发一个真实的构建任务（加 `--music` 带音乐）：它会逐条打印事件，最后删掉这个 Draft 的 box。用的是真实模型和 E2B，一次大约一分钟。
 
+8. Draft 的试玩链接（`GET /api/drafts/:id/preview`）用 `PREVIEW_SECRET` 签名（HMAC-SHA256，一小时有效），同样列在 `secrets.required` 里。本地随便生成一个写入 `apps/worker/.dev.vars`；缺少时签发和打开试玩链接都会失败。Draft 的文件放在 R2 的 `FILES` 绑定（bucket `hopon`），本地由 wrangler 模拟：
+
+   ```sh
+   echo "PREVIEW_SECRET=$(openssl rand -base64 32)" >> apps/worker/.dev.vars
+   ```
+
 ## 本地运行
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm run db:local
+pnpm -F worker games-to-r2   # 原创游戏的文件写入本地 R2，只需一次
 pnpm run api:offline   # 终端 1：本地 API，不连接 Workers AI
 pnpm run ios           # 终端 2：Expo Go + iOS 模拟器（或 pnpm run android）
 ```
 
-离线模式可以浏览和试玩两个原创游戏、登录、检查布局；生成会提示需要连接 Workers AI，评论不经 Screening 直接发出。要真实生成，先 `pnpm -F worker exec wrangler login`，再用 `pnpm run api` 代替 `api:offline`。D1 仍是本地 SQLite；只有 AI 推理访问 Cloudflare，会消耗该账号 Workers AI 额度。模型配置在 `apps/worker/wrangler.jsonc` 的 `AI_MODEL`，当前为 `@cf/moonshotai/kimi-k2.5`（`thinking: false`，最多 6000 tokens），输出经 JSON 与完整 HTML 校验后保存为私有草稿。想法句子和评论先经 Llama Guard 3（`@cf/meta/llama-guard-3-8b`）Screening，3 秒内没有结论就拒绝。
+离线模式可以浏览和试玩原创游戏、登录、检查布局；发给 Maker 的消息和评论不经 Screening 直接发出。要真实 Screening，先 `pnpm -F worker exec wrangler login`，再用 `pnpm run api` 代替 `api:offline`。D1 和 R2 仍在本地；只有 AI 推理访问 Cloudflare，会消耗该账号 Workers AI 额度。发给 Maker 的消息、评论和发布时的标题与描述先经 Llama Guard 3（`@cf/meta/llama-guard-3-8b`）Screening，3 秒内没有结论就拒绝。
 
 ## 数据库（Drizzle）
 
@@ -73,17 +80,24 @@ pnpm run db:local
 
 ## 部署
 
-已配置用户选择的 Chengchao60827@gmail.com 账号及专用 hopon D1 数据库（迁移到其他账号时才需要 `wrangler d1 create hopon`，并同时更新 `apps/worker/wrangler.jsonc` 的 `account_id` 和 `apps/worker/package.json` 里 `db:remote`、`deploy` 的 `CLOUDFLARE_ACCOUNT_ID`）。
+已配置用户选择的 Chengchao60827@gmail.com 账号及专用 hopon D1 数据库（迁移到其他账号时才需要 `wrangler d1 create hopon`，并同时更新 `apps/worker/wrangler.jsonc` 的 `account_id` 和 `apps/worker/package.json` 里 `db:remote`、`deploy`、`deploy:staging` 的 `CLOUDFLARE_ACCOUNT_ID`）。
+
+部署由 Cloudflare 的 Workers Builds（Worker 设置里的 Git 集成）完成，GitHub 上没有部署 workflow，也没有 Cloudflare 令牌：
+
+- **Staging**：`hopon-staging` Worker（`wrangler.jsonc` 的 `env.staging`，有自己的 D1 `hopon-staging`、R2 `hopon-staging`、Durable Objects、容器和 E2B 模板 `hopon-maker-staging`）。每次推送到 `main` 运行 `pnpm run deploy:staging`。
+- **生产**：`hopon` Worker，推送到 `production` 分支时运行 `pnpm run deploy`。上线就是把 `main` 推过去：`git push origin origin/main:production`。
+
+两个命令都按同一顺序：先重建 E2B 模板（`pnpm -F maker template`；E2B 缓存每一步，只有文件变了的步骤会重做），再应用 D1 迁移（生产先把已发布游戏的 HTML 复制到 R2，见下），最后 `wrangler deploy` 一次发布 Worker、Talker 和 Coder 的容器镜像。只有已连接 Worker 的生产分支会构建并推送容器镜像，所以 staging 是独立的 Worker 而不是预览版本。容器的 `rollout_active_grace_period` 是 300 秒，部署会等正在运行的构建结束。Workers Builds 不等 GitHub 检查，所以 `main` 受分支保护：PR 须通过 Check 和 Commit messages 才能合并。`test/staging.test.js` 检查 `env.staging` 与顶层的绑定、变量、密钥和容器一致（wrangler env 不继承这些）。
+
+首次配置（staging 的 D1 和 R2、两个 Worker 的全部运行时密钥 `CLERK_JWT_KEY`、`CLERK_SECRET_KEY`、`OPERATOR_PASSWORD`、`OPERATOR_WEBHOOK_URL`、`CLOUDFLARE_API_KEY`、`E2B_API_KEY`、`PREVIEW_SECRET`，构建密钥 `E2B_API_KEY`，在面板里连接两个 Worker，`production` 分支，`main` 的分支保护，第一次上线）运行向导，可中断后用 `FROM=<n>` 从某一步重跑。staging 用 Clerk 的 Development 实例，生产用 Production 实例：
 
 ```sh
-pnpm -F worker exec wrangler secret put CLERK_JWT_KEY < clerk-public-key.pem
-pnpm -F worker exec wrangler secret put CLERK_SECRET_KEY   # 生产实例的 sk_live_...
-pnpm -F worker exec wrangler secret put OPERATOR_WEBHOOK_URL
-pnpm -F worker exec wrangler secret put OPERATOR_PASSWORD
-pnpm run deploy
+scripts/deploy-setup.sh
 ```
 
-`deploy` 先应用远程迁移（`db:remote`，需确认）再部署 Worker：新代码可能写入新列，而迁移只追加，正在运行的旧 Worker 不受影响。
+迁移只追加，新代码可能写入新列，正在运行的旧 Worker 不受影响。例外是 `*_games_are_files.sql`（#145）：它删除 `games.html` 和未发布的行，不可逆。所以生产的 `pnpm run deploy` 在应用迁移前先运行 `games-to-r2 --remote`，把每个已发布游戏的 HTML 写入 R2 `games/<id>/index.html`（构建日志应为 `Remote: copied N games`）；迁移应用后它什么也不做（`Remote: D1 is past the migration`）。staging 的 D1 是新建的，原创游戏在 R2 里没有文件，信息流里打不开。
+
+从本机部署仍可用 `pnpm run deploy`（需要 Docker 构建容器镜像，以及 `apps/maker/.env` 里的 `E2B_API_KEY` 构建模板），但会绕过 `main` 的检查，只在 Workers Builds 不可用时使用。
 
 远程命令报 `[code: 7403]` 时先重跑一次：wrangler 的 OAuth 令牌过期后，刷新令牌的那一次请求会失败。仍然失败就运行 `pnpm -F worker exec wrangler whoami`，Token Permissions 里没有 `d1` 和 `workers` 时，令牌权限不足，用 `pnpm -F worker exec wrangler login` 重新登录。
 
@@ -110,10 +124,10 @@ Worker 测试在 wrangler 提供的真实本地 D1（workerd）上运行迁移�
 ## 实现边界
 
 - 浏览和试玩无需登录；创建和发布需要 Clerk 邮箱验证码登录（新邮箱自动注册）。身份是 Clerk 用户 ID（JWT `sub`），存入 `games.owner`。Bearer token 不会被自动携带，因此无需 CSRF 检查。Clerk token 约 60 秒过期，应用每次请求都取新 token。
-- 草稿仅拥有者可预览（WebView 首次加载携带 Bearer 头）。服务器保留最新未发布草稿（`/api/drafts/latest`），应用被杀后重开创建页可恢复；不做草稿列表。创建页可退出登录和删除账户；删除账户后已发布游戏仍保留。
-- 游戏在 WebView 中运行。原生 WebView 没有 iframe 的 `sandbox` 属性，隔离依赖响应 CSP（`sandbox allow-scripts`，禁止网络、表单、嵌套框架和同源权限；脚本和媒体只能内联或来自本站，例如游戏运行时 `/runtime/v1.js`），并禁止导航、新窗口和文件访问。沙箱的不透明源没有存储；WebView 不用 incognito，以便缓存运行时。消息只从应用发往游戏（暂停、继续、静音），游戏无法向应用发消息。沙箱不是 CPU 配额，错误的游戏代码仍可能卡住 WebView。
-- 游戏运行时是 LittleJS 加 hopon 脚手架（`apps/maker/image/scaffold.js`），由 `pnpm -F maker build:runtime` 构建，同一份字节供 Coder 的试玩和 Worker 使用；`apps/worker/src/runtime/v1.json` 已提交，过期时测试失败。v1 缓存为 immutable：上线后在 `apps/maker/src/runtime.ts` 设置 `V1_SHA256` 冻结它，之后的改动作为 v2 发布。
-- 每个 Clerk 账户每个 UTC 日最多 10 次生成尝试，失败也计数；批量注册可绕过，依赖 Clerk 的注册防护。
+- Draft 仅拥有者可通过签名试玩链接预览（第 8 步）。发布（`POST /api/drafts/:id/publish`，有 Revision 且没有进行中的回合时）把当前 Revision 的全部文件原样复制到 R2 `games/<id>/`，`games` 行记下 Draft 的 id（`draft_id`）和运行时版本，然后删除该 Draft。已发布游戏公开于 `/games/<id>/<file>`（游戏 CSP），信息流加载 `/games/<id>/index.html`；删除或 Ban 游戏时一并删除其文件。删除账户后已发布游戏仍保留。
+- 游戏在 WebView 中运行。原生 WebView 没有 iframe 的 `sandbox` 属性，隔离依赖响应 CSP（`sandbox allow-scripts`，禁止网络、表单、嵌套框架和同源权限；脚本和媒体只能内联或来自本站，例如游戏运行时 `/runtime/v2.js`），并禁止导航、新窗口和文件访问。沙箱的不透明源没有存储；WebView 不用 incognito，以便缓存运行时。消息只从应用发往游戏（暂停、继续、静音），游戏无法向应用发消息。沙箱不是 CPU 配额，错误的游戏代码仍可能卡住 WebView。
+- 游戏运行时是 LittleJS 加 hopon 脚手架（`apps/maker/image/scaffold.js`），由 `pnpm -F maker build:runtime` 构建，同一份字节供 Coder 的试玩和 Worker 使用；`apps/worker/src/runtime/v2.json` 已提交，过期时测试失败。v2 缓存为 immutable：上线后在 `apps/maker/src/runtime.ts` 设置 `V2_SHA256` 冻结它，之后的改动作为 v3 发布。纯 DOM 游戏的脚手架 `apps/maker/image/dom.js` 同样原样复制到 `apps/worker/src/runtime/dom-v1.json`，以 `/dom/v1.js` 提供（`DOM_V1_SHA256` 冻结）。
+- 每个 Clerk 账户每个 UTC 日最多 10 次 Maker 构建，失败也计数；批量注册可绕过，依赖 Clerk 的注册防护。
 - 评论：任何人可读；发表需登录并有 @handle，只能评论已发布游戏，1–300 字纯文本，每个账户每个 UTC 日最多 100 条。评论者本人或游戏创作者可删除（硬删除）。删除账户后评论保留，显示发表时的 handle。
 - 收藏（Save）：仅本人可见，不显示收藏数；需要登录（未登录不在设备上暂存），只能收藏已发布游戏。收藏列表按收藏时间倒序分页；从列表点开进入收藏流，从所点游戏开始向更早的收藏滑动。删除账户后收藏保留。
 - 公开游戏按 ID 倒序游标分页。游戏区域只处理游戏输入；名称与描述区域负责上下滑动（每次最多一款，松开吸附），读屏用户可用调节手势切换；开启“减少动态效果”时不播放滚动动画。当前及相邻游戏预加载（最多三个 WebView），更远的卸载，因此回来时游戏可能重置。滑走的游戏暂停，回来时继续；名称区域的静音按钮作用于整个信息流。

@@ -20,6 +20,8 @@ import { drizzle } from "drizzle-orm/d1";
 import { Context, Data, Effect, Layer, ManagedRuntime } from "effect";
 
 import { drafts, now } from "./schema.ts";
+import { killBox } from "./storage.ts";
+import { buildTool } from "./talker-build.ts";
 import { TALKER_PROMPT } from "./talker-prompt.ts";
 
 // pi's Anthropic client posts to this host, and its `fetch` hands each request to modelFetch in-process, which adds
@@ -125,6 +127,11 @@ export class Talker extends Agent<Env> {
         sections: [
           { key: "preamble", render: () => TALKER_PROMPT, tag: false },
         ],
+        tools: [
+          buildTool(this.env, this.name, this.ctx.storage, () => {
+            this.runtime.runFork(Pi.use((pi) => pi.abort));
+          }),
+        ],
       });
       // Retention 0: pi drops an idle conversation at once, so the object hibernates between turns (#128).
       return Harness.open(
@@ -208,9 +215,34 @@ export class Talker extends Agent<Env> {
             .update(drafts)
             .set({ updatedAt: now })
             .where(eq(drafts.id, this.name));
+          // oxlint-disable-next-line no-await-in-loop -- one run ends per batch at most.
+          await this.idle();
         }
       }
     });
+  }
+
+  // The box is killed once the Draft has had no turn for MAKER_BOX_IDLE_S (a day, #144); the next build restores it from
+  // the job's source files. Each turn's end puts the alarm off again.
+  async idle() {
+    for (const schedule of await this.listSchedules({ type: "delayed" })) {
+      if (schedule.callback === "killBox") {
+        // oxlint-disable-next-line no-await-in-loop -- there is one at most.
+        await this.cancelSchedule(schedule.id);
+      }
+    }
+    await this.schedule(Number(this.env.MAKER_BOX_IDLE_S), "killBox");
+  }
+
+  async killBox() {
+    // A turn that started just before the alarm puts it off again when it ends.
+    if (this.ticker) {
+      return;
+    }
+    // talker-check looks for this line: under plain `wrangler dev` there is no container to answer.
+    console.log(`Talker ${this.name}: idle, DELETE /box`);
+    // Thrown, the schedule retries it.
+    await killBox(this.env, this.name);
   }
 
   // From a run's start to its end (watch), every socket hears something at least every 15 s, and dead ones are closed.
@@ -295,6 +327,21 @@ export class Talker extends Agent<Env> {
         }
         if (action === "stop") {
           yield* pi.abort;
+          return new Response(null, { status: 204 });
+        }
+        // Publish (#145) waits for a turn to end: one running, or a message queued for the next.
+        if (action === "busy") {
+          const stream = yield* pi.events;
+          yield* Effect.promise(() => stream.stop());
+          const { snapshot } = stream;
+          return Response.json({
+            busy: !!snapshot.run || snapshot.inbox.length > 0,
+          });
+        }
+        // Delete (#144): the transcript, the schedules and the rest of the storage go, and the reset closes the
+        // sockets. The Worker kills the box and deletes the files and the row.
+        if (action === "delete") {
+          yield* Effect.promise(() => this.destroy());
           return new Response(null, { status: 204 });
         }
         if (action === "ticket") {

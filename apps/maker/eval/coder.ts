@@ -11,8 +11,9 @@ import path from "node:path";
 
 import type { Sandbox } from "e2b";
 
+import { isLittlejsHtml, MUSIC } from "../image/page.ts";
 import { createBox, EVAL_TEMPLATE, WORKSPACE } from "../src/box.ts";
-import { boxPlaytest, MUSIC, runJob } from "../src/coder.ts";
+import { boxPlaytest, runJob } from "../src/coder.ts";
 import type { Spec, Thinking } from "../src/coder.ts";
 import { resolve } from "../src/models.ts";
 import { judgeCoder } from "./judge.ts";
@@ -57,7 +58,7 @@ export const SMOKE_JOBS = SPECS.builds
   .filter((build) => build.spike)
   .map((build) => build.id);
 
-// The source files a job carries (#122): never game.js or music.opus, and not the owner's preview.html.
+// The source files a job carries (#122): never game.js or music.js, and not the owner's preview.html.
 const SOURCE_FILES = new Set(["game.ts", "index.html", "music.mjs"]);
 export const readRevision = (base: string) => {
   const dir = path.join(REVISIONS, base);
@@ -78,15 +79,17 @@ const inline = (text: string) =>
   text.replaceAll("</script", String.raw`<\/script`);
 export const previewHtml = (files: Record<string, string>) => {
   const game = `<script>${inline(files["game.js"] ?? "")}</script>`;
-  if (files["index.html"]) {
-    return files["index.html"]
+  const page = files["index.html"];
+  if (page && !isLittlejsHtml(page)) {
+    return page
       .replace(
-        /<script src="\/dom\.js"><\/script>/u,
+        /<script src="\/dom\/v1\.js"><\/script>/u,
         () => `<script>${inline(readFileSync(DOM_RUNTIME, "utf-8"))}</script>`
       )
       .replace(/<script src="game\.js"><\/script>/u, () => game);
   }
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:#000;overflow:hidden;touch-action:none}</style></head><body><script>${inline(readFileSync(RUNTIME, "utf-8"))}</script>${game}</body></html>`;
+  const music = files[MUSIC] ? `<script>${files[MUSIC]}</script>` : "";
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:#000;overflow:hidden;touch-action:none}</style></head><body><script>${inline(readFileSync(RUNTIME, "utf-8"))}</script>${music}${game}</body></html>`;
 };
 
 const readBytes = async (sandbox: Sandbox, file: string) => {
@@ -116,15 +119,14 @@ const saveArtifacts = async (
   for (const [file, text] of Object.entries(files)) {
     writeFileSync(path.join(dir, file), text);
   }
-  const [start, end, opus] = await Promise.all(
-    ["playtest-start.png", "playtest-end.png", "music.opus"].map((file) =>
+  const [start, end] = await Promise.all(
+    ["playtest-start.png", "playtest-end.png"].map((file) =>
       readBytes(sandbox, file)
     )
   );
   for (const [file, bytes] of [
     ["start.png", start],
     ["end.png", end],
-    ["music.opus", opus],
   ] as const) {
     if (bytes) {
       writeFileSync(path.join(dir, file), bytes);
@@ -202,10 +204,12 @@ export const runCoder = async ({
       ? await finalChecks(sandbox, result.lastInputs)
       : undefined;
     const finalGreen = final?.replay.ok === true && final.random.ok;
-    // saveArtifacts keeps music.opus as bytes; the judge reads text.
-    const { [MUSIC]: _opus, ...changed } = result.files;
-    const files = { ...source, ...changed };
-    const { start, end } = await saveArtifacts(sandbox, dir, files);
+    // The judge reads the game, not music.js's base64.
+    const { [MUSIC]: _music, ...files } = { ...source, ...result.files };
+    const { start, end } = await saveArtifacts(sandbox, dir, {
+      ...source,
+      ...result.files,
+    });
 
     // Only a game that could become a Revision is judged; a red one fails anyway.
     const scores =

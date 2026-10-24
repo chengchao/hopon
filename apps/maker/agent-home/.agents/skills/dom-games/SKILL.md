@@ -9,7 +9,7 @@ A plain-DOM game is two files in the workspace:
 
 - `index.html`: the whole page: markup and a `<style>`. It must load the scaffold and the game, in this order, at the end of `<body>`:
   ```html
-  <script src="/dom.js"></script>
+  <script src="/dom/v1.js"></script>
   <script src="game.js"></script>
   ```
   The playtest emits `game.js` from `game.ts`. No other scripts, no inline `<script>`, no `onclick=` attributes: the page's CSP allows only scripts from its own origin.
@@ -60,7 +60,7 @@ The game should look finished, not like a form. Spend about a third of `index.ht
 }
 ```
 
-## The hopon scaffold (`/dom.js`)
+## The hopon scaffold (`/dom/v1.js`)
 
 ```ts
 hopon.addScore(1); // add points while playing
@@ -138,7 +138,7 @@ Call `hopon.gameOver` when the game ends and `hopon.restart` on "Play again". Th
     <div id="score">Score 0</div>
     <div id="question"></div>
     <div id="answers"></div>
-    <script src="/dom.js"></script>
+    <script src="/dom/v1.js"></script>
     <script src="game.js"></script>
   </body>
 </html>

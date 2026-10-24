@@ -5,7 +5,7 @@ import { COLORS } from "@/lib/theme";
 
 // Generated games are untrusted code. The server's CSP (`sandbox allow-scripts`, no network) does the isolating, and
 // its opaque origin gets no storage; these props keep the WebView from navigating away, opening windows or talking to
-// the app (no onMessage). Not incognito, so the runtime (/runtime/v1.js) stays cached between games.
+// the app (no onMessage). Not incognito, so the runtime (/runtime/v2.js) stays cached between games.
 // The app talks to the game, one way: the runtime pauses while `active` is false and goes silent while `muted`.
 export const GameView = ({
   uri,
@@ -13,12 +13,15 @@ export const GameView = ({
   token,
   active = true,
   muted = false,
+  onCrash,
 }: {
   uri: string;
   title: string;
   token?: string;
   active?: boolean;
   muted?: boolean;
+  // WebKit killed the game's content process; the WebView stays blank until reloaded.
+  onCrash?: () => void;
 }) => {
   const view = useRef<WebView>(null);
   const sync = () => {
@@ -39,6 +42,7 @@ export const GameView = ({
       accessibilityLabel={`Play: ${title}`}
       onShouldStartLoadWithRequest={(request) => request.url === uri}
       onLoadEnd={sync}
+      onContentProcessDidTerminate={onCrash}
       setSupportMultipleWindows={false}
       allowFileAccess={false}
       allowsInlineMediaPlayback

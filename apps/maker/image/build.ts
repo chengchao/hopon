@@ -1,6 +1,7 @@
 // pnpm -F maker template [eval]: builds the E2B template the Coder's box runs (node, a warm Chromium, ffmpeg,
-// typescript, /opt/hopon/*), per #113 and #115: the production one, or with `eval` the eval's, so a sweep never
-// changes what the Container's boxes run.
+// typescript, /opt/hopon/*), per #113 and #115: the production one (or staging's, named by MAKER_E2B_TEMPLATE), or
+// with `eval` the eval's, so a sweep never changes what the Container's boxes run. Every deploy runs it first; E2B
+// caches each step, so only the steps whose files changed rebuild.
 import { defaultBuildLogger, Template, waitForPort } from "e2b";
 
 import { E2B_TEMPLATE, EVAL_TEMPLATE } from "../src/box.ts";
@@ -25,6 +26,7 @@ const template = Template({ fileContextPath: import.meta.dirname })
       "dom.js",
       "helpers.js",
       "littlejs.d.ts",
+      "page.ts",
       "playtest.js",
       "runtime.js",
     ],

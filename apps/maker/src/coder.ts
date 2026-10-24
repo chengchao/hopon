@@ -24,6 +24,7 @@ import type {
 import type { Sandbox } from "e2b";
 import { Schema } from "effect";
 
+import { isLittlejsHtml, littlejsHtml, MUSIC } from "../image/page.ts";
 import { run, WORKSPACE } from "./box.ts";
 import { apiKey } from "./models.ts";
 import { createE2BTools } from "./ops.ts";
@@ -51,7 +52,7 @@ export const JobSchema = Schema.Struct({
   draftId: Schema.String,
   // 0 for a new game
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  // game.ts, index.html (plain DOM), music.mjs; never game.js or music.opus
+  // game.ts, index.html, music.mjs; never game.js or music.js
   source: Schema.Record(Schema.String, Schema.String),
   spec: Schema.Struct({
     brief: Schema.String,
@@ -121,9 +122,13 @@ const readText = async (sandbox: Sandbox, file: string) => {
   }
 };
 
-// What the Creator would get: the files a Revision holds (#117). music.opus is the harness's, from music.wav.
+// What the Creator would get: the files a Revision holds (#117), besides music.js.
 const REVISION_FILES = ["index.html", "game.ts", "game.js", "music.mjs"];
-export const MUSIC = "music.opus";
+
+// music.js: the harness's, from music.wav. GAME_CSP has connect-src 'none', so the Opus loop comes in as a script, in
+// base64, for the runtime to decode in Web Audio (#146).
+export const musicScript = (opus: Uint8Array) =>
+  `hopon.music = "${Buffer.from(opus).toString("base64")}";\n`;
 
 const renderMusic = async (sandbox: Sandbox) => {
   const result = await run(
@@ -254,40 +259,54 @@ const totalUsage = (assistant: AssistantMessage[]) => {
   return usage;
 };
 
-// The Revision's changed and deleted files, against the source the job sent, plus music.opus when the job rendered it.
+// The Revision's changed and deleted files, against the source the job sent. The harness adds its own two: a LittleJS
+// game's index.html, and music.js when the job rendered music. A Revision has music.js when this job rendered it or
+// the last one did and music.mjs is still there; index.html loads it exactly then.
 const diffRevision = async (
   sandbox: Sandbox,
   source: Job["source"],
-  music: boolean
+  rendered: boolean
 ) => {
   const texts = await Promise.all(
     REVISION_FILES.map((file) => readText(sandbox, file))
   );
+  const box = Object.fromEntries(
+    REVISION_FILES.map((file, index) => [file, texts[index] ?? null])
+  );
+  const music =
+    rendered || (box["music.mjs"] !== null && "music.mjs" in source);
+  // Only a plain-DOM game has index.html in the box: restore keeps the harness's page out.
+  if (box["index.html"] === null && box["game.ts"] !== null) {
+    box["index.html"] = littlejsHtml(music);
+  }
   const files: Record<string, string> = {};
   const deleted: string[] = [];
-  for (const [index, file] of REVISION_FILES.entries()) {
-    const text = texts[index];
+  for (const [file, text] of Object.entries(box)) {
     if (text === null && file in source) {
       deleted.push(file);
     } else if (text !== null && text !== source[file]) {
       files[file] = text;
     }
   }
-  if (music) {
-    files[MUSIC] = Buffer.from(
-      await sandbox.files.read(`${WORKSPACE}/${MUSIC}`, { format: "bytes" })
-    ).toString("base64");
+  if (rendered) {
+    files[MUSIC] = musicScript(
+      await sandbox.files.read(`${WORKSPACE}/music.opus`, { format: "bytes" })
+    );
+  } else if (!music && "music.mjs" in source) {
+    deleted.push(MUSIC);
   }
   return { deleted, files };
 };
 
-// The workspace holds exactly the job's source: a box left dirty by a failed or stopped job starts from Revision n.
+// The workspace holds exactly the job's source, but for a LittleJS game's index.html: the harness's, not the Coder's,
+// and in the box it would make the game look like plain DOM. A box left dirty by a failed or stopped job starts from
+// Revision n.
 const restore = async (sandbox: Sandbox, source: Job["source"]) => {
   await run(sandbox, `find ${WORKSPACE} -mindepth 1 -delete`);
   await Promise.all(
-    Object.entries(source).map(([file, text]) =>
-      sandbox.files.write(`${WORKSPACE}/${file}`, text)
-    )
+    Object.entries(source)
+      .filter(([file, text]) => file !== "index.html" || !isLittlejsHtml(text))
+      .map(([file, text]) => sandbox.files.write(`${WORKSPACE}/${file}`, text))
   );
 };
 
@@ -409,7 +428,11 @@ export const runJob = async ({
   if (signal?.aborted) {
     cancel();
   }
+  // A job stopped before its prompt (cancelled while the box opened) never prompts.
   const prompted = async () => {
+    if (halted.signal.aborted) {
+      return;
+    }
     try {
       await session.prompt(prompt(job));
     } catch (error) {
@@ -417,7 +440,9 @@ export const runJob = async ({
     }
   };
   const settled = async () => {
-    await once(halted.signal, "abort");
+    if (!halted.signal.aborted) {
+      await once(halted.signal, "abort");
+    }
     await sleep(SETTLE_MS, undefined, { ref: false });
   };
   await Promise.race([prompted(), settled()]);

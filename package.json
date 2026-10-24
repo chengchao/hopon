@@ -12,6 +12,7 @@
     "db:local": "pnpm -F worker db:local",
     "db:remote": "pnpm -F worker db:remote",
     "deploy": "pnpm -F worker deploy",
+    "deploy:staging": "pnpm -F worker deploy:staging",
     "test": "pnpm -r test",
     "check": "oxlint apps packages *.ts *.js && oxfmt --check && pnpm -r typecheck && pnpm -r test",
     "lint": "oxlint apps packages *.ts *.js",

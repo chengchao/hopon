@@ -1,18 +1,41 @@
 import { useAuth, useUser } from "@clerk/expo";
-import { newGame, PROMPT_MAX } from "@hopon/schemas";
-import type { GameSummary } from "@hopon/schemas";
+import { newMessage, PROMPT_MAX } from "@hopon/schemas";
+import type { DraftSummary } from "@hopon/schemas";
 import { Redirect, router } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ScrollView, View } from "react-native";
+import {
+  ArrowUp,
+  ChevronDown,
+  List,
+  Play as PlayIcon,
+  Square,
+} from "lucide-react-native";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Keyboard,
+  KeyboardAvoidingView,
+  Pressable,
+  ScrollView,
+  View,
+} from "react-native";
+import type { TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { feedGameHeight } from "@/components/feed";
-import { GameView } from "@/components/game-view";
-import { Ticket } from "@/components/ticket";
+import { AiSheet } from "@/components/ai-sheet";
+import { DraftList } from "@/components/draft-list";
+import { Play } from "@/components/play";
+import { PublishSheet } from "@/components/publish-sheet";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Textarea } from "@/components/ui/textarea";
-import { api, gameUrl, HANDLE_REJECTED, handleRejected } from "@/lib/api";
+import { api } from "@/lib/api";
+import { draftTitle } from "@/lib/draft-list";
+import { chatView, makerChat, NEW_CHAT, publishable } from "@/lib/maker-chat";
+import type { Frame, Row } from "@/lib/maker-chat";
+import { useMakerSocket } from "@/lib/maker-socket";
+import type { Link } from "@/lib/maker-socket";
+import { agreedToAi } from "@/lib/rules";
+import { COLORS } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 const examples = [
@@ -33,63 +56,260 @@ const examples = [
   },
 ];
 
-// Until Discover has laid out a game (it's empty, or Make opened first): the smallest viewport games are built for.
-const MIN_GAME_HEIGHT = 540;
+// The counter shows only this close to PROMPT_MAX.
+const COUNTER_FROM = PROMPT_MAX - 200;
+
+// A build's game card (#148): the latest opens Play, older ones are a plain line, since their Revisions are gone.
+const Card = ({ row, onPlay }: { row: Row; onPlay: () => void }) =>
+  row.play ? (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPlay}
+      className="flex-row items-center gap-3 self-start rounded-2xl bg-primary px-4 py-3 active:opacity-80"
+    >
+      <PlayIcon color={COLORS.ink} fill={COLORS.ink} size={16} />
+      <Text className="font-strong text-base text-primary-foreground">
+        {row.text}
+      </Text>
+    </Pressable>
+  ) : (
+    <Text className="self-start text-sm text-muted-foreground">{row.text}</Text>
+  );
+
+const Bubble = ({
+  row,
+  onRetry,
+  onPlay,
+}: {
+  row: Row;
+  onRetry: (text: string) => void;
+  onPlay: () => void;
+}) => {
+  if (row.who === "card") {
+    return <Card row={row} onPlay={onPlay} />;
+  }
+  if (row.who === "status") {
+    return (
+      <View className="flex-row items-center gap-2 self-start">
+        <ActivityIndicator size="small" color={COLORS.paper} />
+        <Text className="text-sm text-muted-foreground">{row.text}</Text>
+      </View>
+    );
+  }
+  if (row.who === "app") {
+    return (
+      <View className="items-center gap-2 py-1">
+        <Text
+          accessibilityRole="alert"
+          className="text-center text-sm text-muted-foreground"
+        >
+          {row.text}
+        </Text>
+        {row.retry !== undefined && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="rounded-full bg-transparent"
+            onPress={() => onRetry(row.retry ?? "")}
+          >
+            <Text>Try again</Text>
+          </Button>
+        )}
+      </View>
+    );
+  }
+  if (row.who === "maker") {
+    return (
+      <View className="max-w-[85%] gap-1 self-start">
+        <Text className="font-strong text-xs text-muted-foreground">Maker</Text>
+        <View className="rounded-2xl rounded-tl-sm bg-card px-4 py-3">
+          <Text className="text-base leading-[22px]">{row.text}</Text>
+        </View>
+      </View>
+    );
+  }
+  return (
+    <View
+      className={cn("max-w-[85%] gap-1 self-end", row.queued && "opacity-50")}
+    >
+      <View className="rounded-2xl rounded-tr-sm bg-primary px-4 py-3">
+        <Text className="text-base leading-[22px] text-primary-foreground">
+          {row.text}
+        </Text>
+      </View>
+      {row.queued && (
+        <Text className="self-end text-xs text-muted-foreground">Queued</Text>
+      )}
+    </View>
+  );
+};
+
+const Header = ({
+  draft,
+  onDrafts,
+  canPlay,
+  onPlay,
+  canPublish,
+  onPublish,
+}: {
+  draft: DraftSummary | null | undefined;
+  // Unset while the chat can't switch yet.
+  onDrafts?: () => void;
+  // Once there is a game.
+  canPlay: boolean;
+  onPlay: () => void;
+  // Once there is a Revision and no turn is running.
+  canPublish: boolean;
+  onPublish: () => void;
+}) => (
+  <View className="flex-row items-center gap-1 px-2 pb-2 pt-3">
+    <Button
+      size="icon"
+      variant="ghost"
+      accessibilityLabel="Close"
+      onPress={() => router.back()}
+    >
+      <ChevronDown color={COLORS.paper} size={24} />
+    </Button>
+    <Button
+      size="icon"
+      variant="ghost"
+      accessibilityLabel="Drafts"
+      disabled={!onDrafts}
+      onPress={onDrafts}
+    >
+      <List color={COLORS.paper} size={22} />
+    </Button>
+    <Text
+      accessibilityRole="header"
+      numberOfLines={1}
+      className="flex-1 text-center font-strong text-base"
+    >
+      {draftTitle(draft)}
+    </Text>
+    <Button size="sm" variant="ghost" disabled={!canPlay} onPress={onPlay}>
+      <Text>Play</Text>
+    </Button>
+    <Button
+      size="sm"
+      className="rounded-full"
+      disabled={!canPublish}
+      onPress={onPublish}
+    >
+      <Text>Publish</Text>
+    </Button>
+  </View>
+);
+
+// The Draft, once it has a Revision to play: the Talker titled it, or this chat shows its card.
+const withGame = (draft: DraftSummary | null | undefined, rows: Row[]) =>
+  draft && (draft.title !== null || rows.some((row) => row.play))
+    ? draft
+    : undefined;
+
+// A thin bar under the header while the socket is down; the composer keeps working, since messages are POSTs.
+const LinkBar = ({ link, onRetry }: { link: Link; onRetry: () => void }) => {
+  if (link !== "reconnecting" && link !== "unreachable") {
+    return null;
+  }
+  return (
+    <View className="flex-row items-center justify-center gap-3 bg-card px-4 py-1">
+      <Text accessibilityRole="alert" className="text-xs text-muted-foreground">
+        {link === "reconnecting" ? "Reconnecting…" : "Can't reach the Maker"}
+      </Text>
+      {link === "unreachable" && (
+        <Button size="sm" variant="ghost" className="h-7" onPress={onRetry}>
+          <Text className="text-xs">Retry</Text>
+        </Button>
+      )}
+    </View>
+  );
+};
 
 const Create = () => {
   const insets = useSafeAreaInsets();
   const { isLoaded, isSignedIn, getToken } = useAuth();
   const { user } = useUser();
-  const [prompt, setPrompt] = useState("");
-  const [draft, setDraft] = useState<GameSummary | null>(null);
-  const [preview, setPreview] = useState<{ key: number; token?: string }>({
-    key: 0,
-  });
-  const [busy, setBusy] = useState(false);
-  const [publishing, setPublishing] = useState(false);
+  // A message held back until the Creator answers the AI sheet.
+  const [asking, setAsking] = useState<string>();
+  // undefined until the Draft list answers; null for a new chat, whose Draft is born on its first message.
+  const [draft, setDraft] = useState<DraftSummary | null>();
+  const [chat, dispatch] = useReducer(makerChat, NEW_CHAT);
+  const [text, setText] = useState("");
   const [error, setError] = useState("");
-  const [publishFailure, setPublishFailure] = useState("");
-  const restored = useRef(false);
+  const [listing, setListing] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  // Turns ended since this chat opened; Play mints a fresh preview URL on each.
+  const [turns, setTurns] = useState(0);
+  // The build's timer ticks once a second while it runs.
+  const [now, setNow] = useState(Date.now);
+  const keys = useRef(0);
+  const opened = useRef(false);
+  // The open Draft's id (null for a new chat), set with it, so a response after an await can check it's still open.
+  const openId = useRef<string | null>(null);
+  const select = (next: DraftSummary | null) => {
+    openId.current = next?.id ?? null;
+    setDraft(next);
+  };
   const scroll = useRef<ScrollView>(null);
-  // Set when a draft appears: the preview stays scrolled to the top of the sheet, through the layout shifts that follow, until the person scrolls.
-  const reveal = useRef(false);
-
-  // Clerk tokens live ~60s, so every request and every preview load gets a fresh one.
-  const showDraft = useCallback(
-    async (game: GameSummary | null) => {
-      setDraft(game);
-      setPublishFailure("");
-      if (game) {
-        reveal.current = true;
-        const token = (await getToken()) ?? undefined;
-        setPreview((p) => ({ key: p.key + 1, token }));
-      }
-    },
-    [getToken]
-  );
-
-  // The server keeps the newest unpublished draft, so it survives the app being killed mid-generation.
-  // Once per screen: Clerk's getToken isn't referentially stable, so the deps change on every render.
+  const composer = useRef<TextInput>(null);
+  const view = useMemo(() => chatView(chat, now), [chat, now]);
+  const building = chat.build !== undefined;
   useEffect(() => {
-    if (!isSignedIn || restored.current) {
+    if (!building) {
       return;
     }
-    restored.current = true;
-    const restore = async () => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [building]);
+
+  const fetchDrafts = async () => {
+    const list = await api<{ drafts: DraftSummary[] }>("/api/drafts", {
+      token: await getToken(),
+    });
+    return list.drafts;
+  };
+
+  // + opens the most recent Draft (#119). Once per screen: Clerk's getToken changes on every render.
+  useEffect(() => {
+    if (!isSignedIn || opened.current) {
+      return;
+    }
+    opened.current = true;
+    const open = async () => {
       try {
-        const latest = await api<{ draft: GameSummary | null }>(
-          "/api/drafts/latest",
-          {
-            token: await getToken(),
-          }
-        );
-        await showDraft(latest.draft);
-      } catch (restoreError) {
-        setError((restoreError as Error).message);
+        const drafts = await fetchDrafts();
+        select(drafts[0] ?? null);
+      } catch (openError) {
+        select(null);
+        setError((openError as Error).message);
       }
     };
-    restore();
-  }, [isSignedIn, getToken, showDraft]);
+    open();
+  });
+
+  const onFrame = async (frame: Frame) => {
+    dispatch({ at: Date.now(), frame, type: "frame" });
+    if (frame.type === "turn_done") {
+      setTurns((n) => n + 1);
+    }
+    // The Talker names the game at the end of a turn that builds it.
+    if (frame.type === "turn_done" && draft) {
+      const drafts = await fetchDrafts().catch(() => []);
+      const listed = drafts.find((d) => d.id === draft.id);
+      // Unless the Creator has opened another Draft meanwhile.
+      if (listed && openId.current === listed.id) {
+        setDraft(listed);
+      }
+    }
+  };
+  const { link, retry } = useMakerSocket({
+    draft: draft?.id,
+    getToken,
+    onFrame,
+    running: view.running,
+  });
 
   if (!isLoaded) {
     return (
@@ -102,229 +322,248 @@ const Create = () => {
     return <Redirect href="/sign-in?next=create" />;
   }
 
-  const generate = async () => {
-    if (busy) {
-      return;
-    }
-    // Making happens on the form, so its busy text and errors mustn't pull the sheet back down to the old draft.
-    reveal.current = false;
-    setBusy(true);
+  const post = async (message: string) => {
+    const key = `${keys.current}`;
+    keys.current += 1;
+    dispatch({ key, text: message, type: "send" });
+    setText("");
+    // Typed text with an autocorrect suggestion pending survives the state change alone.
+    composer.current?.clear();
     setError("");
+    const at = draft?.id ?? null;
     try {
-      await showDraft(
-        await api<GameSummary>("/api/games", {
-          body: { prompt },
-          token: await getToken(),
-        })
-      );
-    } catch (generateError) {
-      setError((generateError as Error).message);
-    }
-    setBusy(false);
-  };
-
-  const publish = async () => {
-    if (!draft || publishing) {
-      return;
-    }
-    // Published games show their maker, so ask for a handle first; this screen is still here afterwards.
-    if (!user?.username) {
-      return router.push("/handle");
-    }
-    setPublishing(true);
-    setPublishFailure("");
-    try {
-      await api(`/api/games/${draft.id}/publish`, {
-        method: "POST",
-        token: await getToken({ skipCache: true }),
-      });
-      router.dismissTo({
-        params: { published: String(draft.id) },
-        pathname: "/",
-      });
-    } catch (publishError) {
-      if (handleRejected(publishError)) {
-        router.push(HANDLE_REJECTED);
+      const token = await getToken();
+      if (draft) {
+        const { id } = await api<{ id: string }>(
+          `/api/drafts/${draft.id}/messages`,
+          { body: { text: message }, token }
+        );
+        dispatch({ key, op: id, type: "sent" });
       } else {
-        setPublishFailure((publishError as Error).message);
+        const created = await api<{ id: string; message: string }>(
+          "/api/drafts",
+          { body: { text: message }, token }
+        );
+        // The new chat may have been left for another Draft meanwhile; the Draft list has this one.
+        if (openId.current === at) {
+          select({
+            description: null,
+            id: created.id,
+            title: null,
+            updatedAt: "",
+          });
+        }
+        dispatch({ key, op: created.message, type: "sent" });
+      }
+    } catch (sendError) {
+      // A refused message isn't kept: it goes back to the composer, unless the Creator has typed since.
+      dispatch({ key, type: "unsent" });
+      // Not into another Draft's composer, if the Creator has switched meanwhile.
+      if (openId.current === at) {
+        setText((typed) => typed || message);
+        setError((sendError as Error).message);
       }
     }
-    setPublishing(false);
   };
 
-  const locked = busy || publishing;
-  const canMake = !locked && newGame.safeParse({ prompt }).success;
-  const makeLabel = draft ? "Make it again" : "Make the game";
+  // Another Draft, or a new chat (null), from the Draft list; its socket brings its chat.
+  const openDraft = (next: DraftSummary | null) => {
+    if (next?.id === draft?.id) {
+      return;
+    }
+    dispatch({ type: "reset" });
+    setPlaying(false);
+    select(next);
+    setText("");
+    setError("");
+  };
+
+  // Every Send, Try again included, asks first until the current AI_VERSION is agreed. Not now leaves the text where it
+  // was (the composer, or the Try again row), so nothing leaves the phone.
+  const send = (message: string) => {
+    if (agreedToAi(user)) {
+      post(message);
+    } else {
+      setAsking(message);
+    }
+  };
+  const agreed = (message: string) => {
+    setAsking(undefined);
+    post(message);
+  };
+
+  const stop = async () => {
+    if (!draft) {
+      return;
+    }
+    setError("");
+    try {
+      await api(`/api/drafts/${draft.id}/stop`, {
+        method: "POST",
+        token: await getToken(),
+      });
+    } catch (stopError) {
+      if (openId.current === draft.id) {
+        setError((stopError as Error).message);
+      }
+    }
+  };
+
+  const message = text.trim();
+  // Nothing sends until the Draft list has answered, and a new chat's second message waits for its Draft.
+  const ready = draft !== undefined && !(draft === null && chat.pending.length);
+  const canSend = ready && newMessage.safeParse({ text: message }).success;
+  const showStop = view.running && !message;
+  // A new chat with nothing in it yet: the welcome and the example ideas.
+  const blank = draft === null && view.rows.length === 0;
+  const game = withGame(draft, view.rows);
+  const play = () => {
+    Keyboard.dismiss();
+    setPlaying(true);
+  };
+  const canPublish = publishable(draft, view);
+  const publish = () => {
+    Keyboard.dismiss();
+    setConfirming(true);
+  };
+
   return (
-    <ScrollView
-      ref={scroll}
-      onScrollBeginDrag={() => {
-        reveal.current = false;
-      }}
-      className="flex-1 bg-background"
-      contentContainerClassName="gap-5 px-5"
-      contentContainerStyle={{
-        paddingBottom: insets.bottom + 24,
-        paddingTop: 20,
-      }}
-      keyboardShouldPersistTaps="handled"
-      automaticallyAdjustKeyboardInsets
-    >
-      <View className="flex-row items-start justify-between gap-4">
-        <Text
-          accessibilityRole="header"
-          className="flex-1 font-display text-[52px] leading-[52px]"
-        >
-          What should we play?
-        </Text>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="rounded-full"
-          onPress={() => router.back()}
-        >
-          <Text>Close</Text>
-        </Button>
-      </View>
-      <Text className="-mt-2 text-base leading-[22px] text-muted-foreground">
-        Describe the game, how it looks, and one twist. We build it in about a
-        minute.
-      </Text>
+    <KeyboardAvoidingView behavior="padding" className="flex-1 bg-background">
+      <Header
+        draft={draft}
+        // Not before the list has answered, nor while a new chat's Draft is being born.
+        onDrafts={
+          ready
+            ? () => {
+                Keyboard.dismiss();
+                setListing(true);
+              }
+            : undefined
+        }
+        canPlay={game !== undefined}
+        onPlay={play}
+        canPublish={canPublish}
+        onPublish={publish}
+      />
+      {draft && <LinkBar link={link} onRetry={retry} />}
 
-      <View className="gap-3">
-        <Textarea
-          value={prompt}
-          onChangeText={setPrompt}
-          maxLength={PROMPT_MAX}
-          editable={!locked}
-          accessibilityLabel="Game idea"
-          placeholder="A cat on the moon. Tap to dodge meteors and collect stars."
-          className="min-h-28 rounded-2xl border-0 bg-card px-4 py-3 text-lg leading-6"
-        />
-        <Text className="text-sm text-muted-foreground">
-          Or start from an idea
-        </Text>
-        <View className="-mt-1 flex-row flex-wrap gap-2">
-          {examples.map((example) => (
-            <Button
-              key={example.label}
-              size="sm"
-              variant="outline"
-              className="rounded-full bg-transparent"
-              disabled={locked}
-              onPress={() => setPrompt(example.prompt)}
-            >
-              <Text>{example.label}</Text>
-            </Button>
-          ))}
-        </View>
-        <View className="flex-row items-center justify-between pt-1">
-          <Text className="text-sm text-muted-foreground">
-            {prompt.length} / {PROMPT_MAX}
-          </Text>
-          <Button
-            className={cn(
-              "rounded-full px-6",
-              !canMake && "bg-card opacity-100"
-            )}
-            disabled={!canMake}
-            onPress={() => generate()}
-          >
-            <Text className={cn(!canMake && "text-muted-foreground")}>
-              {busy ? "Making…" : makeLabel}
-            </Text>
-          </Button>
-        </View>
-      </View>
-
-      {!!error && (
-        <Text accessibilityRole="alert" className="text-destructive">
-          {error}
-        </Text>
-      )}
-      {busy && (
-        <Text accessibilityRole="alert" className="text-muted-foreground">
-          Making your game. This takes about a minute; your current draft stays
-          until the new one is ready.
-        </Text>
-      )}
-
-      {/* A draft spans the sheet less the feed row's px-3, so it's as wide as the feed shows it. */}
-      <View
-        className={cn(draft && "-mx-5 px-3")}
-        onLayout={(e) => {
-          if (reveal.current) {
-            scroll.current?.scrollTo({ y: e.nativeEvent.layout.y });
-          }
-        }}
+      <ScrollView
+        ref={scroll}
+        className="flex-1"
+        contentContainerClassName="gap-3 px-4 py-4"
+        keyboardShouldPersistTaps="handled"
+        // Every redraw, a snapshot's included, lands at the bottom (#119), and so does the view when the
+        // Reconnecting bar comes or goes.
+        onContentSizeChange={() =>
+          scroll.current?.scrollToEnd({ animated: false })
+        }
+        onLayout={() => scroll.current?.scrollToEnd({ animated: false })}
       >
-        <View
-          className={
-            draft
-              ? "overflow-hidden rounded-t-2xl bg-card"
-              : "h-[260px] rounded-2xl bg-card"
-          }
-          style={
-            draft ? { height: feedGameHeight() ?? MIN_GAME_HEIGHT } : undefined
-          }
-        >
-          {draft ? (
-            <GameView
-              key={preview.key}
-              uri={gameUrl(draft.id)}
-              title={`Preview: ${draft.title}`}
-              token={preview.token}
-            />
-          ) : (
-            <View className="flex-1 items-center justify-center px-8">
-              <Text className="text-center text-muted-foreground">
-                Your game shows up here. Play it, then publish it to the feed.
-              </Text>
+        {blank && (
+          <View className="gap-3 pt-4">
+            <Text className="font-display text-[52px] leading-[52px]">
+              What should we play?
+            </Text>
+            <Text className="text-base leading-[22px] text-muted-foreground">
+              Describe the game, how it looks, and one twist.
+            </Text>
+            <Text className="pt-2 text-sm text-muted-foreground">
+              Or start from an idea
+            </Text>
+            <View className="-mt-1 flex-row flex-wrap gap-2">
+              {examples.map((example) => (
+                <Button
+                  key={example.label}
+                  size="sm"
+                  variant="outline"
+                  className="rounded-full bg-transparent"
+                  onPress={() => setText(example.prompt)}
+                >
+                  <Text>{example.label}</Text>
+                </Button>
+              ))}
             </View>
+          </View>
+        )}
+        {view.rows.map((row) => (
+          <Bubble key={row.key} row={row} onRetry={send} onPlay={play} />
+        ))}
+      </ScrollView>
+
+      <View
+        className="gap-1 px-4 pt-2"
+        style={{ paddingBottom: Math.max(insets.bottom, 12) }}
+      >
+        <View className="flex-row items-end gap-2">
+          <Textarea
+            ref={composer}
+            value={text}
+            onChangeText={setText}
+            maxLength={PROMPT_MAX}
+            numberOfLines={5}
+            accessibilityLabel="Message to the Maker"
+            placeholder={blank ? "A cat on the moon…" : "Ask for a change"}
+            className="min-h-11 flex-1 rounded-3xl border-0 bg-card px-4 py-3 text-base leading-5"
+          />
+          {showStop ? (
+            <Button
+              size="icon"
+              className="h-11 w-11 rounded-full"
+              accessibilityLabel="Stop"
+              onPress={() => stop()}
+            >
+              <Square color={COLORS.ink} fill={COLORS.ink} size={14} />
+            </Button>
+          ) : (
+            <Button
+              size="icon"
+              className="h-11 w-11 rounded-full"
+              accessibilityLabel="Send"
+              disabled={!canSend}
+              onPress={() => send(message)}
+            >
+              <ArrowUp color={COLORS.ink} size={20} strokeWidth={3} />
+            </Button>
           )}
         </View>
-        {draft && (
-          <Ticket
-            byline={
-              <Text className="font-strong text-xs text-primary-foreground/60">
-                Unpublished draft
-              </Text>
-            }
-            title={draft.title}
-            description={draft.description}
-          >
-            <View className="flex-row gap-2 pt-3">
-              <Button
-                variant="outline"
-                className="rounded-full border-primary-foreground/30 bg-transparent dark:border-primary-foreground/30 dark:bg-transparent"
-                disabled={busy}
-                onPress={() => showDraft(draft)}
-              >
-                <Text className="text-primary-foreground">Restart</Text>
-              </Button>
-              <Button
-                className="flex-1 rounded-full bg-primary-foreground"
-                disabled={locked}
-                onPress={() => publish()}
-              >
-                <Text className="text-primary">
-                  {publishing ? "Publishing…" : "Publish to the feed"}
-                </Text>
-              </Button>
-            </View>
-            {/* Here, not with the form's errors: those sit above the fold while the preview fills the sheet. */}
-            {!!publishFailure && (
-              <Text
-                accessibilityRole="alert"
-                className="pt-2 text-primary-foreground"
-              >
-                {publishFailure}
-              </Text>
-            )}
-          </Ticket>
+        {text.length > COUNTER_FROM && (
+          <Text className="self-end text-xs text-muted-foreground">
+            {text.length} / {PROMPT_MAX}
+          </Text>
+        )}
+        {!!error && (
+          <Text accessibilityRole="alert" className="text-sm text-destructive">
+            {error}
+          </Text>
         )}
       </View>
-    </ScrollView>
+      {playing && game && (
+        <Play
+          draft={game}
+          turns={turns}
+          onClose={() => setPlaying(false)}
+          canPublish={canPublish}
+          onPublish={publish}
+        />
+      )}
+      {listing && (
+        <DraftList
+          openId={draft?.id}
+          onOpen={openDraft}
+          onClose={() => setListing(false)}
+        />
+      )}
+      <PublishSheet
+        draft={draft}
+        open={confirming}
+        onClose={() => setConfirming(false)}
+      />
+      <AiSheet
+        message={asking}
+        onAgreed={agreed}
+        onClose={() => setAsking(undefined)}
+      />
+    </KeyboardAvoidingView>
   );
 };
 

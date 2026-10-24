@@ -5,6 +5,8 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
+import { DOM_SRC, littlejsHtml, RUNTIME_SRC } from "./page.ts";
+
 const here = import.meta.dirname;
 
 // The served-runtime CSP: scripts and media from the game's own origin only.
@@ -18,9 +20,6 @@ const OVER_TOO_SOON_MS = 3000;
 const SAMPLE_MS = 250;
 // browser.js, started by the template.
 const BROWSER_SERVER = "ws://127.0.0.1:9222/hopon";
-
-// The LittleJS page the app serves: a stub loading the runtime and the game.
-const LITTLEJS_HTML = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:#000;overflow:hidden;touch-action:none}</style></head><body><script src="/runtime/v1.js"></script><script src="/game.js"></script></body></html>`;
 
 export const isDom = () => existsSync("index.html");
 
@@ -130,10 +129,10 @@ export const playtest = async ({ inputs = [], ms } = {}) => {
   }
   await emit();
   const files = {
-    "/": isDom() ? readFileSync("index.html") : LITTLEJS_HTML,
-    "/dom.js": readFileSync(path.join(here, "dom.js")),
+    "/": isDom() ? readFileSync("index.html") : littlejsHtml(false),
+    [DOM_SRC]: readFileSync(path.join(here, "dom.js")),
     "/game.js": readFileSync("game.js"),
-    "/runtime/v1.js": readFileSync(path.join(here, "runtime.js")),
+    [RUNTIME_SRC]: readFileSync(path.join(here, "runtime.js")),
   };
   // The E2B template installs Chromium next to this file; its build-time ENV doesn't reach commands.run.
   if (existsSync(path.join(here, "browsers"))) {

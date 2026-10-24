@@ -6,7 +6,7 @@
 // The box and the model are Effect services, so the tests fake both at their edges.
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { Sandbox } from "e2b";
-import { Cause, Context, Effect, Layer, Schema } from "effect";
+import { Cause, Context, Effect, Fiber, Layer, Schema } from "effect";
 
 import { killBox, openBox } from "./box.ts";
 import { deadlineFor, JobSchema, runJob } from "./coder.ts";
@@ -20,6 +20,9 @@ import {
 import type { ModelHandler } from "./models.ts";
 
 const PING_MS = 10_000;
+// ponytail: the record is in memory, so a finished job is attachable only while the container is up (it sleeps 2 min
+// after the last request); after that the same jobId builds again from the same body. Persist the final event if that
+// double build ever costs.
 const ATTACH_MS = 600_000;
 // pi's levels; Claude 5.5 needs one above "off" (#115).
 const THINKING = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -146,7 +149,13 @@ const ndjson = (run: Run, pingMs: number) => {
 
 // One job in its box: opened (resumed or made) first, paused after whatever happened. The deadline counts from the
 // job's arrival and ends it `failed` on time even while the box opens or the music renders; runJob is stopped too.
-const build = (job: Job, run: Run, deadlineMs: number) =>
+// `previous` is the build before it, which may still be letting go of the box after its job ended `failed`.
+const build = (
+  job: Job,
+  run: Run,
+  deadlineMs: number,
+  previous: Effect.Effect<void>
+) =>
   Effect.gen(function* () {
     const box = yield* Box;
     const { handler, model, thinking } = yield* Models;
@@ -159,6 +168,7 @@ const build = (job: Job, run: Run, deadlineMs: number) =>
       });
       run.cancel.abort();
     }, deadlineMs);
+    yield* previous;
     yield* Effect.acquireUseRelease(
       attempt(() => box.open(job.draftId)),
       (sandbox) =>
@@ -203,6 +213,7 @@ export const makeCoder = (
   { draftId, deadlineMs, pingMs = PING_MS }: CoderOptions
 ) => {
   let current: Run | undefined;
+  let building: Fiber.Fiber<void> | undefined;
   const live = (id: string) =>
     current?.id === id &&
     (current.endedAt === undefined || Date.now() - current.endedAt < ATTACH_MS);
@@ -227,8 +238,10 @@ export const makeCoder = (
       return new Response("Not found", { status: 404 });
     }
     if (action === "cancel") {
-      if (live(id)) {
-        current?.cancel.abort();
+      // Ended at once; runJob stops behind it, and the next job waits for its box.
+      if (current && live(id)) {
+        record(current, { reason: "cancelled", type: "failed" });
+        current.cancel.abort();
       }
       return new Response(null, { status: 204 });
     }
@@ -254,8 +267,13 @@ export const makeCoder = (
       listeners: new Set(),
     };
     current = run;
-    yield* Effect.forkDetach(
-      build(job.value, run, deadlineMs ?? deadlineFor(job.value))
+    building = yield* Effect.forkDetach(
+      build(
+        job.value,
+        run,
+        deadlineMs ?? deadlineFor(job.value),
+        building ? Fiber.join(building) : Effect.void
+      )
     );
     return ndjson(run, pingMs);
   });

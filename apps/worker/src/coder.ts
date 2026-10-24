@@ -9,6 +9,7 @@ import type { OutboundHandlerContext } from "@cloudflare/containers";
 import { MODELS_HOST, modelFetch } from "@hopon/model-fetch";
 
 const JOB_PATH = /^\/jobs\/(?<jobId>[^/]+)$/u;
+const CANCEL_PATH = /^\/jobs\/[^/]+\/cancel$/u;
 
 interface ModelCallParams {
   draftId: string;
@@ -40,6 +41,7 @@ export class Coder extends Container<Env> {
       E2B_API_KEY: env.E2B_API_KEY,
       MAKER_CODER_EFFORT: env.MAKER_CODER_EFFORT,
       MAKER_CODER_MODEL: env.MAKER_CODER_MODEL,
+      MAKER_E2B_TEMPLATE: env.MAKER_E2B_TEMPLATE,
     };
   }
 
@@ -54,6 +56,14 @@ export class Coder extends Container<Env> {
   }
 
   override async fetch(request: Request) {
+    // A stopped container has no job to cancel; don't start one just to say so.
+    if (
+      request.method === "POST" &&
+      CANCEL_PATH.test(new URL(request.url).pathname) &&
+      !this.ctx.container?.running
+    ) {
+      return new Response(null, { status: 204 });
+    }
     const jobId =
       request.method === "POST"
         ? JOB_PATH.exec(new URL(request.url).pathname)?.groups?.jobId
@@ -67,9 +77,9 @@ export class Coder extends Container<Env> {
       } satisfies ModelCallParams);
     }
     const response = await this.containerFetch(request);
-    // No container to start: past max_instances, or while a deploy is still provisioning the image. The Talker reads
-    // both as a busy build (#122).
-    if (jobId && response.status === 503) {
+    // No container to start: past max_instances (503), while a deploy is still provisioning the image (503), or too
+    // many starts per second (429). The Talker reads them all as a busy build (#122).
+    if (jobId && (response.status === 503 || response.status === 429)) {
       return new Response(
         `${JSON.stringify({ reason: "busy", type: "failed" })}\n`,
         { headers: { "content-type": "application/x-ndjson" } }

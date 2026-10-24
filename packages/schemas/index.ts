@@ -4,13 +4,14 @@ import * as z from "zod/mini";
 
 export const PROMPT_MAX = 2000;
 export const COMMENT_MAX = 300;
+// A Game's title and description, as the Maker writes them and the games table keeps them.
+export const GAME_TITLE_MAX = 60;
+export const GAME_DESCRIPTION_MAX = 180;
+// A Creator's 21st Draft is refused: the API checks it, and the app disables New game.
+export const MAX_DRAFTS = 20;
 
 // Counts characters like SQLite's length(), not UTF-16 units.
 export const characters = (text: string) => [...text].length;
-
-export const newGame = z.object({
-  prompt: z.string().check(z.maxLength(PROMPT_MAX), z.trim(), z.minLength(4)),
-});
 
 // A message to the Maker, the first of a new Draft or a later one.
 export const newMessage = z.object({
@@ -43,14 +44,15 @@ export const newReport = z.object({
 
 // What the API sends back. The API checks each response with `satisfies`, so renaming a field breaks the build instead of a screen.
 
-/** One of the signed-in user's Drafts, as their list shows it. `title` is null until the Maker names the game. */
+/** One of the signed-in user's Drafts. `title` and `description` are null until the Maker names the game. */
 export interface DraftSummary {
   id: string;
   title: string | null;
+  description: string | null;
   updatedAt: string;
 }
 
-/** A new game, or the signed-in user's latest draft. */
+/** A published game's id, title and description. */
 export interface GameSummary {
   id: number;
   title: string;

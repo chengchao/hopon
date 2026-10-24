@@ -1,5 +1,6 @@
 // The Container's entry point: the Coder's server on :8080. Its env, from the Coder class in the Worker, is the E2B key
-// (read by the E2B SDK), the model and its effort, and the Draft's id; no model or gateway key.
+// (read by the E2B SDK) and its template's name (read by box.ts), the model and its effort, and the Draft's id; no
+// model or gateway key.
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";

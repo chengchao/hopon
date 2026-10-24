@@ -252,12 +252,7 @@ const commands: Record<string, () => Promise<void> | void> = {
         `${record.job}-${record.run}`
       );
       key[id] = path.relative(path.join(sweepDir, "coder"), runDir);
-      for (const file of [
-        "start.png",
-        "end.png",
-        "preview.html",
-        "music.opus",
-      ]) {
+      for (const file of ["start.png", "end.png", "preview.html"]) {
         if (existsSync(path.join(runDir, file))) {
           copyFileSync(
             path.join(runDir, file),
@@ -275,7 +270,7 @@ const commands: Record<string, () => Promise<void> | void> = {
       }
       const input = (item: string) =>
         `<label>${item} <input type="number" min="1" max="5" name="${id}.${item}"></label>`;
-      return `<section><h2>${id} · ${edit ? "edit" : "new game"}</h2><p><b>${job?.spec.title}</b>: ${job?.spec.brief}${job?.spec.music ? `<br>Music: ${job.spec.music}` : ""}</p><p><img src="${id}-start.png" width="180"> <img src="${id}-end.png" width="180"></p><p><a href="${id}-preview.html" target="_blank">Play it</a>${edit ? ` · <a href="${id}-original.html" target="_blank">The original</a>` : ""}${existsSync(path.join(runDir, "music.opus")) ? ` · <audio controls loop src="${id}-music.opus"></audio>` : ""}</p><p>${input("spec")} ${input("playable")} ${edit ? input("edit") : ""}</p></section>`;
+      return `<section><h2>${id} · ${edit ? "edit" : "new game"}</h2><p><b>${job?.spec.title}</b>: ${job?.spec.brief}${job?.spec.music ? `<br>Music: ${job.spec.music}` : ""}</p><p><img src="${id}-start.png" width="180"> <img src="${id}-end.png" width="180"></p><p><a href="${id}-preview.html" target="_blank">Play it</a>${edit ? ` · <a href="${id}-original.html" target="_blank">The original</a>` : ""}</p><p>${input("spec")} ${input("playable")} ${edit ? input("edit") : ""}</p></section>`;
     });
     writeFileSync(path.join(dir, "key.json"), JSON.stringify(key, null, 2));
     writeFileSync(
