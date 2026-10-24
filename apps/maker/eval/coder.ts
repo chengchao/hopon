@@ -83,7 +83,7 @@ export const previewHtml = (files: Record<string, string>) => {
   if (page && !isLittlejsHtml(page)) {
     return page
       .replace(
-        /<script src="\/dom\.js"><\/script>/u,
+        /<script src="\/dom\/v1\.js"><\/script>/u,
         () => `<script>${inline(readFileSync(DOM_RUNTIME, "utf-8"))}</script>`
       )
       .replace(/<script src="game\.js"><\/script>/u, () => game);

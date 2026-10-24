@@ -16,6 +16,6 @@ export const fail = (
   code?: HttpError["code"]
 ) => new HttpError({ code, message, status });
 
-// 'self' is the served runtime (/runtime/v2.js) and a game's own files.
+// 'self' is the served scaffolds (/runtime/v2.js, /dom/v1.js) and a game's own files.
 export const GAME_CSP =
   "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src 'self' data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts";

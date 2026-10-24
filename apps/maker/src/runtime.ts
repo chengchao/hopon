@@ -1,6 +1,7 @@
 // Builds image/runtime.js: LittleJS core (release mode: no debug, editor, 3D or plugins) plus the hopon scaffold, and
 // image/littlejs.d.ts: the engine's declarations narrowed to what that build defines, as globals, plus hopon's.
 // The same bytes go to the Worker, which serves them as /runtime/v2.js, so the box's playtest runs what the phone runs.
+// It also copies the plain-DOM scaffold (image/dom.js) to the Worker as is, served as /dom/v1.js.
 // `pnpm -F maker build:runtime` rebuilds; runtime.test.ts fails when the Worker's copy is stale.
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -37,16 +38,11 @@ const ENGINE_FILES = [
 
 export const RUNTIME_PATH = path.join(image, "runtime.js");
 const DTS_PATH = path.join(image, "littlejs.d.ts");
-// Committed, as a JSON string the Worker and Node both import.
-export const SERVED_PATH = path.join(
-  import.meta.dirname,
-  "..",
-  "..",
-  "worker",
-  "src",
-  "runtime",
-  "v2.json"
-);
+// Committed, as JSON strings the Worker and Node both import.
+const served = (file: string) =>
+  path.join(import.meta.dirname, "..", "..", "worker", "src", "runtime", file);
+export const SERVED_PATH = served("v2.json");
+export const DOM_SERVED_PATH = served("dom-v1.json");
 
 // One top-level declaration of the engine's d.ts: its JSDoc plus the declaration, which ends where the next one starts.
 const DECLARATION =
@@ -91,24 +87,30 @@ const narrowDeclarations = (source: string) => {
     .join("\n");
 };
 
-// v2 is cached as immutable, so once people play Games on it (at launch) its bytes must never change: set this to the
-// sha256 of v2.json then, and a changed build fails instead of overwriting it. The changed runtime ships as v3. (v1 was
-// #137's, changed by #146 before any Creator's Game used it, so it's no longer served.)
+// Both are cached as immutable, so once people play Games on them (at launch) their bytes must never change: set these
+// to the sha256 of v2.json's and dom-v1.json's strings then, and a changed build fails instead of overwriting them. A
+// change then ships as the next version. (Runtime v1 was #137's, changed by #146 before any Creator's Game used it, so
+// it's no longer served.)
 export const V2_SHA256: string | undefined = undefined;
+export const DOM_V1_SHA256: string | undefined = undefined;
 
 const sha256 = (code: string) =>
   createHash("sha256").update(code).digest("hex");
 
 export const assertUnchanged = (
   code: string,
-  frozen: string | undefined = V2_SHA256
+  frozen: string | undefined,
+  route: string
 ) => {
   if (frozen !== undefined && sha256(code) !== frozen) {
     throw new Error(
-      "/runtime/v2.js is frozen (V2_SHA256) and this build differs from it: serve the changed runtime as v3"
+      `${route} is frozen and this build differs from it: serve the change as its next version`
     );
   }
 };
+
+export const domScaffold = () =>
+  readFileSync(path.join(image, "dom.js"), "utf-8");
 
 const runtimeSource = () =>
   [
@@ -126,9 +128,12 @@ export const compileRuntime = async (source = runtimeSource()) => {
 export const buildRuntime = async () => {
   const source = runtimeSource();
   const code = await compileRuntime(source);
-  assertUnchanged(code);
+  assertUnchanged(code, V2_SHA256, "/runtime/v2.js");
+  const dom = domScaffold();
+  assertUnchanged(dom, DOM_V1_SHA256, "/dom/v1.js");
   writeFileSync(RUNTIME_PATH, code);
   writeFileSync(SERVED_PATH, `${JSON.stringify(code)}\n`);
+  writeFileSync(DOM_SERVED_PATH, `${JSON.stringify(dom)}\n`);
   writeFileSync(
     DTS_PATH,
     `${narrowDeclarations(source)}\n${readFileSync(path.join(image, "hopon.d.ts"), "utf-8")}`

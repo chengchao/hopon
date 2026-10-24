@@ -43,6 +43,7 @@ import {
   SUPPORT,
   TERMS,
 } from "./pages.ts";
+import DOM_V1 from "./runtime/dom-v1.json" with { type: "json" };
 import RUNTIME_V2 from "./runtime/v2.json" with { type: "json" };
 import {
   blocks,
@@ -416,14 +417,20 @@ const gzipped = (c: HonoContext<AppEnv>): Record<string, string> =>
     ? { "Content-Encoding": "gzip", Vary: "Accept-Encoding" }
     : {};
 
-// The game runtime, built by apps/maker (src/runtime.ts). Versioned by path, so it's cached for good.
-app.get("/runtime/v2.js", (c) =>
-  c.body(RUNTIME_V2, 200, {
-    "Cache-Control": "public, max-age=31536000, immutable",
-    "Content-Type": "text/javascript; charset=utf-8",
-    ...gzipped(c),
-  })
-);
+// The scaffolds games load, built by apps/maker (src/runtime.ts): the LittleJS runtime and the plain-DOM scaffold.
+// Versioned by path, so they're cached for good.
+for (const [route, code] of [
+  ["/runtime/v2.js", RUNTIME_V2],
+  ["/dom/v1.js", DOM_V1],
+]) {
+  app.get(route, (c) =>
+    c.body(code, 200, {
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "Content-Type": "text/javascript; charset=utf-8",
+      ...gzipped(c),
+    })
+  );
+}
 
 app.get("/api/games", (c) =>
   run(

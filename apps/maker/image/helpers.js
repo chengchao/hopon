@@ -5,7 +5,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { littlejsHtml } from "./page.ts";
+import { DOM_SRC, littlejsHtml, RUNTIME_SRC } from "./page.ts";
 
 const here = import.meta.dirname;
 
@@ -130,9 +130,9 @@ export const playtest = async ({ inputs = [], ms } = {}) => {
   await emit();
   const files = {
     "/": isDom() ? readFileSync("index.html") : littlejsHtml(false),
-    "/dom.js": readFileSync(path.join(here, "dom.js")),
+    [DOM_SRC]: readFileSync(path.join(here, "dom.js")),
     "/game.js": readFileSync("game.js"),
-    "/runtime/v2.js": readFileSync(path.join(here, "runtime.js")),
+    [RUNTIME_SRC]: readFileSync(path.join(here, "runtime.js")),
   };
   // The E2B template installs Chromium next to this file; its build-time ENV doesn't reach commands.run.
   if (existsSync(path.join(here, "browsers"))) {
