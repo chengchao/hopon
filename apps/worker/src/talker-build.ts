@@ -10,7 +10,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Effect } from "effect";
 
-import { currentRevision, Db, removeFiles, spend } from "./api.ts";
+import { currentRevision, Db, refund, removeFiles, spend } from "./api.ts";
 import { drafts, now } from "./schema.ts";
 
 // The Coder's NDJSON (apps/maker/src/coder.ts CoderEvent, plus its ping).
@@ -181,18 +181,19 @@ export const buildTool = (
         return { output: [{ text: written, type: "text" as const }] };
       }
 
-      const spent = await memo("spent", async () => {
+      const owner = async () => {
         const draft = await db
           .select({ owner: drafts.owner })
           .from(drafts)
           .where(eq(drafts.id, draftId))
           .get();
-        return (
-          !!draft &&
-          (await Effect.runPromise(
-            spend(draft.owner, DAILY_BUILDS).pipe(Effect.provideService(Db, db))
-          ))
-        );
+        return draft?.owner;
+      };
+      const quota = <A>(effect: Effect.Effect<A, never, Db>) =>
+        Effect.runPromise(effect.pipe(Effect.provideService(Db, db)));
+      const spent = await memo("spent", async () => {
+        const account = await owner();
+        return !!account && (await quota(spend(account, DAILY_BUILDS)));
       });
       if (!spent) {
         throw new Error(
@@ -231,6 +232,16 @@ export const buildTool = (
           throw new Error("Stopped.");
         }
         if (event?.type !== "done") {
+          // Only builds count against the quota (story 30), and a busy Coder built nothing.
+          if (event?.type === "failed" && event.reason === "busy") {
+            await memo("refunded", async () => {
+              const account = await owner();
+              if (account) {
+                await quota(refund(account));
+              }
+              return true;
+            });
+          }
           throw new Error(failure(event));
         }
         await writeRevision(env.FILES, { current, names, next }, event);

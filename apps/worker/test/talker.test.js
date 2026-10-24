@@ -346,8 +346,9 @@ test("build: a message makes and changes the game as Revisions in R2; failures, 
   const [restarted] = await revisionFile(draft, "game.ts");
   assert.equal(restarted, 4);
 
-  // 8 builds so far (failed, stopped and timed-out ones count): the 9th and 10th run, the 11th is refused without the
-  // Coder.
+  // 7 builds so far (failed, stopped and timed-out ones count, the busy one doesn't): the 8th, 9th and 10th run, the
+  // 11th is refused without the Coder.
+  await socket.turn("build done");
   await socket.turn("build done");
   await socket.turn("build done");
   calls = await coderCalls(draft);
@@ -379,7 +380,7 @@ test("build: a message makes and changes the game as Revisions in R2; failures, 
     }
   );
   const game = await fetch(`${ORIGIN}/games/${gameId}/game.ts`);
-  assert.equal(await game.text(), "// revision 6");
+  assert.equal(await game.text(), "// revision 7");
   assert.deepEqual(await json("/api/drafts"), { drafts: [] });
   socket.close();
 });

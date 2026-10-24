@@ -136,9 +136,12 @@ const cursor = (raw: string | undefined) =>
     ? Effect.fail(fail(400, "Invalid pagination cursor."))
     : Effect.succeed(raw ? Number(raw) : Number.MAX_SAFE_INTEGER);
 
+const today = (key: string) =>
+  `${key}:${new Date().toISOString().slice(0, 10)}`;
+
 // Atomically counts one use against a per-account UTC-day bucket; false once `max` is reached. Failed attempts still count.
 export const spend = Effect.fn("spend")(function* (key: string, max: number) {
-  const bucket = `${key}:${new Date().toISOString().slice(0, 10)}`;
+  const bucket = today(key);
   const row = yield* query((db) =>
     db
       .insert(generationLimits)
@@ -152,6 +155,21 @@ export const spend = Effect.fn("spend")(function* (key: string, max: number) {
       .get()
   );
   return !!row;
+});
+
+// Gives back a use spent on an attempt that never ran (a busy build).
+export const refund = Effect.fn("refund")(function* (key: string) {
+  yield* query((db) =>
+    db
+      .update(generationLimits)
+      .set({ count: sql`${generationLimits.count} - 1` })
+      .where(
+        and(
+          eq(generationLimits.bucket, today(key)),
+          sql`${generationLimits.count} > 0`
+        )
+      )
+  );
 });
 
 // Llama Guard categories hopon's Rules allow: S6 specialized advice, S8 intellectual property, S13 elections.
