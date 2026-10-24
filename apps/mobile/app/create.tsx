@@ -245,6 +245,12 @@ const Create = () => {
   const [now, setNow] = useState(Date.now);
   const keys = useRef(0);
   const opened = useRef(false);
+  // The open Draft's id (null for a new chat), set with it, so a response after an await can check it's still open.
+  const openId = useRef<string | null>(null);
+  const select = (next: DraftSummary | null) => {
+    openId.current = next?.id ?? null;
+    setDraft(next);
+  };
   const scroll = useRef<ScrollView>(null);
   const composer = useRef<TextInput>(null);
   const view = useMemo(() => chatView(chat, now), [chat, now]);
@@ -273,9 +279,9 @@ const Create = () => {
     const open = async () => {
       try {
         const drafts = await fetchDrafts();
-        setDraft(drafts[0] ?? null);
+        select(drafts[0] ?? null);
       } catch (openError) {
-        setDraft(null);
+        select(null);
         setError((openError as Error).message);
       }
     };
@@ -291,7 +297,8 @@ const Create = () => {
     if (frame.type === "turn_done" && draft) {
       const drafts = await fetchDrafts().catch(() => []);
       const fresh = drafts.find((d) => d.id === draft.id);
-      if (fresh) {
+      // Unless the Creator has opened another Draft meanwhile.
+      if (fresh && openId.current === fresh.id) {
         setDraft(fresh);
       }
     }
@@ -322,6 +329,7 @@ const Create = () => {
     // Typed text with an autocorrect suggestion pending survives the state change alone.
     composer.current?.clear();
     setError("");
+    const at = draft?.id ?? null;
     try {
       const token = await getToken();
       if (draft) {
@@ -335,19 +343,25 @@ const Create = () => {
           "/api/drafts",
           { body: { text: message }, token }
         );
-        setDraft({
-          description: null,
-          id: created.id,
-          title: null,
-          updatedAt: "",
-        });
+        // The new chat may have been left for another Draft meanwhile; the Draft list has this one.
+        if (openId.current === at) {
+          select({
+            description: null,
+            id: created.id,
+            title: null,
+            updatedAt: "",
+          });
+        }
         dispatch({ key, op: created.message, type: "sent" });
       }
     } catch (sendError) {
       // A refused message isn't kept: it goes back to the composer, unless the Creator has typed since.
       dispatch({ key, type: "unsent" });
-      setText((typed) => typed || message);
-      setError((sendError as Error).message);
+      // Not into another Draft's composer, if the Creator has switched meanwhile.
+      if (openId.current === at) {
+        setText((typed) => typed || message);
+        setError((sendError as Error).message);
+      }
     }
   };
 
@@ -358,7 +372,7 @@ const Create = () => {
     }
     dispatch({ type: "reset" });
     setPlaying(false);
-    setDraft(next);
+    select(next);
     setText("");
     setError("");
   };
@@ -388,7 +402,9 @@ const Create = () => {
         token: await getToken(),
       });
     } catch (stopError) {
-      setError((stopError as Error).message);
+      if (openId.current === draft.id) {
+        setError((stopError as Error).message);
+      }
     }
   };
 
