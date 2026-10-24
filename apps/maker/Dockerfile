@@ -10,6 +10,7 @@ RUN pnpm install --frozen-lockfile --prod --filter "maker..."
 COPY packages/model-fetch/index.ts packages/model-fetch/
 COPY apps/maker/agent-home apps/maker/agent-home
 COPY apps/maker/src apps/maker/src
+COPY apps/maker/image/page.ts apps/maker/image/
 WORKDIR /hopon/apps/maker
 EXPOSE 8080
 CMD ["node", "src/main.ts"]

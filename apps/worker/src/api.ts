@@ -408,11 +408,20 @@ app.get("/support", (c) =>
   c.html(SUPPORT, 200, { "Content-Security-Policy": PAGE_CSP })
 );
 
+// Text goes out gzipped when the client takes it: the Workers runtime compresses a body sent with Content-Encoding
+// (Response's encodeBody is "automatic"), where Cloudflare's docs don't promise the edge compresses a Worker's
+// responses on workers.dev. music.js is base64, and gzip takes it back to about its Opus's size (#146).
+const gzipped = (c: HonoContext<AppEnv>): Record<string, string> =>
+  c.req.header("Accept-Encoding")?.includes("gzip")
+    ? { "Content-Encoding": "gzip", Vary: "Accept-Encoding" }
+    : {};
+
 // The game runtime, built by apps/maker (src/runtime.ts). Versioned by path, so it's cached for good.
 app.get("/runtime/v1.js", (c) =>
   c.body(RUNTIME_V1, 200, {
     "Cache-Control": "public, max-age=31536000, immutable",
     "Content-Type": "text/javascript; charset=utf-8",
+    ...gzipped(c),
   })
 );
 
@@ -728,7 +737,6 @@ const FILE_TYPES: Record<string, string> = {
   js: "text/javascript; charset=utf-8",
   json: "application/json",
   mjs: "text/javascript; charset=utf-8",
-  opus: "audio/ogg",
 };
 const FILE = ":file{[\\w.-]+}";
 const gameFile = async (c: HonoContext<AppEnv>, key: string) => {
@@ -736,11 +744,12 @@ const gameFile = async (c: HonoContext<AppEnv>, key: string) => {
   if (!object) {
     throw fail(404, "File not found.");
   }
+  const type = FILE_TYPES[key.split(".").pop() ?? ""];
   return c.body(object.body, 200, {
     "Content-Security-Policy": GAME_CSP,
-    "Content-Type":
-      FILE_TYPES[key.split(".").pop() ?? ""] ?? "application/octet-stream",
+    "Content-Type": type ?? "application/octet-stream",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    ...(type ? gzipped(c) : {}),
   });
 };
 

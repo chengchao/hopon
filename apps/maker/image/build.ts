@@ -25,6 +25,7 @@ const template = Template({ fileContextPath: import.meta.dirname })
       "dom.js",
       "helpers.js",
       "littlejs.d.ts",
+      "page.ts",
       "playtest.js",
       "runtime.js",
     ],

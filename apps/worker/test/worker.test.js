@@ -2683,7 +2683,7 @@ test("preview: the next Revision or a Delete turns a live link into a 404; the n
   const { call, env } = context;
   const id = await withRevision(context);
   const old = await preview(call, id);
-  assert.equal(await status(open(call, old, "music.opus")), 404);
+  assert.equal(await status(open(call, old, "music.js")), 404);
   // End of a turn that builds: <4>/ is written, then <3>/ deleted. A link minted in between gets the new one.
   await env.FILES.put(`drafts/${id}/4/index.html`, "<!doctype html>v4");
   assert.match(await preview(call, id), new RegExp(`^/drafts/${id}/4/`, "u"));

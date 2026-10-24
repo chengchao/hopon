@@ -7,6 +7,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { Sandbox } from "e2b";
 import { Layer } from "effect";
 
+import { littlejsHtml } from "../image/page.ts";
+import { musicScript } from "./coder.ts";
 import type { CoderEvent } from "./coder.ts";
 import { CANDIDATES } from "./models.ts";
 import type { ModelHandler } from "./models.ts";
@@ -20,7 +22,8 @@ const JOB = {
   spec: { brief: "Tap the dot.", music: null, title: "Dot" },
 };
 
-// The box: files in a Map, the playtest always green, every other command a no-op.
+// The box: files in a Map, the playtest always green, music.mjs rendering a 30 s music.opus, `rm music.mjs`, and
+// every other command a no-op.
 // `open` resolves after `openMs`, or fails when `openFails`; `pause` takes `pauseMs`; `kill` empties the box, or fails
 // when `killFails`.
 const fakeBox = ({
@@ -38,6 +41,9 @@ const fakeBox = ({
         if (command.startsWith("find /workspace")) {
           files.clear();
         }
+        if (command.includes("rm music.mjs")) {
+          files.delete("/workspace/music.mjs");
+        }
         if (options?.background) {
           return Promise.resolve({
             kill: () => Promise.resolve(true),
@@ -54,6 +60,10 @@ const fakeBox = ({
             stderr: "",
             stdout: JSON.stringify(result),
           });
+        }
+        if (command.includes("node music.mjs")) {
+          files.set("/workspace/music.opus", "OggS");
+          return Promise.resolve({ exitCode: 0, stderr: "", stdout: "30\n" });
         }
         return Promise.resolve({ exitCode: 0, stderr: "", stdout: "" });
       },
@@ -210,7 +220,11 @@ test("a job streams its steps and playtest, then the changed files", async () =>
     { errors: [], ok: true, type: "playtest" },
     {
       deleted: [],
-      files: { "game.js": "// emitted", "game.ts": GAME },
+      files: {
+        "game.js": "// emitted",
+        "game.ts": GAME,
+        "index.html": littlejsHtml(false),
+      },
       summary: "A dot to tap.",
       type: "done",
     },
@@ -375,10 +389,90 @@ test("cancel while the box opens ends the job at once; the next job waits for th
   );
   assert.deepEqual(next.at(-1), {
     deleted: [],
-    files: { "game.js": "// emitted", "game.ts": GAME },
+    files: {
+      "game.js": "// emitted",
+      "game.ts": GAME,
+      "index.html": littlejsHtml(false),
+    },
     summary: "A dot to tap.",
     type: "done",
   });
   assert.equal(box.files.get("/workspace/old.ts"), "x");
   assert.equal(box.state.overlapped, false);
+});
+
+test("a job with music adds music.js, which index.html loads; later jobs keep it or drop it with music.mjs", async () => {
+  const box = fakeBox();
+  const withMusic = {
+    ...JOB,
+    spec: { ...JOB.spec, music: "chiptune, upbeat" },
+  };
+  const built = await events(
+    await post(
+      coder(
+        scripted([
+          ...buildsADot().slice(0, 2),
+          toolCall("write", { content: "// synth", path: "music.mjs" }),
+          reply("A dot to tap, with music."),
+        ]),
+        box
+      ),
+      "/jobs/job-20",
+      withMusic
+    )
+  );
+  const opus = new TextEncoder().encode("OggS");
+  assert.deepEqual(built.at(-1), {
+    deleted: [],
+    files: {
+      "game.js": "// emitted",
+      "game.ts": GAME,
+      "index.html": littlejsHtml(true),
+      "music.js": musicScript(opus),
+      "music.mjs": "// synth",
+    },
+    summary: "A dot to tap, with music.",
+    type: "done",
+  });
+  assert.equal(musicScript(opus), 'hopon.music = "T2dnUw==";\n');
+
+  // The next job carries the harness's index.html, which stays out of the box (it would read as a plain-DOM game).
+  const source = {
+    "game.ts": GAME,
+    "index.html": littlejsHtml(true),
+    "music.mjs": "// synth",
+  };
+  const kept = await events(
+    await post(coder(scripted(buildsADot()), box), "/jobs/job-21", {
+      ...JOB,
+      source,
+    })
+  );
+  assert.equal(box.files.has("/workspace/index.html"), false);
+  assert.deepEqual(kept.at(-1), {
+    deleted: [],
+    files: { "game.js": "// emitted" },
+    summary: "A dot to tap.",
+    type: "done",
+  });
+
+  const dropped = await events(
+    await post(
+      coder(
+        scripted([
+          toolCall("bash", { command: "rm music.mjs" }),
+          ...buildsADot(),
+        ]),
+        box
+      ),
+      "/jobs/job-22",
+      { ...JOB, source }
+    )
+  );
+  assert.deepEqual(dropped.at(-1), {
+    deleted: ["music.mjs", "music.js"],
+    files: { "game.js": "// emitted", "index.html": littlejsHtml(false) },
+    summary: "A dot to tap.",
+    type: "done",
+  });
 });

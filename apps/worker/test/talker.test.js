@@ -234,12 +234,23 @@ test("build: a message makes and changes the game as Revisions in R2; failures, 
     200,
     "<!doctype html>moon cat",
   ]);
-  assert.deepEqual(await revisionFile(draft, "music.opus"), [1, 200, "OggS"]);
+  assert.deepEqual(await revisionFile(draft, "music.js"), [
+    1,
+    200,
+    'hopon.music = "T2dnUw==";',
+  ]);
+  // Gzipped by the runtime (workerd), from the Worker's Content-Encoding; fetch decodes it, so the text above held.
+  const page = await previewUrl(draft);
+  const gzipped = await fetch(page.replace(/index\.html$/u, "music.js"), {
+    headers: { "Accept-Encoding": "gzip" },
+  });
+  assert.equal(gzipped.headers.get("Content-Encoding"), "gzip");
+  assert.equal(await gzipped.text(), 'hopon.music = "T2dnUw==";');
   const { drafts } = await json("/api/drafts");
   assert.equal(drafts[0].title, "Moon Cat");
   assert.equal(await lastReply(draft), "said: A cat on the moon. Tap to jump.");
 
-  // The next build gets the source (never game.js or music.opus) and writes 2/ with the carried-over files; 1/ is gone.
+  // The next build gets the source (never game.js or music.js) and writes 2/ with the carried-over files; 1/ is gone.
   const first = await previewUrl(draft);
   assert.equal(await socket.turn("build done"), "turn_done");
   assert.deepEqual(await revisionFile(draft, "game.ts"), [
@@ -252,7 +263,11 @@ test("build: a message makes and changes the game as Revisions in R2; failures, 
     200,
     "<!doctype html>moon cat",
   ]);
-  assert.deepEqual(await revisionFile(draft, "music.opus"), [2, 200, "OggS"]);
+  assert.deepEqual(await revisionFile(draft, "music.js"), [
+    2,
+    200,
+    'hopon.music = "T2dnUw==";',
+  ]);
   const [, dropped] = await revisionFile(draft, "music.mjs");
   assert.equal(dropped, 404);
   const gone = await fetch(first);

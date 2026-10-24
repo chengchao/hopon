@@ -20,6 +20,8 @@ const hopon = {
     setPaused(true);
   },
   hint: "Tap to start",
+  // Set by music.js, when the game has music.
+  music: "",
   score: 0,
   state: "start",
   title: "",
@@ -61,6 +63,41 @@ const hoponMessage = (event) => {
 // iOS delivers the app's postMessage on window, Android on document.
 addEventListener("message", hoponMessage);
 document.addEventListener("message", hoponMessage);
+
+// Music (#146): a game with music loads music.js between the runtime and game.js, which sets hopon.music to an Opus
+// loop in base64; GAME_CSP allows no fetch, so the bytes come in as a script. It's decoded at load and starts on the
+// first tap. Web Audio loops the buffer to the sample, so the seam has no gap. It plays through the engine's context
+// and master gain, so away (or a hidden page) pauses it and mute silences it, with the effects.
+const hoponMusicDecode = async () => {
+  if (!hopon.music || !audioContext) {
+    return;
+  }
+  const bytes = Uint8Array.from(atob(hopon.music), (char) =>
+    char.codePointAt(0)
+  );
+  try {
+    return await audioContext.decodeAudioData(bytes.buffer);
+  } catch (error) {
+    console.warn("hopon: the music didn't decode", error);
+  }
+};
+// The decoding, then the decoded loop (undefined without music).
+let hoponMusic;
+let hoponMusicStarted = false;
+const hoponMusicStart = async () => {
+  if (hoponMusicStarted) {
+    return;
+  }
+  hoponMusicStarted = true;
+  const buffer = await hoponMusic;
+  if (buffer) {
+    const loop = audioContext.createBufferSource();
+    loop.buffer = buffer;
+    loop.loop = true;
+    loop.connect(audioMasterGain);
+    loop.start();
+  }
+};
 
 const hoponCall = (hook) => {
   // typeof on an undeclared name is safe; a game may leave any hook out.
@@ -105,6 +142,12 @@ setShowSplashScreen(false);
 addEventListener("load", () => {
   engineInit(
     () => {
+      // The ringer switch silences the game, as it does other apps' game sounds, and the player's own music plays on
+      // under it. The engine's own setting ("auto", from engineInit) leaves the choice to WebKit.
+      if (navigator.audioSession) {
+        navigator.audioSession.type = "ambient";
+      }
+      hoponMusic = hoponMusicDecode();
       hoponBegin();
       hoponSync();
     },
@@ -117,6 +160,7 @@ addEventListener("load", () => {
         }
         hopon.state = "play";
         hoponSync();
+        hoponMusicStart();
       }
     },
     () => hoponCall("gameRender"),

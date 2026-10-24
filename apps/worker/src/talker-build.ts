@@ -9,7 +9,6 @@ import { defineTool, LiveDoc } from "@earendil-works/pi-durable";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Effect } from "effect";
-import { decodeBase64 } from "hono/utils/encode";
 
 import { currentRevision, Db, removeFiles, spend } from "./api.ts";
 import { drafts, now } from "./schema.ts";
@@ -36,8 +35,7 @@ const MUSIC_EXTRA_S = 30;
 const BUSY = "The Maker is busy. Try again in a minute.";
 const LIMIT = "You've made 10 games today; come back tomorrow.";
 // A Revision's files the Coder makes rather than edits (from game.ts and music.mjs), so the job never carries them.
-const MUSIC = "music.opus";
-const BUILT = new Set(["game.js", MUSIC]);
+const BUILT = new Set(["game.js", "music.js"]);
 
 // The title and description are what Publish shows in the feed, within games' limits (schema.ts).
 const Parameters = Type.Object({
@@ -89,7 +87,7 @@ const writeRevision = async (
       await files.put(`${next}${name}`, await object.arrayBuffer());
     }),
     ...Object.entries(changed).map(([name, text]) =>
-      files.put(`${next}${name}`, name === MUSIC ? decodeBase64(text) : text)
+      files.put(`${next}${name}`, text)
     ),
   ]);
 };

@@ -35,7 +35,7 @@ for await (const chunk of response.body.pipeThrough(new TextDecoderStream())) {
   buffer = lines.pop() ?? "";
   for (const line of lines.filter(Boolean)) {
     last = JSON.parse(line);
-    // Files as their sizes: music.opus alone is hundreds of KB of base64.
+    // Files as their sizes: music.js alone is hundreds of KB of base64.
     const shown = last.files
       ? {
           ...last,
