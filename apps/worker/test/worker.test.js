@@ -48,7 +48,7 @@ const made = {
 };
 // A runtime game's index.html, which loads its game.js.
 const INDEX_HTML =
-  '<!doctype html><html><body><script src="/runtime/v1.js"></script><script src="game.js"></script></body></html>';
+  '<!doctype html><html><body><script src="/runtime/v2.js"></script><script src="game.js"></script></body></html>';
 const OPERATOR_PASSWORD = "test-operator-password-of-32-chars!";
 const PREVIEW_SECRET = "test-preview-secret-of-32-chars!!";
 // Seeded by migrations/*_originals.sql and *_runtime_original.sql.
@@ -338,7 +338,7 @@ test("publish: every file of the current Revision becomes the Game's, the row ke
       draft_id: id,
       id: gameId,
       owner: "user_owner",
-      runtime: "v1",
+      runtime: "v2",
       title: made.title,
     }
   );
@@ -358,7 +358,7 @@ test("publish: every file of the current Revision becomes the Game's, the row ke
   assert.equal(page.headers.get("Cache-Control"), "no-store");
   assert.ok(!GAME_CSP.includes("allow-same-origin"));
   assert.ok(GAME_CSP.includes("connect-src 'none'"));
-  // 'self' lets a game load /runtime/v1.js and its own files.
+  // 'self' lets a game load /runtime/v2.js and its own files.
   assert.match(GAME_CSP, /script-src 'self'/u);
   assert.match(GAME_CSP, /media-src 'self'/u);
   for (const name of ["game.js", "music.js"]) {
@@ -2116,9 +2116,9 @@ test("ban: asks first, bans an account whatever its Clerk role, and only a repor
   ]);
 });
 
-test("runtime: /runtime/v1.js is the maker's build, long-cached, signed out", async (t) => {
+test("runtime: /runtime/v2.js is the maker's build, long-cached, signed out", async (t) => {
   const { call } = await setup(t);
-  const runtime = await call("/runtime/v1.js", { user: "" });
+  const runtime = await call("/runtime/v2.js", { user: "" });
   assert.equal(runtime.status, 200);
   assert.match(runtime.headers.get("Content-Type"), /^text\/javascript/u);
   assert.equal(
@@ -2129,13 +2129,17 @@ test("runtime: /runtime/v1.js is the maker's build, long-cached, signed out", as
   assert.equal(
     code,
     JSON.parse(
-      readFileSync(new URL("../src/runtime/v1.json", import.meta.url), "utf-8")
+      readFileSync(new URL("../src/runtime/v2.json", import.meta.url), "utf-8")
     )
   );
   // LittleJS and the scaffold, with the feed's bridge.
   assert.match(code, /engineInit/u);
   assert.match(code, /"pause"/u);
-  assert.equal(await status(call("/runtime/v2.js", { user: "" })), 404);
+  // v1 changed before any Creator's Game used it, so it's gone rather than stale.
+  for (const gone of ["/runtime/v1.js", "/runtime/v3.js"]) {
+    // oxlint-disable-next-line no-await-in-loop -- two requests
+    assert.equal(await status(call(gone, { user: "" })), 404);
+  }
 });
 
 test("pages: /terms has the Rules, /support the contact address and /privacy the policy, signed out", async (t) => {

@@ -43,7 +43,7 @@ import {
   SUPPORT,
   TERMS,
 } from "./pages.ts";
-import RUNTIME_V1 from "./runtime/v1.json" with { type: "json" };
+import RUNTIME_V2 from "./runtime/v2.json" with { type: "json" };
 import {
   blocks,
   comments,
@@ -417,8 +417,8 @@ const gzipped = (c: HonoContext<AppEnv>): Record<string, string> =>
     : {};
 
 // The game runtime, built by apps/maker (src/runtime.ts). Versioned by path, so it's cached for good.
-app.get("/runtime/v1.js", (c) =>
-  c.body(RUNTIME_V1, 200, {
+app.get("/runtime/v2.js", (c) =>
+  c.body(RUNTIME_V2, 200, {
     "Cache-Control": "public, max-age=31536000, immutable",
     "Content-Type": "text/javascript; charset=utf-8",
     ...gzipped(c),

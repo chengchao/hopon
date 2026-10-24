@@ -120,9 +120,9 @@ test("games are files: published Games' HTML lands in R2 and still plays; unpubl
   // Bubble Pop loads the runtime; the other originals and the Creator's game are plain DOM.
   assert.deepEqual(
     after.map((g) => g.runtime),
-    before.map((g) => (g.html.includes("/runtime/v1.js") ? "v1" : null))
+    before.map((g) => (g.html.includes("/runtime/v1.js") ? "v2" : null))
   );
-  assert.ok(after.some((g) => g.runtime === "v1"));
+  assert.ok(after.some((g) => g.runtime === "v2"));
   assert.deepEqual(
     { ...after.at(-1) },
     { author: "maya", draft_id: null, id: 100, runtime: null, title: "Made" }
@@ -143,7 +143,7 @@ test("games are files: published Games' HTML lands in R2 and still plays; unpubl
     DB.prepare("INSERT INTO likes(game_id, user) VALUES (101, 'x')").run(),
     /FOREIGN KEY/u
   );
-  // Every Game plays from its files, exactly as its HTML was.
+  // Every Game plays from its files, exactly as its HTML was, but on the runtime's v2.
   for (const game of before) {
     // oxlint-disable-next-line no-await-in-loop -- one game at a time
     const page = await worker.fetch(
@@ -153,7 +153,8 @@ test("games are files: published Games' HTML lands in R2 and still plays; unpubl
     );
     assert.equal(page.status, 200);
     assert.equal(page.headers.get("Content-Security-Policy"), GAME_CSP);
+    const html = game.html.replaceAll("/runtime/v1.js", "/runtime/v2.js");
     // oxlint-disable-next-line no-await-in-loop -- see above
-    assert.equal(await page.text(), game.html);
+    assert.equal(await page.text(), html);
   }
 });

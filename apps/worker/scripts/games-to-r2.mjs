@@ -1,7 +1,8 @@
 // `pnpm -F worker games-to-r2 [--remote]`: once, BEFORE migrations/*_games_are_files.sql reaches that D1 (#145). Copies
 // each published Game's HTML from D1 to R2 `games/<id>/index.html`, where the Worker now serves it; the migration then
 // drops the HTML, so a D1 migrated first has lost it. --remote is production (the deploy applies migrations); without it,
-// the local D1 and R2 that `wrangler dev` uses. Running it again rewrites the same objects.
+// the local D1 and R2 that `wrangler dev` uses. Running it again rewrites the same objects. Bubble Pop's page moves to
+// the runtime's v2: v1 is no longer served.
 import { readdirSync, readFileSync } from "node:fs";
 
 import { getPlatformProxy, unstable_splitSqlQuery } from "wrangler";
@@ -11,7 +12,12 @@ export const copyGames = async (DB, FILES) => {
     "SELECT id, html FROM games WHERE published = 1"
   ).all();
   await Promise.all(
-    results.map(({ html, id }) => FILES.put(`games/${id}/index.html`, html))
+    results.map(({ html, id }) =>
+      FILES.put(
+        `games/${id}/index.html`,
+        html.replaceAll("/runtime/v1.js", "/runtime/v2.js")
+      )
+    )
   );
   return results.map(({ id }) => id);
 };

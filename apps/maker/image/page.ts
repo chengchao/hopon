@@ -4,7 +4,7 @@
 export const MUSIC = "music.js";
 
 export const littlejsHtml = (music: boolean) =>
-  `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:#000;overflow:hidden;touch-action:none}</style></head><body><script src="/runtime/v1.js"></script>${music ? `<script src="${MUSIC}"></script>` : ""}<script src="game.js"></script></body></html>`;
+  `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:#000;overflow:hidden;touch-action:none}</style></head><body><script src="/runtime/v2.js"></script>${music ? `<script src="${MUSIC}"></script>` : ""}<script src="game.js"></script></body></html>`;
 
 // The harness's page rather than a plain-DOM game's own (which loads /dom.js): it never goes into the box.
 export const isLittlejsHtml = (html: string) =>

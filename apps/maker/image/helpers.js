@@ -132,7 +132,7 @@ export const playtest = async ({ inputs = [], ms } = {}) => {
     "/": isDom() ? readFileSync("index.html") : littlejsHtml(false),
     "/dom.js": readFileSync(path.join(here, "dom.js")),
     "/game.js": readFileSync("game.js"),
-    "/runtime/v1.js": readFileSync(path.join(here, "runtime.js")),
+    "/runtime/v2.js": readFileSync(path.join(here, "runtime.js")),
   };
   // The E2B template installs Chromium next to this file; its build-time ENV doesn't reach commands.run.
   if (existsSync(path.join(here, "browsers"))) {

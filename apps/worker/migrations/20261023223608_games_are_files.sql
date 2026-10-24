@@ -4,10 +4,11 @@
 -- Not drizzle-kit's rebuild: D1 ignores foreign_keys=OFF, and renaming a new table into place leaves the deferred
 -- violations from dropping `games` (which likes, comments and saves point at) counted. Re-inserting the rows into a
 -- table named `games` clears them. The id sequence is kept, so no new Game takes a deleted one's id, which its reports
--- still name. No CASE: wrangler's statement splitter reads its END as a block's.
+-- still name. No CASE: wrangler's statement splitter reads its END as a block's. Bubble Pop moves from the runtime's v1
+-- to v2 (games-to-r2 rewrites its page), since v1 is no longer served.
 ALTER TABLE `drafts` ADD `description` text;--> statement-breakpoint
 PRAGMA defer_foreign_keys=ON;--> statement-breakpoint
-CREATE TABLE `__games` AS SELECT "author", "created_at", "description", "id", "owner", iif("html" LIKE '%/runtime/v1.js%', 'v1', NULL) AS "runtime", "title" FROM `games` WHERE "published" = 1;--> statement-breakpoint
+CREATE TABLE `__games` AS SELECT "author", "created_at", "description", "id", "owner", iif("html" LIKE '%/runtime/v1.js%', 'v2', NULL) AS "runtime", "title" FROM `games` WHERE "published" = 1;--> statement-breakpoint
 CREATE TABLE `__games_seq` AS SELECT "seq" FROM `sqlite_sequence` WHERE "name" = 'games';--> statement-breakpoint
 DROP TABLE `games`;--> statement-breakpoint
 CREATE TABLE `games` (

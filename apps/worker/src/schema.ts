@@ -11,7 +11,7 @@ import {
 
 // A published Game (#117); a Draft becomes one on Publish. Its files are in R2 under `games/<id>/`, index.html first.
 // `draft_id` is the Draft it came from, so the gateway's logs, keyed by Draft, still map to it (#120); null for Games
-// from before the Maker. `runtime` is the runtime its index.html loads ("v1"), null for plain DOM.
+// from before the Maker. `runtime` is the runtime its index.html loads ("v2"), null for plain DOM.
 export const games = sqliteTable(
   "games",
   {

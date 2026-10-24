@@ -125,8 +125,8 @@ Worker 测试在 wrangler 提供的真实本地 D1（workerd）上运行迁移�
 
 - 浏览和试玩无需登录；创建和发布需要 Clerk 邮箱验证码登录（新邮箱自动注册）。身份是 Clerk 用户 ID（JWT `sub`），存入 `games.owner`。Bearer token 不会被自动携带，因此无需 CSRF 检查。Clerk token 约 60 秒过期，应用每次请求都取新 token。
 - Draft 仅拥有者可通过签名试玩链接预览（第 8 步）。发布（`POST /api/drafts/:id/publish`，有 Revision 且没有进行中的回合时）把当前 Revision 的全部文件原样复制到 R2 `games/<id>/`，`games` 行记下 Draft 的 id（`draft_id`）和运行时版本，然后删除该 Draft。已发布游戏公开于 `/games/<id>/<file>`（游戏 CSP），信息流加载 `/games/<id>/index.html`；删除或 Ban 游戏时一并删除其文件。删除账户后已发布游戏仍保留。
-- 游戏在 WebView 中运行。原生 WebView 没有 iframe 的 `sandbox` 属性，隔离依赖响应 CSP（`sandbox allow-scripts`，禁止网络、表单、嵌套框架和同源权限；脚本和媒体只能内联或来自本站，例如游戏运行时 `/runtime/v1.js`），并禁止导航、新窗口和文件访问。沙箱的不透明源没有存储；WebView 不用 incognito，以便缓存运行时。消息只从应用发往游戏（暂停、继续、静音），游戏无法向应用发消息。沙箱不是 CPU 配额，错误的游戏代码仍可能卡住 WebView。
-- 游戏运行时是 LittleJS 加 hopon 脚手架（`apps/maker/image/scaffold.js`），由 `pnpm -F maker build:runtime` 构建，同一份字节供 Coder 的试玩和 Worker 使用；`apps/worker/src/runtime/v1.json` 已提交，过期时测试失败。v1 缓存为 immutable：上线后在 `apps/maker/src/runtime.ts` 设置 `V1_SHA256` 冻结它，之后的改动作为 v2 发布。
+- 游戏在 WebView 中运行。原生 WebView 没有 iframe 的 `sandbox` 属性，隔离依赖响应 CSP（`sandbox allow-scripts`，禁止网络、表单、嵌套框架和同源权限；脚本和媒体只能内联或来自本站，例如游戏运行时 `/runtime/v2.js`），并禁止导航、新窗口和文件访问。沙箱的不透明源没有存储；WebView 不用 incognito，以便缓存运行时。消息只从应用发往游戏（暂停、继续、静音），游戏无法向应用发消息。沙箱不是 CPU 配额，错误的游戏代码仍可能卡住 WebView。
+- 游戏运行时是 LittleJS 加 hopon 脚手架（`apps/maker/image/scaffold.js`），由 `pnpm -F maker build:runtime` 构建，同一份字节供 Coder 的试玩和 Worker 使用；`apps/worker/src/runtime/v2.json` 已提交，过期时测试失败。v2 缓存为 immutable：上线后在 `apps/maker/src/runtime.ts` 设置 `V2_SHA256` 冻结它，之后的改动作为 v3 发布。
 - 每个 Clerk 账户每个 UTC 日最多 10 次 Maker 构建，失败也计数；批量注册可绕过，依赖 Clerk 的注册防护。
 - 评论：任何人可读；发表需登录并有 @handle，只能评论已发布游戏，1–300 字纯文本，每个账户每个 UTC 日最多 100 条。评论者本人或游戏创作者可删除（硬删除）。删除账户后评论保留，显示发表时的 handle。
 - 收藏（Save）：仅本人可见，不显示收藏数；需要登录（未登录不在设备上暂存），只能收藏已发布游戏。收藏列表按收藏时间倒序分页；从列表点开进入收藏流，从所点游戏开始向更早的收藏滑动。删除账户后收藏保留。
