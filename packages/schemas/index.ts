@@ -41,10 +41,11 @@ export const newReport = z.object({
 
 // What the API sends back. The API checks each response with `satisfies`, so renaming a field breaks the build instead of a screen.
 
-/** One of the signed-in user's Drafts, as their list shows it. `title` is null until the Maker names the game. */
+/** One of the signed-in user's Drafts. `title` and `description` are null until the Maker names the game. */
 export interface DraftSummary {
   id: string;
   title: string | null;
+  description: string | null;
   updatedAt: string;
 }
 

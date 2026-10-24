@@ -41,6 +41,7 @@ export class Coder extends Container<Env> {
       E2B_API_KEY: env.E2B_API_KEY,
       MAKER_CODER_EFFORT: env.MAKER_CODER_EFFORT,
       MAKER_CODER_MODEL: env.MAKER_CODER_MODEL,
+      MAKER_E2B_TEMPLATE: env.MAKER_E2B_TEMPLATE,
     };
   }
 

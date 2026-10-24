@@ -1,6 +1,6 @@
-// Play (#119, #148): the Draft's current Revision full height over the chat, with Back to chat and Restart. Its preview
-// URL is minted on open, on every turn_done and after the WebView's content process dies. A Revision that lands while
-// the Creator plays waits behind the "New version · Reload" pill.
+// Play (#119, #148): the Draft's current Revision full height over the chat, with Back to chat, Restart and Publish.
+// Its preview URL is minted on open, on every turn_done and after the WebView's content process dies. A Revision that
+// lands while the Creator plays waits behind the "New version · Reload" pill.
 import { useAuth } from "@clerk/expo";
 import type { DraftSummary } from "@hopon/schemas";
 import { ChevronLeft, RotateCcw } from "lucide-react-native";
@@ -21,11 +21,16 @@ export const Play = ({
   draft,
   turns,
   onClose,
+  canPublish,
+  onPublish,
 }: {
   draft: DraftSummary;
   // How many turns have ended since the chat opened: each one may have landed a Revision.
   turns: number;
   onClose: () => void;
+  // As in the chat's header: not while a turn runs.
+  canPublish: boolean;
+  onPublish: () => void;
 }) => {
   const insets = useSafeAreaInsets();
   const { getToken } = useAuth();
@@ -100,6 +105,14 @@ export const Play = ({
         <Button size="sm" variant="ghost" onPress={() => mint(true)}>
           <RotateCcw color={COLORS.paper} size={18} />
           <Text>Restart</Text>
+        </Button>
+        <Button
+          size="sm"
+          className="rounded-full"
+          disabled={!canPublish}
+          onPress={onPublish}
+        >
+          <Text>Publish</Text>
         </Button>
       </View>
       <View className="flex-1 justify-center px-3">

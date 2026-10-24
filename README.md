@@ -80,20 +80,24 @@ pnpm run db:local
 
 ## 部署
 
-已配置用户选择的 Chengchao60827@gmail.com 账号及专用 hopon D1 数据库（迁移到其他账号时才需要 `wrangler d1 create hopon`，并同时更新 `apps/worker/wrangler.jsonc` 的 `account_id` 和 `apps/worker/package.json` 里 `db:remote`、`deploy` 的 `CLOUDFLARE_ACCOUNT_ID`）。
+已配置用户选择的 Chengchao60827@gmail.com 账号及专用 hopon D1 数据库（迁移到其他账号时才需要 `wrangler d1 create hopon`，并同时更新 `apps/worker/wrangler.jsonc` 的 `account_id` 和 `apps/worker/package.json` 里 `db:remote`、`deploy`、`deploy:staging` 的 `CLOUDFLARE_ACCOUNT_ID`）。
+
+部署由 Cloudflare 的 Workers Builds（Worker 设置里的 Git 集成）完成，GitHub 上没有部署 workflow，也没有 Cloudflare 令牌：
+
+- **Staging**：`hopon-staging` Worker（`wrangler.jsonc` 的 `env.staging`，有自己的 D1 `hopon-staging`、R2 `hopon-staging`、Durable Objects、容器和 E2B 模板 `hopon-maker-staging`）。每次推送到 `main` 运行 `pnpm run deploy:staging`。
+- **生产**：`hopon` Worker，推送到 `production` 分支时运行 `pnpm run deploy`。上线就是把 `main` 推过去：`git push origin origin/main:production`。
+
+两个命令都按同一顺序：先重建 E2B 模板（`pnpm -F maker template`；E2B 缓存每一步，只有文件变了的步骤会重做），再应用 D1 迁移，最后 `wrangler deploy` 一次发布 Worker、Talker 和 Coder 的容器镜像。只有已连接 Worker 的生产分支会构建并推送容器镜像，所以 staging 是独立的 Worker 而不是预览版本。容器的 `rollout_active_grace_period` 是 300 秒，部署会等正在运行的构建结束。Workers Builds 不等 GitHub 检查，所以 `main` 受分支保护：PR 须通过 Check 和 Commit messages 才能合并。`test/staging.test.js` 检查 `env.staging` 与顶层的绑定、变量、密钥和容器一致（wrangler env 不继承这些）。
+
+首次配置（staging 的 D1 和 R2、两个 Worker 的全部运行时密钥 `CLERK_JWT_KEY`、`CLERK_SECRET_KEY`、`OPERATOR_PASSWORD`、`OPERATOR_WEBHOOK_URL`、`CLOUDFLARE_API_KEY`、`E2B_API_KEY`、`PREVIEW_SECRET`，构建密钥 `E2B_API_KEY`，在面板里连接两个 Worker，`production` 分支，`main` 的分支保护，第一次上线）运行向导，可中断后用 `FROM=<n>` 从某一步重跑。staging 用 Clerk 的 Development 实例，生产用 Production 实例：
 
 ```sh
-pnpm -F worker exec wrangler secret put CLERK_JWT_KEY < clerk-public-key.pem
-pnpm -F worker exec wrangler secret put CLERK_SECRET_KEY   # 生产实例的 sk_live_...
-pnpm -F worker exec wrangler secret put OPERATOR_WEBHOOK_URL
-pnpm -F worker exec wrangler secret put OPERATOR_PASSWORD
-openssl rand -base64 32 | pnpm -F worker exec wrangler secret put PREVIEW_SECRET
-pnpm -F worker exec wrangler r2 bucket create hopon   # 只需一次
-pnpm -F worker games-to-r2 --remote   # 只需一次，必须在 *_games_are_files.sql 迁移之前（见下）
-pnpm run deploy
+scripts/deploy-setup.sh
 ```
 
-`deploy` 先应用远程迁移（`db:remote`，需确认）再部署 Worker：新代码可能写入新列，而迁移只追加，正在运行的旧 Worker 不受影响。例外是 `*_games_are_files.sql`（#145）：它删除 `games.html` 和未发布的行，不可逆。部署它之前先运行 `games-to-r2 --remote`，把每个已发布游戏的 HTML 写入 R2 `games/<id>/index.html`；输出应为 `Remote: copied N games`。
+迁移只追加，新代码可能写入新列，正在运行的旧 Worker 不受影响。例外是 `*_games_are_files.sql`（#145）：它删除 `games.html` 和未发布的行，不可逆。第一次生产部署前必须运行一次 `pnpm -F worker games-to-r2 --remote`（向导会在它尚未应用时运行），把每个已发布游戏的 HTML 写入 R2 `games/<id>/index.html`；输出应为 `Remote: copied N games`。staging 的 D1 是新建的，原创游戏在 R2 里没有文件，信息流里打不开。
+
+从本机部署仍可用 `pnpm run deploy`（需要 Docker 构建容器镜像，以及 `apps/maker/.env` 里的 `E2B_API_KEY` 构建模板），但会绕过 `main` 的检查，只在 Workers Builds 不可用时使用。
 
 远程命令报 `[code: 7403]` 时先重跑一次：wrangler 的 OAuth 令牌过期后，刷新令牌的那一次请求会失败。仍然失败就运行 `pnpm -F worker exec wrangler whoami`，Token Permissions 里没有 `d1` 和 `workers` 时，令牌权限不足，用 `pnpm -F worker exec wrangler login` 重新登录。
 
