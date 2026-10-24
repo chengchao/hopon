@@ -424,7 +424,7 @@ const previewRevision = (url: string) =>
   url.match(/\/drafts\/[^/]+\/(?<n>\d+)\//u)?.groups?.n;
 
 // Play's "New version · Reload" pill (#148): the newest preview URL is of a later Revision than the one playing.
-export const newVersion = (playing: string | undefined, fresh: string) =>
+export const newRevision = (playing: string | undefined, fresh: string) =>
   playing !== undefined && previewRevision(playing) !== previewRevision(fresh);
 
 // Publish (#119): once the Draft has a Revision, which the Maker titles, and no turn is running.

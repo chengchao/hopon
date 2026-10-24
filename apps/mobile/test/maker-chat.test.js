@@ -5,7 +5,7 @@ import {
   chatView,
   makerChat,
   NEW_CHAT,
-  newVersion,
+  newRevision,
   publishable,
 } from "../lib/maker-chat.ts";
 
@@ -529,10 +529,10 @@ const preview = (n, exp) =>
 
 test("Play shows the Reload pill only when a newer Revision than the one playing has landed", () => {
   // Before the game loads, and on a turn that built nothing (a fresh link to the same Revision).
-  assert.equal(newVersion(undefined, preview(1, 100)), false);
-  assert.equal(newVersion(preview(1, 100), preview(1, 160)), false);
-  assert.equal(newVersion(preview(1, 100), preview(2, 160)), true);
-  assert.equal(newVersion(preview(9, 100), preview(10, 160)), true);
+  assert.equal(newRevision(undefined, preview(1, 100)), false);
+  assert.equal(newRevision(preview(1, 100), preview(1, 160)), false);
+  assert.equal(newRevision(preview(1, 100), preview(2, 160)), true);
+  assert.equal(newRevision(preview(9, 100), preview(10, 160)), true);
 });
 
 test("Publish waits for a Revision (the Maker's title) and for the turn to end", () => {

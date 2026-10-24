@@ -14,7 +14,7 @@ import { GameView } from "@/components/game-view";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
-import { newVersion } from "@/lib/maker-chat";
+import { newRevision } from "@/lib/maker-chat";
 import { COLORS } from "@/lib/theme";
 
 export const Play = ({
@@ -136,7 +136,7 @@ export const Play = ({
             </View>
           )}
         </View>
-        {fresh && newVersion(playing, fresh) && (
+        {fresh && newRevision(playing, fresh) && (
           <View className="absolute inset-x-0 top-3 items-center">
             <Button size="sm" className="rounded-full" onPress={reload}>
               <Text>New version · Reload</Text>
