@@ -589,6 +589,25 @@ export class PiCoder extends DurableObject<
       // #116's step limit: the 13th call is blocked and the run aborted.
       const limits = hook(ToolTask, {
         afterTool: (call, result) => {
+          // What each activate_skill call actually returned, kept per job, so a run shows which skills the model loaded
+          // and whether their whole text came back.
+          if (call.name === "activate_skill" && this.job) {
+            const text = (result.output ?? [])
+              .flatMap((part) => (part.type === "text" ? [part.text] : []))
+              .join("");
+            const record = {
+              chars: text.length,
+              heading:
+                text.split("\n").find((line) => line.startsWith("# ")) ?? null,
+              skill: String((call.arguments as { name?: unknown }).name),
+            };
+            const key = `skills:${this.job.jobId}`;
+            this.ctx.storage.kv.put(key, [
+              ...(this.ctx.storage.kv.get<unknown[]>(key) ?? []),
+              record,
+            ]);
+            this.emit({ skillLoaded: record, type: "spike" });
+          }
           console.log(
             "tool end",
             call.name,
@@ -637,7 +656,12 @@ export class PiCoder extends DurableObject<
         },
         onYield: async (answer) => {
           const state = this.job;
-          if (!state || this.ctx.storage.kv.get(`final:${state.jobId}`)) {
+          // A skills probe builds nothing, so it has no ending to run.
+          if (
+            !state ||
+            state.jobId.startsWith("probe-") ||
+            this.ctx.storage.kv.get(`final:${state.jobId}`)
+          ) {
             return;
           }
           const text = answer.content
@@ -844,6 +868,40 @@ export class PiCoder extends DurableObject<
     const { pathname } = new URL(request.url);
     // Spike only: reset this object the way a crash or an eviction does. A deploy doesn't: Cloudflare lets the running
     // object finish its work on the old version.
+    // Spike only: does pi-durable in this object use its skills? A fresh conversation is asked to list the skills it is
+    // offered, load two with activate_skill, and quote each one's first heading; the server records what the tool
+    // returned.
+    if (request.method === "POST" && pathname === "/skills") {
+      const jobId = `probe-${Date.now()}`;
+      const session = this.harness.session();
+      if (await session.busy()) {
+        await session.abort();
+      }
+      await session.reset();
+      this.job = {
+        deadlineAt: Date.now() + 300_000,
+        input: {
+          draftId: this.draftId,
+          revision: 0,
+          source: {},
+          spec: { brief: "", music: null, title: "" },
+        },
+        jobId,
+        playtests: [],
+        steps: 0,
+      };
+      const receipt = await this.harness.submit(
+        "This is a check of your skills, not a build; use no tool other than activate_skill. 1) List the names of the skills you are offered. 2) Load the dom-games skill, then the zzfx skill, with activate_skill. 3) For each skill you loaded, copy its first Markdown heading line exactly.",
+        { operationId: jobId }
+      );
+      const result = await this.harness.wait(receipt.operationId);
+      return Response.json({
+        answer: result.text,
+        calls: this.ctx.storage.kv.get(`skills:${jobId}`) ?? [],
+        status: result.status,
+        steps: this.job?.steps,
+      });
+    }
     if (request.method === "POST" && pathname === "/crash") {
       this.ctx.abort("spike: simulated crash");
     }
@@ -933,6 +991,7 @@ export class PiCoder extends DurableObject<
             jobId,
             playtests: this.job?.playtests.length,
             reason: result.reason,
+            skills: this.ctx.storage.kv.get(`skills:${jobId}`) ?? [],
             status: result.status,
             steps: this.job?.steps,
             wallMs: Date.now() - startedAt,

@@ -263,6 +263,39 @@ Run 2026-10-26 as the throwaway Worker `hopon-pi-coder-spike`: the pi-durable Co
 - with the constructor setting 10 minutes again, it found the **same box** running;
 - with the constructor's timeout off (`NO_CTOR_TIMEOUT`), it got a **new box** (538 ms).
 
+## Skills in pi-durable on Cloudflare
+
+Run 2026-10-26: under `wrangler dev`, then on the deployed `hopon-pi-coder-spike`, since deleted. The question was whether pi-durable running in a Durable Object can use the Coder's skills.
+
+**How skills reach the model here.**
+
+- agents' `skills(fromManifest(...))` takes the four `SKILL.md` files, which are bundled into the Worker, and adds a `skills` prompt section. That section lists only each skill's name and description, under "When a task matches a skill, use activate_skill with its name before proceeding."
+- The model calls `activate_skill({ name })`, and the tool's result is that skill's full text, served from the Worker's memory. Nothing is read from disk or from the box.
+- (pi-coding-agent instead lists skill file paths, which its `read` tool opens. That's why that Coder needed them written to `/tmp`.)
+
+**What was checked.** An `afterTool` hook records every `activate_skill` call: the skill's name, the length of the text returned, and its first heading. The record is kept in the object's storage and sent on the job's stream.
+
+**A probe** (`POST …/skills`). A fresh conversation is asked to list the skills it's offered, load `dom-games` and `zzfx`, and quote each one's first heading.
+
+- 1 of 1 locally and 2 of 2 on Cloudflare: the model named all four skills and loaded the two asked for.
+- Each call returned the whole skill: 6,997 and 2,168 characters, the files without their frontmatter.
+- The model quoted both headings exactly, so their text reached it.
+
+**Builds that pick their own skills**, on Cloudflare:
+
+| Build | Skills it loaded | Result |
+| --- | --- | --- |
+| A planet quiz (plain DOM) | `dom-games` (6,997 chars) | `done`, 54 s |
+| Star Catcher with music (LittleJS) | `littlejs-api` (21,736 chars), then `music-synth` (3,569 chars) | `done`, 56 s, with `music.js` |
+| Pair Up memory game (plain DOM) | `dom-games` (6,997 chars) | `done`, 45 s |
+
+So yes: on Cloudflare, pi-durable offers the skills, the model loads the right one for the game, the whole text comes back, and the games are built from it.
+
+- `read_skill_resource` wasn't exercised: our skills have no extra files.
+- `zzfx` was loaded only by the probe. No build asked for an extra sound.
+
+**Cleanup.** The Worker and its container app are deleted. In the registry, this deploy reused the earlier image, and that image's manifests are gone (404). But two small artifacts attached to them remain in `hopon-pi-coder-spike-picoder-box`: the registry refuses to delete them (`409 SINGLETON_ARTIFACT_EXISTS`), and `wrangler containers images delete` accepts only `image:tag`.
+
 ## What ADR 0003 would change
 
 - **The Coder** becomes a plain SQLite Durable Object per Draft, running pi-coding-agent on workerd. It's no longer a `@cloudflare/containers` `Container` running `apps/maker/src/server.ts`.
