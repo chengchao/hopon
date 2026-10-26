@@ -1,10 +1,12 @@
 # Calls node_modules/.bin directly so hooks don't depend on how pnpm is installed.
-# Vendored Clerk skills, vendored repos/, and generated files are left exactly as their tools wrote them.
+# Vendored Clerk skills, vendored repos/, and generated files are left exactly as their tools wrote them. Throwaway
+# spike code under spikes/ (kept on prototype/* branches) commits as written.
 pre-commit:
   exclude:
     - ".agents/**"
     - ".claude/**"
     - "repos/**"
+    - "spikes/**"
     - "apps/maker/eval/revisions/**"
     - "**/migrations/**"
     - "**/worker-configuration.d.ts"
