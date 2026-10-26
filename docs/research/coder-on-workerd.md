@@ -13,6 +13,8 @@ Spike for the Container trouble PR #165's Preview check found. Run 2026-10-24 an
 
 Five things break on workerd. Each has a small fix, listed in [What breaks on workerd](#what-breaks-on-workerd). The fallback (step 3: pi in a container of its own, the box in a separate Box Durable Object) isn't needed.
 
+**A second Coder on pi-durable** (the Talker's harness, set up as Cloudflare's Pi harness docs show) is the better choice, as long as the eval agrees. It finishes a job across a restart, where the pi-coding-agent Coder starts over. It needs none of the workarounds, and its bundle is a quarter of the size. See [pi-durable instead of pi-coding-agent](#pi-durable-instead-of-pi-coding-agent).
+
 ## What was built
 
 - **`spikes/coder-on-workerd/src/index.ts`**: a Worker and a `Coder extends DurableObject`, named by the Draft's id. It serves the same `/__coder/:draftId/jobs/:jobId` and `DELETE …/box` routes that `coder-smoke.mjs` already calls. Deployed, every route sits under `/t/<SPIKE_TOKEN>/`, so nobody else could spend the model key.
@@ -139,6 +141,58 @@ Containers bill active CPU at $0.000020 per vCPU-second, and memory at $0.000002
 - Dropping the Coder Container saves its `basic` instance for each job plus its 2 min `sleepAfter`, about $0.0005 a build.
 - The Coder Durable Object adds about $0.0001 a build: about 7.7 GB-s of duration, and 0.4–1.4 s of CPU.
 - Active CPU in the box wasn't measured, so the CPU line is a ceiling.
+
+## pi-durable instead of pi-coding-agent
+
+Run 2026-10-25 under `wrangler dev`, after the deployed run, following [the Pi harness docs](https://developers.cloudflare.com/agents/harnesses/pi/) and [their extensions page](https://developers.cloudflare.com/agents/harnesses/pi/extensions/). Code: `spikes/coder-on-workerd/src/pi-coder.ts`, served under `/t/<token>/pi/__coder/…`, so `smoke:coder` runs it with `CODER_URL=…/t/local/pi`.
+
+**How it's built.** It follows the docs' shape, with one Durable Object per Draft, as today:
+
+- A plain `DurableObject` with `Lifecycle.install(this).use(this.harness)`, and the registry as a class field.
+- `PiHarness` opens `Harness.open()` with the Talker's way of reaching the model: pi-ai's Anthropic API with a per-request `fetch` that calls `modelFetch`.
+- pi-durable's own `CodingTools` (`read`, `write`, `edit`, `bash`). They reach the box through `Harness.open`'s `env`: an `ExecutionEnv` over `ctx.container.exec`.
+  - The four tools call nine of its methods (`absolutePath`, `joinPath`, `canonicalPath`, `exists`, `fileInfo`, `openBinaryReader`, `readTextFile`, `writeFile`, `exec`), about 200 lines.
+- The skills come through agents' `skills(fromManifest(...))`, which adds the `activate_skill` and `read_skill_resource` tools. `AGENTS.md` is a prompt section, with its "read the skill with the read tool" line pointed at `activate_skill`.
+- `playtest` is a `defineTool` with `replay: "safe"`: it plays the workspace as it is, so running it twice is harmless.
+- A `ToolTask` `beforeTool` hook keeps the 12-step limit: it blocks the 13th call and aborts the run.
+- A `GenerationTask` `onYield` hook runs the job's ending (music render, files read back) inside pi's run.
+- The job id is the submission's `operationId`, so a re-POST of the same job attaches to it.
+- The job's limits, playtests and final event live in the object's SQLite (`ctx.storage.kv`).
+- The box gets `setInactivityTimeout(10 min)`, so it outlives an idle or restarted object.
+
+|  | pi-coding-agent Coder | pi-durable Coder |
+| --- | --- | --- |
+| **Worker reloaded mid-job (what a deploy does), then the job re-POSTed** | Starts over from scratch: "Reading the docs" again. That run then failed "never playtested", likely with the first run's processes still in the box. | Resumes where it was. It ended `done` in 4 of 5 runs, and 2 of 2 after the fix below. With 45 s and nobody connected, pi finished the game, the music and the ending on its own (its alarm restarted the object), and the re-POST got the stored result at once. |
+| Plain builds, same session | 4 of 4 `done`, 42–61 s, 3–5 steps, 0.53–0.78¢ | 7 of 7 `done`, 28–50 s, 3–4 steps, 0.29–0.42¢ |
+| Music builds | 2 of 2 `done` (49 s, 78 s) | 4 of 6 the model could finish were `done` (the restart runs count). One went over 12 steps, one wrote 42.7 s of music (the cap is 40 s). |
+| Workarounds needed on workerd | All five (`define`s, TypeBox setting, drained streams, `autoResizeImages: false`), plus moving `routeModels`' global `fetch` to per-job state | Only draining the box's streams, which is about `exec()`, not pi. `read` sends PNGs as they are, with no Photon. The model's `fetch` is per request. |
+| Bundle | 14.4 MB, 2.6 MB gzipped | **3.6 MB, 753 KB gzipped**, including `agents/skills`' peers |
+| Startup, local profile | 549 ms active | **56 ms** active |
+| Versions | pi-coding-agent 1.3.0 (today's) | `agents` 0.30.1 and Pi 1.4.0, the docs' minimum. The repo pins `agents` 0.28.1 and Pi 1.3.0. |
+
+**What it found:**
+
+- **A durable run needs a durable ending.** The first restart test failed even though pi finished the game on its own. The ending ran in the HTTP handler, and the box had shut down once the object went idle, so the re-POST got an empty box.
+  - Fix: run the ending in the `onYield` hook and keep the box with `setInactivityTimeout`.
+  - A run that is stopped (deadline, step limit, cancel) never yields, so the handler still ends that one.
+- **pi-durable needs no TypeBox workaround.** With pi-coding-agent's `Settings.Set` switched off for pi-durable's copy of TypeBox (confirmed in the bundle), both builds ended `done`.
+  - It also showed a trap: two copies of TypeBox 1.3.27 are bundled. My first rerun of the pi-coding-agent Coder failed 6 of 6, because its setting reached the wrong copy.
+- **`agents/skills` pulls in optional peers.** It imports `ai`, `@cloudflare/codemode` and `just-bash` for running skill scripts, which we never use. They're inside the 753 KB. A prompt section and one small `read_skill` tool would avoid them.
+- **pi-durable's tools are not pi-coding-agent's.** `edit` takes an array of `oldText`/`newText` pairs, and `read` pages files by line.
+  - The model coped in every build.
+  - The 2 music failures are the kind the eval counts, and 12 builds say nothing about the pass rate. #116's eval ran 72.
+
+**Not measured:** CPU per job on Cloudflare (pi-durable writes a checkpoint at every step), a real deploy instead of a dev reload, and the eval.
+
+**Verdict:** pi-durable is the better choice for the Coder.
+
+- It's the only one of the two that survives an eviction or a deploy mid-build.
+- It's the Talker's own stack, it runs on workerd without workarounds, and it's a quarter of the size.
+
+What has to happen first:
+
+1. Upgrade `agents` to 0.30 and Pi to 1.4. The Talker shares them, so re-run its eviction and snapshot checks, as ADR 0003 asks for every upgrade.
+2. Run the Coder eval on the pi-durable Coder, and switch only if it holds #116's pass rate.
 
 ## What ADR 0003 would change
 

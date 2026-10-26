@@ -1,4 +1,4 @@
-/* oxlint-disable complexity, import/first, no-await-in-loop, no-empty-function, no-promise-executor-return, no-void, promise/avoid-new, promise/prefer-await-to-callbacks, promise/prefer-await-to-then, promise/prefer-catch -- throwaway spike */
+/* oxlint-disable complexity, unicorn/prefer-export-from, import/first, no-await-in-loop, no-empty-function, no-promise-executor-return, no-void, promise/avoid-new, promise/prefer-await-to-callbacks, promise/prefer-await-to-then, promise/prefer-catch -- throwaway spike */
 // Spike: the Coder as one Durable Object per Draft that runs pi's loop itself (apps/maker/src/coder.ts runJob,
 // unchanged), with the Draft's box a Container it controls through the Durable Object Container API. No E2B, no Coder
 // Container. Routes mirror the dev route coder-smoke.mjs uses:
@@ -9,12 +9,14 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 
 import { DurableObject } from "cloudflare:workers";
+// Two copies of TypeBox 1.3.27 are bundled: the spike's (pi-durable, pi-ai 1.4) and pnpm's (pi-coding-agent, pi-ai 1.3).
 import { Settings } from "typebox/system";
 
 import DOM from "../../../apps/maker/agent-home/.agents/skills/dom-games/SKILL.md";
 import LITTLEJS from "../../../apps/maker/agent-home/.agents/skills/littlejs-api/SKILL.md";
 import MUSIC from "../../../apps/maker/agent-home/.agents/skills/music-synth/SKILL.md";
 import ZZFX from "../../../apps/maker/agent-home/.agents/skills/zzfx/SKILL.md";
+import { Settings as PnpmSettings } from "../../../node_modules/.pnpm/typebox@1.3.27/node_modules/typebox/build/system/index.mjs";
 import BROWSER from "../box/files/browser.js.txt";
 import DOM_D from "../box/files/dom.d.ts.txt";
 import DOM_JS from "../box/files/dom.js.txt";
@@ -43,7 +45,11 @@ import type { CoderEvent, Job } from "../../../apps/maker/src/coder.ts";
 import { CANDIDATES, routeModels } from "../../../apps/maker/src/models.ts";
 import { modelFetch } from "../../../packages/model-fetch/index.ts";
 import { execBox, memoryBox } from "./box.ts";
+import "./reload.ts";
+import { PiCoder } from "./pi-coder.ts";
 import { probe, readPng } from "./probe.ts";
+
+export { PiCoder };
 
 // coder.ts reads agent-home from path.join(import.meta.dirname, "..", "agent-home"); wrangler's `define` makes that
 // /tmp/maker/agent-home, and each job writes the bundled copy there (workerd's /tmp lives for one request).
@@ -64,14 +70,18 @@ const writeAgentHome = () => {
 
 // workerd forbids new Function inside a request; TypeBox caches CanEvaluate() true from startup, so pi-ai's Compile()
 // of every tool schema throws "Code generation from strings disallowed". Its interpreted checker needs no eval.
-Settings.Set({ useAcceleration: false });
+PnpmSettings.Set({ useAcceleration: false });
+if (!globalThis.PI_DURABLE_EVAL_TEST) {
+  Settings.Set({ useAcceleration: false });
+}
 
 // Deployed, every route sits under /t/<SPIKE_TOKEN>/ so nobody else spends the model key.
 const ROUTE =
-  /^\/t\/(?<token>[^/]+)\/__coder\/(?<draftId>[^/]+)(?<path>\/.*)$/u;
+  /^\/t\/(?<token>[^/]+)(?<pi>\/pi)?\/__coder\/(?<draftId>[^/]+)(?<path>\/.*)$/u;
 
 interface SpikeEnv {
   CODER: DurableObjectNamespace<Coder>;
+  PI_CODER: DurableObjectNamespace<PiCoder>;
   CLOUDFLARE_ACCOUNT_ID: string;
   CLOUDFLARE_GATEWAY_ID: string;
   CLOUDFLARE_API_KEY: string;
@@ -474,11 +484,14 @@ export default {
     if (!route?.draftId || !route.path || route.token !== env.SPIKE_TOKEN) {
       return new Response("Not found", { status: 404 });
     }
-    return env.CODER.getByName(route.draftId).fetch(
-      new Request(
-        `http://coder${route.path}${new URL(request.url).search}`,
-        request
-      )
-    );
+    // /t/<token>/pi/__coder/... goes to the pi-durable Coder (src/pi-coder.ts).
+    return (route.pi ? env.PI_CODER : env.CODER)
+      .getByName(route.draftId)
+      .fetch(
+        new Request(
+          `http://coder${route.path}${new URL(request.url).search}`,
+          request
+        )
+      );
   },
 } satisfies ExportedHandler<SpikeEnv>;

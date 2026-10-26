@@ -25,11 +25,29 @@
         },
       },
     },
+    {
+      "class_name": "PiCoder",
+      "scheduling_policy": "durable_object",
+      // Local dev builds the box from this Dockerfile. The deployed run had it removed and booted from BOX_SNAPSHOT
+      // instead (made by POST /setup), because pushing the image from this Mac kept failing.
+      "images": {
+        "box": {
+          "dockerfile": "./box/Dockerfile",
+          "build_context": "../../apps/maker/image",
+        },
+      },
+    },
   ],
   "durable_objects": {
-    "bindings": [{ "name": "CODER", "class_name": "Coder" }],
+    "bindings": [
+      { "name": "CODER", "class_name": "Coder" },
+      { "name": "PI_CODER", "class_name": "PiCoder" },
+    ],
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Coder"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Coder"] },
+    { "tag": "v2", "new_sqlite_classes": ["PiCoder"] },
+  ],
   "limits": { "cpu_ms": 300000 },
   "vars": {
     "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",

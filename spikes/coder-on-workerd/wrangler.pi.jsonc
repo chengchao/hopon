@@ -1,0 +1,32 @@
+{
+  // The pi-durable Coder alone: no defines, no TypeBox setting, nothing from pi-coding-agent.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hopon-pi-coder-spike",
+  "main": "src/pi-only.ts",
+  "compatibility_date": "2026-09-29",
+  "compatibility_flags": ["nodejs_compat"],
+  "rules": [
+    { "type": "Text", "globs": ["**/*.md", "**/*.txt"], "fallthrough": true },
+  ],
+  "containers": [
+    {
+      "class_name": "PiCoder",
+      "scheduling_policy": "durable_object",
+      "images": {
+        "box": {
+          "dockerfile": "./box/Dockerfile",
+          "build_context": "../../apps/maker/image",
+        },
+      },
+    },
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "PI_CODER", "class_name": "PiCoder" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PiCoder"] }],
+  "limits": { "cpu_ms": 300000 },
+  "vars": {
+    "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
+    "CLOUDFLARE_GATEWAY_ID": "default",
+  },
+}
