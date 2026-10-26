@@ -194,6 +194,29 @@ What has to happen first:
 1. Upgrade `agents` to 0.30 and Pi to 1.4. The Talker shares them, so re-run its eviction and snapshot checks, as ADR 0003 asks for every upgrade.
 2. Run the Coder eval on the pi-durable Coder, and switch only if it holds #116's pass rate.
 
+## Cloudflare Sandbox 1.0
+
+Read 2026-10-25: [Sandboxes](https://developers.cloudflare.com/sandbox/), [the coding agent runner](https://developers.cloudflare.com/sandbox/get-started/build-a-coding-agent-runner/), [`@cloudflare/sandbox`](https://developers.cloudflare.com/sandbox/reference/), [Sandbox lifetime](https://developers.cloudflare.com/sandbox/concepts/lifetime/), and [Sandbox in the Agents SDK](https://developers.cloudflare.com/agents/tools/sandbox/).
+
+**A "sandbox" is now what this spike already built:** a Durable Object that controls its container through `ctx.container` under the `durable_object` policy.
+
+- Sandbox SDK 0.x, the `Sandbox` class with its own runtime in the image, is the legacy path.
+- `@cloudflare/sandbox` 1.x (1.0.3, 134 KB, depends on `zod` and `aws4fetch`) no longer starts or stops anything. It is three helper classes: `Files`, `S3Mount` and `DirectoryBackup`. They run a static `sandbox-shim` binary in the container through `exec()`, so the image needs `COPY --from=docker.io/cloudflare/sandbox:<version> /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim`.
+- For an agent whose loop runs in a Durable Object, Cloudflare's own pointer is the Agents SDK's Sandbox page. There, the model's tool calls `exec()` in the agent's attached container, which is the pi-durable Coder's shape.
+
+**What the spike should take from it:**
+
+- **Set the inactivity timeout in the constructor too.** "The timeout does not survive a restart": a restarted object starts without one, so the box stops shortly after the object goes idle. The pi-durable Coder sets it only after `start()`.
+  - Its restart tests passed because pi's 30-second heartbeat alarm kept the object active until the run ended. After a deploy, though, the box would not wait for the next turn.
+  - Every example sets it again in the constructor (`if (ctx.container?.running) ctx.blockConcurrencyWhile(() => container.setInactivityTimeout(...))`).
+- **A deploy keeps the box running.** "A running instance keeps running, and the next request reaches the same instance, with its files and processes." That answers the open question about Coder deploys.
+- **Code inside the box doesn't keep it alive.** Only the object's activity does (requests, streamed responses, alarms). pi-durable's heartbeat alarm covers a run.
+- **Kill the whole command, not just its first process.** The Agents SDK example runs `timeout --kill-after=5 60 bash -lc <command>`, which stops every process the command started. That closes production change 5.
+- **A piped process gets `SIGPIPE` once the request that started it ends.** A `bash` call in flight when the object restarts dies with it. pi-durable doesn't replay `bash` anyway, but background work belongs in `setsid` plus log files, as the runner does.
+- **`Files` could replace the hand-made file operations** in `box.ts` and `boxEnv`: `cat`, `stat` parsed from text, writes piped through `cat`, and "not found" guessed from stderr.
+  - It offers `readFile` (streamed), `writeFile`, `stat`, `readDirectory`, `mkdir`, `rename` and `remove`, with typed errors (`SandboxFileError` with `ENOENT` and the like).
+  - The cost is the shim in the image and a package whose version must match the image tag. Not tried.
+
 ## What ADR 0003 would change
 
 - **The Coder** becomes a plain SQLite Durable Object per Draft, running pi-coding-agent on workerd. It's no longer a `@cloudflare/containers` `Container` running `apps/maker/src/server.ts`.
