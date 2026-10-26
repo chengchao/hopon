@@ -196,7 +196,7 @@ REPO=chengchao/hopon
 PNPM_VERSION=$(sed -nE 's/.*"packageManager": "pnpm@([^"]+)".*/\1/p' package.json)
 REQUIRED_SECRETS=(CLERK_JWT_KEY CLERK_SECRET_KEY OPERATOR_PASSWORD OPERATOR_WEBHOOK_URL CLOUDFLARE_API_KEY E2B_API_KEY PREVIEW_SECRET)
 WORKER_SECRETS=() # "<Worker> <NAME>" set this run
-TOTAL_STAGES=12
+TOTAL_STAGES=10
 
 # run_stage "Name" fn: shows the stage, then runs fn unless FROM skips past it.
 run_stage() {
@@ -213,34 +213,28 @@ stop() {
 # wr runs the repo's wrangler in apps/worker, so it reads apps/worker/wrangler.jsonc. Its stdin is never a terminal,
 # so it never offers to edit that file.
 wr() { pnpm --silent -F worker exec wrangler "$@"; }
-# ENV below is "" for the hopon Worker, "staging" for hopon-staging, or "preview" for hopon's Preview base config: the
-# secrets each new Preview of hopon starts with.
-worker_name() {
-  case "$1" in
-    "") printf 'hopon' ;;
-    preview) printf "hopon's Previews" ;;
-    *) printf 'hopon-%s' "$1" ;;
-  esac
-}
+# ENV below is "" for the hopon Worker, or "preview" for hopon's Preview base config: the secrets each new Preview of
+# hopon starts with.
+worker_name() { [[ "$1" == preview ]] && printf "hopon's Previews" || printf 'hopon'; }
 # secret_names ENV lists the secrets that Worker already has (none if it doesn't exist yet).
 secret_names() {
   if [[ "$1" == preview ]]; then
     wr preview base-config secret list --json </dev/null 2>/dev/null
   else
-    wr secret list --env "$1" </dev/null 2>/dev/null
+    wr secret list </dev/null 2>/dev/null
   fi | grep -oE '"name": *"[A-Z0-9_]+"' | grep -oE '[A-Z0-9_]+"$' | tr -d '"' || true
 }
-# put_secret ENV NAME < value: a secret on that Worker. On staging's first one, wrangler creates the Worker.
+# put_secret ENV NAME < value: a secret on that Worker, or on the Preview base config.
 put_secret() {
   if [[ "$1" == preview ]]; then
     wr preview base-config secret put "$2" >/dev/null || stop "wrangler preview base-config secret put $2 failed."
   else
-    wr secret put "$2" --env "$1" >/dev/null || stop "wrangler secret put $2 failed."
+    wr secret put "$2" >/dev/null || stop "wrangler secret put $2 failed."
   fi
   WORKER_SECRETS+=("$(worker_name "$1") $2")
   printf '  %s✓ set%s %s on %s\n' "$GREEN" "$RESET" "$2" "$(worker_name "$1")"
 }
-# clerk_page ENV: where that Worker's Clerk keys are. Staging and Previews use the Development instance, like local dev.
+# clerk_page ENV: where that Worker's Clerk keys are. Previews use the Development instance, like local dev.
 clerk_page() {
   open_url "https://dashboard.clerk.com/last-active?path=api-keys"
   if [[ -n "$1" ]]; then
@@ -273,7 +267,7 @@ set_worker_secrets() {
         ;;
       CLERK_SECRET_KEY)
         clerk_page "$env"
-        step "Copy the Secret key (sk_test_… for staging and Previews, sk_live_… for production)."
+        step "Copy the Secret key (sk_test_… for Previews, sk_live_… for production)."
         ask_secret CLERK_SECRET_KEY "Paste the Clerk secret key:"
         value=$CLERK_SECRET_KEY
         ;;
@@ -284,7 +278,7 @@ set_worker_secrets() {
         value=$OPERATOR_PASSWORD
         ;;
       OPERATOR_WEBHOOK_URL)
-        step "The webhook every new Report is POSTed to (README step 5). Staging and Previews can use a test one."
+        step "The webhook every new Report is POSTed to (README step 5). Previews can use a test one."
         ask_secret OPERATOR_WEBHOOK_URL "Paste the webhook URL:"
         value=$OPERATOR_WEBHOOK_URL
         ;;
@@ -308,11 +302,11 @@ set_worker_secrets() {
   done
 }
 
-banner "Deploys: Workers Builds for staging and production"
+banner "Deploys: Workers Builds for production and Previews"
 
 stage_start() {
-  say "Workers Builds deploys the hopon-staging Worker from main and the hopon Worker from the production"
-  say "branch, running the deploy scripts in apps/worker/package.json. This sets up both, once."
+  say "Workers Builds deploys the hopon Worker from the production branch and a Preview of it from every other"
+  say "branch (main's stands in for staging), with the scripts in apps/worker/package.json. This sets it up, once."
   local tool
   for tool in git gh pnpm openssl; do
     command -v "$tool" >/dev/null 2>&1 || stop "Install $tool first."
@@ -323,22 +317,25 @@ stage_start() {
     wr login
   fi
   git fetch -q origin
-  grep -q '"deploy:staging"' < <(git show origin/main:apps/worker/package.json) ||
-    stop "origin/main has no deploy:staging yet. Merge the Maker's PR first: Workers Builds runs main's scripts."
+  grep -q '"deploy:preview"' < <(git show origin/main:apps/worker/package.json) ||
+    stop "origin/main has no deploy:preview yet. Merge the Previews PR first: Workers Builds runs the branch's scripts."
   printf '  %s✓%s logged in, and main has the deploy scripts\n' "$GREEN" "$RESET"
   pause
 }
 run_stage "Before you start" stage_start
 
-stage_staging_resources() {
-  say "Staging has its own D1 database and R2 bucket, both named hopon-staging (apps/worker/wrangler.jsonc)."
+stage_preview_resources() {
+  say "Every Preview shares one D1 database and one R2 bucket, both named hopon-staging (the previews block in"
+  say "apps/worker/wrangler.jsonc)."
   if wr d1 info hopon-staging </dev/null >/dev/null 2>&1; then
     note "D1 hopon-staging exists"
   elif confirm "Create D1 database hopon-staging?"; then
     wr d1 create hopon-staging </dev/null >/dev/null || stop "wrangler d1 create failed."
     printf '  %s✓ created%s D1 hopon-staging\n' "$GREEN" "$RESET"
+    warn "Put its id (wrangler d1 info hopon-staging) in previews.d1_databases in apps/worker/wrangler.jsonc and in"
+    warn "apps/worker/wrangler.preview-migrations.jsonc, and merge that to main."
   else
-    stop "Staging's deploy needs it."
+    stop "The Previews need it."
   fi
   if wr r2 bucket info hopon-staging </dev/null >/dev/null 2>&1; then
     note "R2 hopon-staging exists"
@@ -346,19 +343,11 @@ stage_staging_resources() {
     wr r2 bucket create hopon-staging </dev/null >/dev/null || stop "wrangler r2 bucket create failed."
     printf '  %s✓ created%s R2 hopon-staging\n' "$GREEN" "$RESET"
   else
-    stop "Staging's deploy needs it."
+    stop "The Previews need it."
   fi
   pause
 }
-run_stage "Staging D1 and R2" stage_staging_resources
-
-stage_staging_secrets() {
-  say "hopon-staging's runtime secrets: the seven in secrets.required. A deploy fails while one is missing."
-  say "The first one creates the hopon-staging Worker, so Workers Builds can be connected to it."
-  set_worker_secrets staging
-  pause
-}
-run_stage "Staging Worker secrets" stage_staging_secrets
+run_stage "The Previews' D1 and R2" stage_preview_resources
 
 stage_production_secrets() {
   say "hopon's runtime secrets. It already has the older ones; the Maker adds CLOUDFLARE_API_KEY, E2B_API_KEY"
@@ -397,21 +386,15 @@ stage_production_branch() {
 }
 run_stage "The production branch" stage_production_branch
 
-# connect_worker WORKER BRANCH DEPLOY [PREVIEW]: the dashboard steps for one Worker's build. PREVIEW is the Preview
-# command for every other branch; without it, builds for other branches stay off.
-connect_worker() {
+stage_connect() {
   open_url "$CF_WORKERS"
-  step "Open $1 → Settings → Build → Connect, then GitHub → $REPO (install the Cloudflare app on it if asked)."
-  step "Git branch: $2"
+  step "Open hopon → Settings → Build → Connect, then GitHub → $REPO (install the Cloudflare app if asked)."
+  step "Git branch: production"
   step "Build command: pnpm install --frozen-lockfile"
-  step "Deploy command: $3"
-  if [[ -n "${4:-}" ]]; then
-    step "Builds for non-production branches: on, Preview command: $4"
-  else
-    step "Builds for non-production branches: off"
-  fi
+  step "Deploy command: pnpm run deploy"
+  step "Builds for non-production branches: on, Preview command: pnpm run deploy:preview"
   step "Root directory: apps/worker"
-  step "API token: the first time, Create new token; for the second Worker, pick that same token."
+  step "API token: Create new token."
   step "Build variable: PNPM_VERSION = $PNPM_VERSION"
   step "Build secret: E2B_API_KEY = the E2B key, for the template build in the deploy and Preview commands."
   step "Build watch paths: include *, exclude apps/mobile/* and docs/*"
@@ -420,21 +403,12 @@ connect_worker() {
     printf '%s' "$E2B_API_KEY" | pbcopy
     note "On the clipboard now; it's cleared when you go on."
   fi
-  step "Save. Nothing builds until the next push to $2."
+  step "Save. Nothing builds until the next push."
   pause "Saved?"
   command -v pbcopy >/dev/null 2>&1 && pbcopy </dev/null
   return 0
 }
-
-stage_connect_staging() {
-  connect_worker hopon-staging main "pnpm run deploy:staging"
-}
-run_stage "Connect hopon-staging to main" stage_connect_staging
-
-stage_connect_production() {
-  connect_worker hopon production "pnpm run deploy" "pnpm run deploy:preview"
-}
-run_stage "Connect hopon to production" stage_connect_production
+run_stage "Connect hopon to GitHub" stage_connect
 
 stage_previews() {
   say "Every other branch (main and each PR) gets a Worker Preview of hopon: its own URL, Talker, Coder and container,"
@@ -452,12 +426,12 @@ stage_previews() {
 run_stage "Worker Previews of hopon" stage_previews
 
 stage_token() {
-  say "All three commands apply D1 migrations and push the Coder's container image. Cloudflare's docs list"
+  say "Both commands apply D1 migrations and push the Coder's container image. Cloudflare's docs list"
   say "neither permission on the builds' default token, so check it now rather than on a failed build."
   open_url "https://dash.cloudflare.com/profile/api-tokens"
-  step "Edit the token you created when connecting the two Workers."
+  step "Edit the token you created when connecting hopon."
   step "Make sure it has Account → D1 → Edit and Account → Containers → Edit (add them if missing), next to"
-  step "the Workers Scripts and R2 permissions it came with. Preview builds need the same two."
+  step "the Workers Scripts and R2 permissions it came with."
   pause "Done?"
 }
 run_stage "The builds' API token" stage_token
@@ -483,14 +457,14 @@ JSON
 run_stage "Protect main" stage_protect_main
 
 stage_promote() {
-  say "Staging deploys on the next push to main (any merged PR). Its first build makes the hopon-maker-staging"
+  say "main's Preview builds on the next push to main (any merged PR). Its first build makes the hopon-maker-preview"
   say "E2B template from scratch, so it takes a few minutes."
   open_url "$CF_WORKERS"
-  step "Open hopon-staging → Deployments and wait for that build to go green."
-  step "Point a dev build of the app at it: EXPO_PUBLIC_API_URL=https://hopon-staging.<subdomain>.workers.dev"
+  step "Open hopon → Builds and wait for main's Preview build to go green."
+  step "Point a dev build of the app at it: EXPO_PUBLIC_API_URL=https://main-hopon.<subdomain>.workers.dev"
   step "with the Clerk Development publishable key, and make a game in a new Draft."
   step "Once, check a deploy mid-build: while a build runs, merge a PR to main. The turn should still finish."
-  pause "Staging checked?"
+  pause "main's Preview checked?"
   say "Promoting copies published Games' HTML to R2, runs production's migrations (with *_games_are_files.sql)"
   say "and deploys the hopon Worker."
   if confirm "Push origin/main to production now?"; then
@@ -501,7 +475,7 @@ stage_promote() {
     SKIPPED+=("promote: git push origin origin/main:production")
   fi
 }
-run_stage "Staging, then production" stage_promote
+run_stage "main's Preview, then production" stage_promote
 
 finish
 (( ${#WORKER_SECRETS[@]} )) && note "set Worker secrets: ${WORKER_SECRETS[*]}"

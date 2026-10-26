@@ -1,0 +1,15 @@
+// The Previews' D1 for `wrangler d1 migrations apply PREVIEW_DB --remote --config wrangler.preview-migrations.jsonc`,
+// which `pnpm run deploy:preview` runs before `wrangler preview`. It must name the database previews.d1_databases in
+// wrangler.jsonc binds; test/previews.test.js checks it.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "d1_databases": [
+    {
+      "binding": "PREVIEW_DB",
+      "database_name": "hopon-staging",
+      "database_id": "b0cd8575-00b5-4533-93fb-ba6e6e409dda",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "account_id": "51a5a41f7bd8425703a6f1d92f867f4d",
+}
