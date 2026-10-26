@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hopon-coder-spike",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-29",
+  "compatibility_flags": ["nodejs_compat"],
+  // coder.ts's AGENT_HOME is path.join(import.meta.dirname, "..", "agent-home"); see writeAgentHome.
+  "define": {
+    "import.meta.dirname": "\"/tmp/maker/src\"",
+    "import.meta.url": "\"file:///bundle/index.js\"",
+  },
+  "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
+  "containers": [
+    {
+      "class_name": "Coder",
+      "scheduling_policy": "durable_object",
+      "images": {
+        "box": {
+          "dockerfile": "./box/Dockerfile",
+          "build_context": "../../apps/maker/image",
+        },
+      },
+    },
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "CODER", "class_name": "Coder" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Coder"] }],
+  "limits": { "cpu_ms": 300000 },
+  "vars": {
+    "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
+    "CLOUDFLARE_GATEWAY_ID": "default",
+  },
+  "account_id": "51a5a41f7bd8425703a6f1d92f867f4d",
+}
