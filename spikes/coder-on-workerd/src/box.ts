@@ -42,7 +42,8 @@ const pump = async (
 
 export const execBox = (
   container: Container,
-  log: (line: string) => void = () => {}
+  log: (line: string) => void = () => {},
+  user = USER
 ) => {
   const spawn = async (
     cmd: string[],
@@ -66,7 +67,7 @@ export const execBox = (
       stderr: "pipe",
       stdin: opts.stdin,
       stdout: "pipe",
-      user: USER,
+      user,
     });
     const at = Date.now();
     const shown = cmd.join(" ").slice(0, 100);

@@ -9,11 +9,15 @@
     "import.meta.dirname": "\"/tmp/maker/src\"",
     "import.meta.url": "\"file:///bundle/index.js\"",
   },
-  "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
+  "rules": [
+    { "type": "Text", "globs": ["**/*.md", "**/*.txt"], "fallthrough": true },
+  ],
   "containers": [
     {
       "class_name": "Coder",
       "scheduling_policy": "durable_object",
+      // Local dev builds the box from this Dockerfile. The deployed run had it removed and booted from BOX_SNAPSHOT
+      // instead (made by POST /setup), because pushing the image from this Mac kept failing.
       "images": {
         "box": {
           "dockerfile": "./box/Dockerfile",
