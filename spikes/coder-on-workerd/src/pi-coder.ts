@@ -588,7 +588,17 @@ export class PiCoder extends DurableObject<
       });
       // #116's step limit: the 13th call is blocked and the run aborted.
       const limits = hook(ToolTask, {
+        afterTool: (call, result) => {
+          console.log(
+            "tool end",
+            call.name,
+            call.id,
+            result.isError ? "error" : "ok"
+          );
+          return result;
+        },
         beforeTool: (call) => {
+          console.log("tool start", call.name, call.id);
           const { job } = this;
           if (!job || call.parent) {
             return;
@@ -618,6 +628,13 @@ export class PiCoder extends DurableObject<
       // so it happens even when nobody is connected and the object restarted on its own. A stopped run (deadline,
       // step limit, cancel) never yields; the handler ends that one.
       const ending = hook(GenerationTask, {
+        afterResponse: (message) => {
+          console.log(
+            "model response",
+            message.stopReason,
+            message.errorMessage ?? ""
+          );
+        },
         onYield: async (answer) => {
           const state = this.job;
           if (!state || this.ctx.storage.kv.get(`final:${state.jobId}`)) {
@@ -725,7 +742,14 @@ export class PiCoder extends DurableObject<
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     // The box outlives an idle or restarted object for 10 min, so a resumed run and the next turn find it.
-    await this.container.setInactivityTimeout(BOX_IDLE_MS);
+    // BOX_START_IDLE_MS: a shorter first timeout, so the deployed restart test can tell whether the constructor's
+    // timeout (BOX_IDLE_MS) is what keeps the box after a deploy.
+    await this.container.setInactivityTimeout(
+      Number(
+        (this.env as { BOX_START_IDLE_MS?: string }).BOX_START_IDLE_MS ??
+          BOX_IDLE_MS
+      )
+    );
     // ponytail: no wait for Chromium; playtest launches its own if :9222 isn't up yet.
     return { execReadyMs: Date.now() - startedAt };
   }
@@ -818,6 +842,11 @@ export class PiCoder extends DurableObject<
 
   async fetch(request: Request) {
     const { pathname } = new URL(request.url);
+    // Spike only: reset this object the way a crash or an eviction does. A deploy doesn't: Cloudflare lets the running
+    // object finish its work on the old version.
+    if (request.method === "POST" && pathname === "/crash") {
+      this.ctx.abort("spike: simulated crash");
+    }
     if (request.method === "DELETE" && pathname === "/box") {
       if (this.container.running) {
         await this.container.destroy();

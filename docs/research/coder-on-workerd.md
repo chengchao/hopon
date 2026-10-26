@@ -231,9 +231,37 @@ Read 2026-10-25: [Sandboxes](https://developers.cloudflare.com/sandbox/), [the c
 - **The constructor timeout couldn't be shown to matter locally.** A control run with it switched off also kept the box through the restart and 90 s of idle.
   - That fits the docs: the box "keeps running for the inactivity timeout that the previous version set", here the 10 minutes set when the job started.
   - The earlier failure came from a box that never had a timeout set.
-  - The constructor still matters once the inherited timeout runs out, for example a deploy late in a long idle wait. That needs a deployed test.
+  - The constructor still matters once the inherited timeout runs out. That was shown on Cloudflare: see [pi-durable on Cloudflare](#pi-durable-on-cloudflare).
 - **Bundle:** `@cloudflare/sandbox` adds about 23 KB gzipped. The pi-durable Coder alone is now 3.7 MB, 776 KB gzipped.
 - **Also fixed:** a re-POST used to get the final event twice, once from the `onYield` hook and once from the handler. Each stream now sends one.
+
+## pi-durable on Cloudflare
+
+Run 2026-10-26 as the throwaway Worker `hopon-pi-coder-spike`: the pi-durable Coder alone (`wrangler.pi.jsonc`), with its box built from `box/Dockerfile`, `sandbox-shim` included. This time the image push from this Mac worked (264 s). Deleted afterwards: the Worker, its container app (with 3 boxes still running), and both image tags.
+
+|  | Result |
+| --- | --- |
+| Startup | **38–42 ms** (4 deploys), against 159–198 ms for the pi-coding-agent Coder |
+| Smoke | 4 of 5 `done`: plain 2 of 3 (29 s, 72 s; one over 12 steps), music 2 of 2 (58 s, 85 s) |
+| CPU per job | About 5.1 s across 4 jobs, so about 1.3 s each. It's split between the job's HTTP request and pi's heartbeat alarms (each about 30 s of wall time). No single invocation went over 1.02 s. |
+| Box ready for `exec()` | 0.3–0.5 s, but 13.3 s and 20.6 s on two first boots, presumably while the 1.97 GB image reached a new host |
+
+**A deploy mid-game doesn't restart anything.** Every event of the job, including the alarm that finished it, ran on the old version. Cloudflare lets a busy object finish its work on the previous code, as the [lifecycle docs](https://developers.cloudflare.com/sandbox/concepts/lifetime/#deploys-keep-instances-running) say. The new version first started with the next request.
+
+- So a deploy doesn't test resuming, and the earlier "reload" tests under `wrangler dev` were harsher than a real deploy.
+- The pi-coding-agent Coder's job, which runs in a request's `waitUntil`, likely gets the same grace. Not tested.
+
+**A crash mid-game, forced with `ctx.abort()`** (a spike-only `/crash` route, the way a crash or an eviction resets the object). Four runs:
+
+- In all four, the next heartbeat alarm restarted the object, pi resumed, and the re-POST re-attached to the same running box.
+- **2 ended `done`.**
+- **1 failed "over 12 steps".** The model was fighting a type error, not the restart.
+- **1 hung.** After resuming, pi waited about 4 minutes, with heartbeats using about 1 ms of CPU each. Then Cloudflare reported "Internal error in Durable Object storage caused object to be reset". The re-attach found the job past its deadline, and it ended `failed`. It didn't happen again, and that run had no tool logging, so the cause is unknown.
+
+**The constructor's timeout matters, shown on Cloudflare.** The box started with a 60 s inactivity timeout (`BOX_START_IDLE_MS`). After the crash and the job, the next turn came 3 minutes later:
+
+- with the constructor setting 10 minutes again, it found the **same box** running;
+- with the constructor's timeout off (`NO_CTOR_TIMEOUT`), it got a **new box** (538 ms).
 
 ## What ADR 0003 would change
 
