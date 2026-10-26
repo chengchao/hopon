@@ -215,7 +215,25 @@ Read 2026-10-25: [Sandboxes](https://developers.cloudflare.com/sandbox/), [the c
 - **A piped process gets `SIGPIPE` once the request that started it ends.** A `bash` call in flight when the object restarts dies with it. pi-durable doesn't replay `bash` anyway, but background work belongs in `setsid` plus log files, as the runner does.
 - **`Files` could replace the hand-made file operations** in `box.ts` and `boxEnv`: `cat`, `stat` parsed from text, writes piped through `cat`, and "not found" guessed from stderr.
   - It offers `readFile` (streamed), `writeFile`, `stat`, `readDirectory`, `mkdir`, `rename` and `remove`, with typed errors (`SandboxFileError` with `ENOENT` and the like).
-  - The cost is the shim in the image and a package whose version must match the image tag. Not tried.
+  - The cost is the shim in the image and a package whose version must match the image tag.
+
+**Tried 2026-10-25, under `wrangler dev`:**
+
+- **The setup.**
+  - The box image copies `sandbox-shim` from `cloudflare/sandbox:1.0.3`, matching `@cloudflare/sandbox` 1.0.3.
+  - In the pi-durable Coder's `boxEnv`, these now go through `Files`: `readFile`, `writeFile` (after a recursive `mkdir` of the parent), `stat`, `lstat`, `readDirectory`, `mkdir`, `rename` and `remove`. `SandboxFileError` codes map to pi-durable's (`ENOENT` → `not_found`, `EISDIR` → `is_directory`, and so on). The playtest screenshots are read with `Files` too.
+  - `realpath`, append and truncate have no `Files` method and stay on `exec()`.
+  - `bash` with a timeout runs under `timeout --kill-after=5 <s>`.
+  - The constructor sets the inactivity timeout again when the box is already running.
+  - The E2B-shaped `box.ts`, used by the pi-coding-agent Coder and by the job's restore and ending, still uses `cat`.
+- **Smoke: 5 of 5 `done`.** 3 plain (43–75 s; one needed 3 playtests and 11 steps, so `read`, `edit` and `write` ran many times through `Files`) and 2 music (61 s, 78 s).
+- **Restart tests: 2 of 2 `done`,** re-POSTed after 8 s and after 45 s. In both, the next turn, sent after 90 s of idle, found the same box still running and ended `done`.
+- **The constructor timeout couldn't be shown to matter locally.** A control run with it switched off also kept the box through the restart and 90 s of idle.
+  - That fits the docs: the box "keeps running for the inactivity timeout that the previous version set", here the 10 minutes set when the job started.
+  - The earlier failure came from a box that never had a timeout set.
+  - The constructor still matters once the inherited timeout runs out, for example a deploy late in a long idle wait. That needs a deployed test.
+- **Bundle:** `@cloudflare/sandbox` adds about 23 KB gzipped. The pi-durable Coder alone is now 3.7 MB, 776 KB gzipped.
+- **Also fixed:** a re-POST used to get the final event twice, once from the `onYield` hook and once from the handler. Each stream now sends one.
 
 ## What ADR 0003 would change
 

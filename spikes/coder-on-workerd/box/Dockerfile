@@ -8,6 +8,8 @@ RUN mkdir -p /opt/hopon /workspace \
   && cd /opt/hopon && npm init -y >/dev/null && npm pkg set type=module \
   && npm install esbuild@0.28.2 playwright-core@1.58.2 typescript@6.0.3 \
   && npx playwright-core install --with-deps chromium-headless-shell
+# @cloudflare/sandbox's Files runs this helper through exec(); its tag must match the installed package (1.0.3).
+COPY --from=docker.io/cloudflare/sandbox:1.0.3 /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
 COPY browser.js dom.d.ts dom.js helpers.js littlejs.d.ts page.ts playtest.js runtime.js /opt/hopon/
 RUN useradd -m -u 1001 user && chown -R user:user /workspace
 USER user

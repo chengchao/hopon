@@ -1,4 +1,4 @@
-/* oxlint-disable complexity, no-promise-executor-return, unicorn/prefer-code-point, no-nested-ternary, typescript/no-invalid-void-type, class-methods-use-this, no-useless-return, no-await-in-loop, no-empty-function, promise/avoid-new, promise/prefer-await-to-then, no-void -- throwaway spike */
+/* oxlint-disable complexity, unicorn/consistent-function-scoping, unicorn/no-await-expression-member, no-promise-executor-return, unicorn/prefer-code-point, no-nested-ternary, typescript/no-invalid-void-type, class-methods-use-this, no-useless-return, no-await-in-loop, no-empty-function, promise/avoid-new, promise/prefer-await-to-then, no-void -- throwaway spike */
 // Spike: the Coder on pi-durable instead of pi-coding-agent, set up as Cloudflare's Pi harness docs show
 // (developers.cloudflare.com/agents/harnesses/pi/): a plain DurableObject, Lifecycle.install(this).use(PiHarness), a
 // registry per object. pi-durable's own CodingTools (read, write, edit, bash) run in the Draft's box through an
@@ -6,6 +6,7 @@
 // The job id is the submission's operationId, so a POST of the same job after a restart attaches to the running run.
 import path from "node:path";
 
+import { Files, SandboxFileError } from "@cloudflare/sandbox";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Type } from "@earendil-works/pi-ai";
 import type { FetchFunction } from "@earendil-works/pi-ai";
@@ -27,6 +28,7 @@ import {
   LineScanner,
   ok,
 } from "@earendil-works/pi-durable/env";
+import type { FileErrorCode } from "@earendil-works/pi-durable/env";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { PiHarness, skills } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
@@ -80,6 +82,8 @@ const BOX_ENV = {
   PLAYWRIGHT_BROWSERS_PATH: "/opt/hopon/browsers",
 };
 const MAX_STEPS = 12;
+// How long the box waits for the next turn once the object is idle.
+const BOX_IDLE_MS = 600_000;
 
 // coder.ts's prompt, plus AGENTS.md with its one line about reading skills from disk pointed at activate_skill.
 const SYSTEM_PROMPT = `You are the Coder in hopon, an app where people make small phone games by chatting. You get one build job from the Talker, who talks to the Creator: a new game to make, or a change to the game in the workspace. You build it, playtest it until it is green, and report back to the Talker. You never talk to the Creator.
@@ -167,69 +171,84 @@ const unsupported = (name: string) => () =>
 // pi-durable's ExecutionEnv over the Draft's box: what the four coding tools call (absolutePath, joinPath,
 // canonicalPath, exists, fileInfo, openBinaryReader, readTextFile, writeFile, exec), plus the easy rest.
 export const boxEnv = (container: Container, id: string) => {
+  const files = new Files(container);
   const resolve = (p: string) => path.posix.resolve(WORKSPACE, p);
-  const cat = async (p: string) => {
-    const r = await execRaw(container, ["cat", "--", resolve(p)]);
-    return r.exitCode === 0
-      ? ok<Uint8Array, FileError>(r.stdout)
-      : fileFail(r.stderr, p);
-  };
-  const fileInfo = async (p: string) => {
-    const r = await execRaw(container, [
-      "stat",
-      "-c",
-      "%F|%s|%Y",
-      "--",
-      resolve(p),
-    ]);
-    if (r.exitCode !== 0) {
-      return fileFail(r.stderr, p);
+  const as = { user: USER };
+  // Files' typed errors as pi-durable's FileError codes.
+  const fileError = (error: unknown, p: string) => {
+    if (!SandboxFileError.is(error)) {
+      return err<never, FileError>(new FileError("unknown", String(error), p));
     }
-    const [type = "", size = "0", mtime = "0"] = new TextDecoder()
-      .decode(r.stdout)
-      .trim()
-      .split("|");
-    const kind = type.includes("directory")
-      ? "directory"
-      : type.includes("link")
-        ? "symlink"
-        : "file";
-    return ok({
-      kind,
-      mtimeMs: Number(mtime) * 1000,
+    const codes: Record<string, FileErrorCode> = {
+      EACCES: "permission_denied",
+      EISDIR: "is_directory",
+      ENOENT: "not_found",
+      ENOTDIR: "not_directory",
+      EPERM: "permission_denied",
+    };
+    return err<never, FileError>(
+      new FileError(codes[error.code] ?? "unknown", error.message, p)
+    );
+  };
+  const attempt = async <T>(p: string, run: () => Promise<T>) => {
+    try {
+      return ok<T, FileError>(await run());
+    } catch (error) {
+      return fileError(error, p);
+    }
+  };
+  const read = (p: string) =>
+    attempt(
+      p,
+      async () =>
+        new Uint8Array(
+          await (await files.readFile(resolve(p), as)).arrayBuffer()
+        )
+    );
+  const toInfo = (
+    p: string,
+    stat: { type: string; size: bigint; modifiedAt: Date }
+  ) =>
+    ({
+      kind:
+        stat.type === "directory"
+          ? "directory"
+          : stat.type === "symlink"
+            ? "symlink"
+            : "file",
+      mtimeMs: stat.modifiedAt.getTime(),
       name: path.posix.basename(p),
       path: resolve(p),
-      size: Number(size),
-    } as const);
-  };
-  const write = async (
-    p: string,
-    content: string | Uint8Array,
-    append = false
-  ) => {
-    const r = await execRaw(
-      container,
-      [
-        "bash",
-        "-c",
-        `mkdir -p "$(dirname "$1")" && cat ${append ? ">>" : ">"} "$1"`,
-        "write",
-        resolve(p),
-      ],
-      {
-        stdin: new Response(content).body ?? undefined,
-      }
-    );
-    return r.exitCode === 0 ? ok<void, FileError>() : fileFail(r.stderr, p);
-  };
+      size: Number(stat.size),
+    }) as const;
+  const fileInfo = (p: string) =>
+    attempt(p, async () => toInfo(p, await files.stat(resolve(p), as)));
+  // writeFile wants the parent directory to exist, as pi's write tool expects of a write.
+  const write = (p: string, content: string | Uint8Array) =>
+    attempt(p, async () => {
+      await files.mkdir(path.posix.dirname(resolve(p)), {
+        ...as,
+        recursive: true,
+      });
+      await files.writeFile(resolve(p), content, as);
+    });
+  // No Files equivalent: realpath, append and truncate stay plain commands.
   const simple = async (argv: string[], p: string) => {
     const r = await execRaw(container, argv);
     return r.exitCode === 0 ? ok<void, FileError>() : fileFail(r.stderr, p);
   };
   return {
     absolutePath: (p: string) => Promise.resolve(ok(resolve(p))),
-    appendFile: (p: string, content: string | Uint8Array) =>
-      write(p, content, true),
+    appendFile: async (p: string, content: string | Uint8Array) => {
+      const r = await execRaw(
+        container,
+        ["bash", "-c", 'cat >> "$1"', "append", resolve(p)],
+        {
+          stdin: new Response(content).body ?? undefined,
+        }
+      );
+      return r.exitCode === 0 ? ok<void, FileError>() : fileFail(r.stderr, p);
+    },
     canonicalPath: async (p: string) => {
       const r = await execRaw(container, ["realpath", "-m", "--", resolve(p)]);
       return r.exitCode === 0
@@ -238,9 +257,11 @@ export const boxEnv = (container: Container, id: string) => {
     },
     cleanup: () => Promise.resolve(),
     createDir: (p: string, options?: { recursive?: boolean }) =>
-      simple(
-        ["mkdir", ...(options?.recursive ? ["-p"] : []), "--", resolve(p)],
-        p
+      attempt(p, () =>
+        files.mkdir(resolve(p), {
+          ...as,
+          recursive: options?.recursive ?? false,
+        })
       ),
     createTempDir: unsupported("createTempDir"),
     createTempFile: unsupported("createTempFile"),
@@ -260,34 +281,31 @@ export const boxEnv = (container: Container, id: string) => {
         | undefined,
       context: { abortSignal?: AbortSignal }
     ) => {
-      const signals = [context.abortSignal].filter(Boolean) as AbortSignal[];
-      const timeout = options?.timeout
-        ? AbortSignal.timeout(options.timeout * 1000)
-        : undefined;
-      if (timeout) {
-        signals.push(timeout);
-      }
+      const argv =
+        typeof command === "string" ? ["bash", "-lc", command] : [...command];
+      // `timeout` ends the command and every process it started (Cloudflare's Sandbox example); exec()'s signal only
+      // kills the process it started, so it stays for an abort.
+      const timed = options?.timeout
+        ? ["timeout", "--kill-after=5", String(options.timeout), ...argv]
+        : argv;
       try {
-        const r = await execRaw(
-          container,
-          typeof command === "string" ? ["bash", "-lc", command] : [...command],
-          {
-            cwd: options?.cwd ? resolve(options.cwd) : WORKSPACE,
-            onOutput: (text, stream) =>
-              options?.onOutput?.(text, context, { stream }),
-            signal: signals.length > 0 ? AbortSignal.any(signals) : undefined,
-          }
-        );
-        if (timeout?.aborted) {
+        const r = await execRaw(container, timed, {
+          cwd: options?.cwd ? resolve(options.cwd) : WORKSPACE,
+          onOutput: (text, stream) =>
+            options?.onOutput?.(text, context, { stream }),
+          signal: context.abortSignal,
+        });
+        if (context.abortSignal?.aborted) {
+          return err(new ExecutionError("aborted", "aborted"));
+        }
+        // GNU timeout exits 124 when the time ran out (137 when it had to SIGKILL).
+        if (options?.timeout && (r.exitCode === 124 || r.exitCode === 137)) {
           return err(
             new ExecutionError(
               "timeout",
-              `timed out after ${options?.timeout} s`
+              `timed out after ${options.timeout} s`
             )
           );
-        }
-        if (context.abortSignal?.aborted) {
-          return err(new ExecutionError("aborted", "aborted"));
         }
         return ok({ exitCode: r.exitCode });
       } catch (error) {
@@ -300,47 +318,29 @@ export const boxEnv = (container: Container, id: string) => {
       }
     },
     exists: async (p: string) => {
-      const r = await execRaw(container, ["test", "-e", resolve(p)]);
-      return ok(r.exitCode === 0);
+      const info = await fileInfo(p);
+      if (info.ok) {
+        return ok(true);
+      }
+      return info.error.code === "not_found" ? ok(false) : info;
     },
     fileInfo,
     flushFile: () => Promise.resolve(ok()),
     id,
     joinPath: (parts: string[]) =>
       Promise.resolve(ok(path.posix.join(...parts))),
-    listDir: async (p: string) => {
-      const r = await execRaw(container, [
-        "find",
-        resolve(p),
-        "-mindepth",
-        "1",
-        "-maxdepth",
-        "1",
-        "-printf",
-        "%y|%s|%T@|%f\\n",
-      ]);
-      if (r.exitCode !== 0) {
-        return fileFail(r.stderr, p);
-      }
-      return ok(
-        new TextDecoder()
-          .decode(r.stdout)
-          .trim()
-          .split("\n")
-          .filter(Boolean)
-          .map((line) => {
-            const [y = "f", size = "0", mtime = "0", name = ""] =
-              line.split("|");
-            return {
-              kind: y === "d" ? "directory" : y === "l" ? "symlink" : "file",
-              mtimeMs: Number(mtime) * 1000,
-              name,
-              path: path.posix.join(resolve(p), name),
-              size: Number(size),
-            };
-          })
-      );
-    },
+    listDir: (p: string) =>
+      attempt(p, async () => {
+        const entries = await files.readDirectory(resolve(p), as);
+        return Promise.all(
+          entries.map(async (entry) =>
+            toInfo(
+              path.posix.join(p, entry.name),
+              await files.lstat(path.posix.join(resolve(p), entry.name), as)
+            )
+          )
+        );
+      }),
     openBinaryReader: async (p: string) => {
       const info = await fileInfo(p);
       if (!info.ok) {
@@ -349,7 +349,7 @@ export const boxEnv = (container: Container, id: string) => {
       if (info.value.kind === "directory") {
         return err(new FileError("is_directory", `${p} is a directory`, p));
       }
-      const bytes = await cat(p);
+      const bytes = await read(p);
       if (!bytes.ok) {
         return bytes;
       }
@@ -368,39 +368,29 @@ export const boxEnv = (container: Container, id: string) => {
     },
     openDirReader: unsupported("openDirReader"),
     openTextLineReader: unsupported("openTextLineReader"),
-    readBinaryFile: cat,
-    readTextFile: async (p: string) => {
-      const r = await cat(p);
-      return r.ok ? ok(new TextDecoder().decode(r.value)) : r;
-    },
-    readTextLines: async (p: string, options?: { maxLines?: number }) => {
-      const r = await cat(p);
-      return r.ok
-        ? ok(
-            new TextDecoder()
-              .decode(r.value)
-              .split("\n")
-              .slice(0, options?.maxLines)
-          )
-        : r;
-    },
+    readBinaryFile: read,
+    readTextFile: (p: string) =>
+      attempt(p, async () => (await files.readFile(resolve(p), as)).text()),
+    readTextLines: (p: string, options?: { maxLines?: number }) =>
+      attempt(p, async () =>
+        (await (await files.readFile(resolve(p), as)).text())
+          .split("\n")
+          .slice(0, options?.maxLines)
+      ),
     remove: (p: string, options?: { recursive?: boolean; force?: boolean }) =>
-      simple(
-        [
-          "rm",
-          ...(options?.recursive ? ["-r"] : []),
-          ...(options?.force ? ["-f"] : []),
-          "--",
-          resolve(p),
-        ],
-        p
+      attempt(p, () =>
+        files.remove(resolve(p), {
+          ...as,
+          force: options?.force ?? false,
+          recursive: options?.recursive ?? false,
+        })
       ),
     renameFile: (from: string, to: string) =>
-      simple(["mv", "--", resolve(from), resolve(to)], from),
+      attempt(from, () => files.rename(resolve(from), resolve(to), as)),
     truncateFile: (p: string, size: number) =>
       simple(["truncate", "-s", String(size), "--", resolve(p)], p),
     watch: unsupported("watch"),
-    writeFile: (p: string, content: string | Uint8Array) => write(p, content),
+    writeFile: write,
   };
 };
 
@@ -450,6 +440,22 @@ export class PiCoder extends DurableObject<
 > {
   registry = createRegistry();
   listeners = new Set<(event: unknown) => void>();
+
+  // A restarted object (a deploy, an eviction) starts without the box's inactivity timeout, so the box would stop soon
+  // after the object goes idle: set it again when the box is already running, as Cloudflare's sandbox examples do.
+  constructor(ctx: DurableObjectState, env: PiCoder["env"]) {
+    super(ctx, env);
+    const { container } = ctx;
+    // NO_CTOR_TIMEOUT: the spike's control run, to see what the box does without it.
+    if (
+      container?.running &&
+      !(env as { NO_CTOR_TIMEOUT?: string }).NO_CTOR_TIMEOUT
+    ) {
+      void ctx.blockConcurrencyWhile(() =>
+        container.setInactivityTimeout(BOX_IDLE_MS)
+      );
+    }
+  }
 
   get draftId() {
     return this.ctx.id.name ?? "unnamed";
@@ -543,12 +549,16 @@ export class PiCoder extends DurableObject<
               : await Promise.all(
                   ["playtest-start.png", "playtest-end.png"].map(
                     async (file) => {
-                      const png = await execRaw(this.container, [
-                        "cat",
-                        `${WORKSPACE}/${file}`,
-                      ]);
+                      const png = new Uint8Array(
+                        await (
+                          await new Files(this.container).readFile(
+                            `${WORKSPACE}/${file}`,
+                            { user: USER }
+                          )
+                        ).arrayBuffer()
+                      );
                       let binary = "";
-                      for (const byte of png.stdout) {
+                      for (const byte of png) {
                         binary += String.fromCharCode(byte);
                       }
                       return {
@@ -715,7 +725,7 @@ export class PiCoder extends DurableObject<
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     // The box outlives an idle or restarted object for 10 min, so a resumed run and the next turn find it.
-    await this.container.setInactivityTimeout(600_000);
+    await this.container.setInactivityTimeout(BOX_IDLE_MS);
     // ponytail: no wait for Chromium; playtest launches its own if :9222 isn't up yet.
     return { execReadyMs: Date.now() - startedAt };
   }
@@ -823,8 +833,17 @@ export class PiCoder extends DurableObject<
     const { readable, writable } = new TransformStream<Uint8Array>();
     const writer = writable.getWriter();
     const encoder = new TextEncoder();
-    const send = (line: unknown) =>
-      writer.write(encoder.encode(`${JSON.stringify(line)}\n`)).catch(() => {});
+    let ended = false;
+    const send = (line: unknown) => {
+      const { type } = line as { type?: string };
+      if (ended) {
+        return Promise.resolve();
+      }
+      ended = type === "done" || type === "failed";
+      return writer
+        .write(encoder.encode(`${JSON.stringify(line)}\n`))
+        .catch(() => {});
+    };
     const work = async () => {
       const startedAt = Date.now();
       const ping = setInterval(() => void send({ type: "ping" }), 10_000);
