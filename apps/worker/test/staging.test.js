@@ -3,8 +3,9 @@ import { test } from "node:test";
 
 import { unstable_readConfig } from "wrangler";
 
-// Bindings, vars, secrets and containers aren't inherited by a wrangler env, so env.staging repeats them by hand. One
-// added only at the top would reach production without ever running on staging.
+// Bindings, vars, secrets and containers aren't inherited by a wrangler env or by Previews, so env.staging and the
+// previews block repeat them by hand. One added only at the top would reach production without ever running on staging
+// or in a Preview.
 const config = (env) =>
   unstable_readConfig(
     { config: new URL("../wrangler.jsonc", import.meta.url).pathname, env },
@@ -41,4 +42,21 @@ test("staging binds everything production does, to its own D1, R2 and E2B templa
     staging.vars.MAKER_E2B_TEMPLATE,
     production.vars.MAKER_E2B_TEMPLATE
   );
+});
+
+test("Previews bind everything production does, to staging's D1 and R2 and their own E2B template", () => {
+  const production = config();
+  const staging = config("staging");
+  const { previews } = production;
+  // previews.secrets isn't accepted (wrangler 4.152), so Previews' secrets are the base config's, set by hand (README).
+  assert.deepEqual(
+    shape({ ...previews, secrets: production.secrets }),
+    shape(production)
+  );
+  assert.equal(
+    previews.d1_databases[0].database_name,
+    staging.d1_databases[0].database_name
+  );
+  assert.deepEqual(previews.r2_buckets, staging.r2_buckets);
+  assert.equal(previews.vars.MAKER_E2B_TEMPLATE, "hopon-maker-preview");
 });
