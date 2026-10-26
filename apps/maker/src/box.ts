@@ -2,7 +2,7 @@
 // keeps one per Draft, found by its `draftId` metadata, and pauses it between jobs; the eval makes a fresh one per run.
 import { Sandbox, SandboxNotFoundError } from "e2b";
 
-// The Worker's MAKER_E2B_TEMPLATE var (staging has its own), passed to the Container; image/build.ts builds the same.
+// The Worker's MAKER_E2B_TEMPLATE var (Previews have their own), passed to the Container; image/build.ts builds the same.
 export const E2B_TEMPLATE = process.env.MAKER_E2B_TEMPLATE ?? "hopon-maker";
 export const EVAL_TEMPLATE = "hopon-maker-eval";
 export const WORKSPACE = "/workspace";

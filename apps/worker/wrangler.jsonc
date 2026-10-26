@@ -50,8 +50,8 @@
     "CLOUDFLARE_GATEWAY_ID": "default",
   },
   // The Coder (#112, #122): one instance per Draft. max_instances is the global cap on running builds: E2B Hobby's 20
-  // running boxes, less staging's 2 (env.staging below), since both run in one E2B team. A deploy waits up to 300 s for
-  // a running build.
+  // running boxes, less 2 for the Previews (below), since both run in one E2B team. A deploy waits up to 300 s for a
+  // running build.
   "containers": [
     {
       "class_name": "Coder",
@@ -77,10 +77,11 @@
     { "tag": "coder", "new_sqlite_classes": ["Coder"] },
   ],
   "compatibility_flags": ["nodejs_compat"],
-  // A Worker Preview of the hopon Worker for each branch but production (Workers Builds runs `pnpm run deploy:preview`).
-  // Like env.staging, it inherits nothing, so the bindings, vars, secrets and container are repeated, and
-  // test/staging.test.js keeps them in step. Each Preview gets its own Talker and Coder namespaces and its own container
-  // app; D1 and R2 are hopon-staging's, shared by every Preview. Its secrets are the Preview base config's (README).
+  // A Worker Preview of the hopon Worker for each branch but production (Workers Builds runs `pnpm run deploy:preview`);
+  // main's is the staging one. A Preview inherits nothing, so the bindings, vars and container are repeated, and
+  // test/previews.test.js keeps them in step. Each Preview gets its own Talker and Coder namespaces and its own container
+  // app; D1 and R2 are hopon-staging, shared by every Preview, and wrangler.preview-migrations.jsonc migrates that D1.
+  // Its secrets are the Preview base config's (README).
   "previews": {
     "d1_databases": [
       {
@@ -107,7 +108,7 @@
       "CLOUDFLARE_GATEWAY_ID": "default",
     },
     // Per Preview: each has its own container app. ponytail: Previews building at once can pass the E2B team's 20
-    // running boxes on top of production's 18 and staging's 2; E2B then refuses the box and that build fails.
+    // running boxes on top of production's 18; E2B then refuses the box and that build fails.
     "containers": [
       {
         "class_name": "Coder",
@@ -123,64 +124,6 @@
         { "name": "TALKER", "class_name": "Talker" },
         { "name": "CODER", "class_name": "Coder" },
       ],
-    },
-  },
-  // The hopon-staging Worker (#37): Workers Builds deploys it from main with `pnpm run deploy:staging`, and the hopon
-  // Worker from the production branch with `pnpm run deploy`. A wrangler env doesn't inherit bindings, vars, secrets
-  // or containers, so they are repeated here with staging's own D1, R2 bucket and E2B template; test/staging.test.js
-  // keeps the two in step.
-  "env": {
-    "staging": {
-      // By name: wrangler looks the id up, so creating the database leaves nothing to commit.
-      "d1_databases": [
-        {
-          "binding": "DB",
-          "database_name": "hopon-staging",
-          "migrations_dir": "migrations",
-        },
-      ],
-      "r2_buckets": [{ "binding": "FILES", "bucket_name": "hopon-staging" }],
-      "ai": { "binding": "AI", "remote": true },
-      "secrets": {
-        "required": [
-          "CLERK_JWT_KEY",
-          "CLERK_SECRET_KEY",
-          "OPERATOR_PASSWORD",
-          "OPERATOR_WEBHOOK_URL",
-          "CLOUDFLARE_API_KEY",
-          "E2B_API_KEY",
-          "PREVIEW_SECRET",
-        ],
-      },
-      "vars": {
-        "MAKER_TALKER_MODEL": "claude-haiku-5-5",
-        "MAKER_TALKER_EFFORT": "high",
-        "MAKER_CODER_MODEL": "claude-haiku-5-5",
-        "MAKER_CODER_EFFORT": "low",
-        "MAKER_BOX_IDLE_S": "86400",
-        "MAKER_BUILD_ABORT_S": "150",
-        "MAKER_E2B_TEMPLATE": "hopon-maker-staging",
-        "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
-        "CLOUDFLARE_GATEWAY_ID": "default",
-      },
-      // Staging and production share one E2B team's 20 running boxes: staging's 2 plus production's 18. ponytail: give
-      // staging its own E2B team if production ever needs all 20.
-      "containers": [
-        {
-          "class_name": "Coder",
-          "image": "../maker/Dockerfile",
-          "image_build_context": "../..",
-          "instance_type": "basic",
-          "max_instances": 2,
-          "rollout_active_grace_period": 300,
-        },
-      ],
-      "durable_objects": {
-        "bindings": [
-          { "name": "TALKER", "class_name": "Talker" },
-          { "name": "CODER", "class_name": "Coder" },
-        ],
-      },
     },
   },
   // Repeated as CLOUDFLARE_ACCOUNT_ID in package.json's db:remote and deploy: on a login with several accounts, some
