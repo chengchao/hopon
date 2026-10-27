@@ -9,8 +9,10 @@ import type { Sandbox } from "e2b";
 import { Cause, Context, Effect, Fiber, Layer, Schema } from "effect";
 
 import { killBox, openBox } from "./box.ts";
-import { deadlineFor, JobSchema, runJob } from "./coder.ts";
-import type { CoderEvent, Job, Thinking } from "./coder.ts";
+import { runJob } from "./coder.ts";
+import type { Thinking } from "./coder.ts";
+import { deadlineFor, JobSchema } from "./job.ts";
+import type { CoderEvent, Job } from "./job.ts";
 import {
   CANDIDATES,
   isCandidate,

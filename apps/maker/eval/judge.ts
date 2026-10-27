@@ -2,7 +2,7 @@
 // "disabled" without a level, which Opus 5.5 rejects), scoring 1–5 with a one-line reason each.
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 
-import type { PlaytestResult, Spec } from "../src/coder.ts";
+import type { PlaytestResult, Spec } from "../src/job.ts";
 import { createRegistry, JUDGE } from "../src/models.ts";
 
 const models = createRegistry();
