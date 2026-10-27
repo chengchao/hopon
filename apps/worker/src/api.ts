@@ -601,9 +601,17 @@ app.post(`/api/drafts/${DRAFT}/stop`, (c) =>
 
 // Delete (#144): the Talker's storage and sockets, the box, the files, then the row. The row goes last, so a Delete
 // that fails on the way leaves the Draft listed and a retry finishes it. Each step is fine to repeat.
+// The Talker's destroy() resets the object once its storage is gone, and on Cloudflare the reset beats the 204 back.
+const destroyed = (defect: unknown) =>
+  defect instanceof Error && defect.message === "destroyed";
+
 const deleteDraft = (env: HoponEnv, id: string) =>
   Effect.gen(function* () {
-    yield* talker(env, id, "delete");
+    yield* talker(env, id, "delete").pipe(
+      Effect.catchDefect((defect) =>
+        destroyed(defect) ? Effect.void : Effect.die(defect)
+      )
+    );
     yield* Effect.promise(async () => {
       await killBox(env, id);
       await removeFiles(env.FILES, draftFiles(id));
