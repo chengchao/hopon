@@ -39,7 +39,7 @@ const UNKNOWN = null;
 const STEER_AFTER_MS = 1000;
 const PING_MS = 20_000;
 const RECONNECT_MS = 1000;
-const DELETE_TRIES = 3;
+const RETRIES = 3;
 const OPEN_MS = 30_000;
 const POLL_MS = 100;
 const TURN_MS = 10 * 60_000;
@@ -289,7 +289,13 @@ export const runPreviewE2E = async ({
   dir: string;
 }) => {
   mkdirSync(dir, { recursive: true });
-  const api = async (route: string, method = "GET", body?: unknown) => {
+  // A 503 is Screening without a verdict, refused before anything is stored; like the app, try it again.
+  const api = async (
+    route: string,
+    method = "GET",
+    body?: unknown,
+    attempt = 1
+  ): Promise<{ json: Record<string, unknown>; ok: boolean }> => {
     const response = await fetch(new URL(route, base), {
       headers: {
         Authorization: `Bearer ${await token()}`,
@@ -302,6 +308,10 @@ export const runPreviewE2E = async ({
       string,
       unknown
     >;
+    if (response.status === 503 && attempt < RETRIES) {
+      await sleep(RECONNECT_MS * attempt);
+      return await api(route, method, body, attempt + 1);
+    }
     if (response.status >= 500 || response.status === 401) {
       throw new Error(
         `${method} ${route}: ${response.status} ${JSON.stringify(json)}`
@@ -553,7 +563,7 @@ export const runPreviewE2E = async ({
       console.warn(
         `Couldn't delete Draft ${id} (try ${attempt}): ${String(error)}`
       );
-      if (attempt < DELETE_TRIES) {
+      if (attempt < RETRIES) {
         await sleep(RECONNECT_MS * attempt);
         await deleteDraft(id, attempt + 1);
       }
