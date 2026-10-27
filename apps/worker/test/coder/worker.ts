@@ -1,12 +1,14 @@
-import type { BoxEdge, Exec } from "../../src/coder-box.ts";
 // The Worker for test/coder.test.js: the real Coder (src/coder.ts) with its two edges faked.
 // - The model: every model call ends at globalThis.fetch, which answers Cloudflare's /ai/v1/messages here, as a
 //   scripted Anthropic stream. The job's brief names the script (SCRIPTS); each reply is the script's next step, by
 //   how many answers the conversation already holds. A script can be a function, for a model that never stops.
 // - The box: files in the Coder's own storage (so they outlive a restart, as a running box does), every command logged
 //   and answered by fakeExec: the playtest always green, music.mjs rendering a fixed track, the rest a no-op. A Draft
-//   whose id starts with "nobox" gets a box that can't start.
+//   whose id starts with "nobox" gets a box that can't start; `sleep 600` runs until it's aborted.
+// - The deadline: the "slow" brief's is 1 s, so its case is quick; its reason still names the job's real deadline.
 // /__coder/<draftId>/fake/log returns the box's commands; /fake/release lets a held model step ("hold") answer.
+import type { Job } from "../../../maker/src/job.ts";
+import type { BoxEdge, Exec } from "../../src/coder-box.ts";
 import { DraftCoder as Coder } from "../../src/coder.ts";
 
 export { default } from "../../src/index.ts";
@@ -27,6 +29,8 @@ type Step =
 
 const GAME = "let speed = 1;\nfunction gameRender() {}\n";
 const SCRIPTS: Record<string, Step[] | ((turn: number) => Step)> = {
+  // Runs a command until it's stopped: cancel's case.
+  cancel: [{ input: { command: "sleep 600" }, tool: "bash" }],
   change: [
     { input: { path: "game.ts" }, tool: "read" },
     {
@@ -41,11 +45,20 @@ const SCRIPTS: Record<string, Step[] | ((turn: number) => Step)> = {
   ],
   // Writes forever: the step limit's case.
   loop: () => ({ input: { content: GAME, path: "game.ts" }, tool: "write" }),
+  music: [
+    { input: { content: GAME, path: "game.ts" }, tool: "write" },
+    { input: { content: "// a track", path: "music.mjs" }, tool: "write" },
+    { input: { command: "node music.mjs" }, tool: "bash" },
+    { input: {}, tool: "playtest" },
+    { text: "Built it with music." },
+  ],
   new: [
     { input: { content: GAME, path: "game.ts" }, tool: "write" },
     { input: {}, tool: "playtest" },
     { text: "Built Star Catcher." },
   ],
+  // Never answers: the deadline's case.
+  slow: [{ hold: true, text: "Too late." }],
   wait: [
     { input: { content: GAME, path: "game.ts" }, tool: "write" },
     { input: {}, tool: "playtest" },
@@ -126,7 +139,12 @@ const model = async (request: Request) => {
     );
   }
   if ("hold" in step) {
-    await gate(draftId).promise;
+    // An aborted run's model call ends, as a real one does.
+    const aborted = Promise.withResolvers<undefined>();
+    request.signal.addEventListener("abort", () =>
+      aborted.reject(request.signal.reason)
+    );
+    await Promise.race([gate(draftId).promise, aborted.promise]);
   }
   return reply(
     { text: "", type: "text" },
@@ -220,9 +238,17 @@ export class DraftCoder extends Coder {
         kv.delete("fakebox:running");
         return Promise.resolve();
       },
-      exec: (argv) => {
+      exec: (argv, options) => {
         const command = argv.join(" ");
         log(command);
+        if (command.includes("sleep 600")) {
+          // Ends only when aborted.
+          const ended = Promise.withResolvers<Exec>();
+          options?.signal?.addEventListener("abort", () =>
+            ended.resolve({ exitCode: 143, stderr: "", stdout: encode("") })
+          );
+          return ended.promise;
+        }
         return Promise.resolve(fakeExec(command));
       },
       files: {
@@ -273,6 +299,15 @@ export class DraftCoder extends Coder {
       },
     };
     return box;
+  }
+
+  override async begin(jobId: string, job: Job) {
+    await super.begin(jobId, job);
+    const { job: state } = this;
+    if (state && job.spec.brief === "slow") {
+      this.job = { ...state, deadlineAt: Date.now() + 1000 };
+      this.deadline = this.armDeadline();
+    }
   }
 
   override async fetch(request: Request) {

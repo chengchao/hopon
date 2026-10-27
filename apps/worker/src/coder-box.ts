@@ -72,8 +72,7 @@ export interface BoxEdge {
   >;
 }
 
-// Every command as `timeout`'s child, which ends it and every process it started; exec()'s own signal kills only the
-// process it started, so it stays for an abort.
+// Every command as `timeout`'s child, which ends it and every process it started, at its time or on an abort.
 const timed = (seconds: number, argv: string[]) => [
   "timeout",
   "--kill-after=5",
@@ -114,21 +113,26 @@ export const containerBox = (maybe: Container | undefined): BoxEdge => {
     return maybe;
   };
   const exec: BoxEdge["exec"] = async (argv, options = {}) => {
+    const { signal } = options;
+    signal?.throwIfAborted();
     const proc = await container().exec(argv, {
       cwd: options.cwd ?? WORKSPACE,
       env: BOX_ENV,
-      signal: options.signal,
       stderr: "pipe",
       stdin: options.stdin,
       stdout: "pipe",
       user: USER,
     });
+    // An abort sends SIGTERM to `timeout`, which passes it to every process the command started, then SIGKILLs them
+    // 5 s on. exec()'s own signal would SIGKILL `timeout` alone and leave the rest running.
+    const term = () => proc.kill(15);
+    signal?.addEventListener("abort", term, { once: true });
     // An unread stream keeps the process from reporting its exit.
     const [stdout, stderr, exitCode] = await Promise.all([
       drain(proc.stdout, "stdout", options.onOutput),
       drain(proc.stderr, "stderr", options.onOutput),
       proc.exitCode,
-    ]);
+    ]).finally(() => signal?.removeEventListener("abort", term));
     return { exitCode, stderr: new TextDecoder().decode(stderr), stdout };
   };
   // Up once an exec() answers.
@@ -246,7 +250,7 @@ export const boxEnv = (box: BoxEdge, id: string): ExecutionEnv => {
   const fileInfo = (p: string) =>
     attempt(p, async () => info(p, await files.stat(resolve(p), as)));
   const command = async (argv: string[], p: string, stdin?: ReadableStream) => {
-    const result = await box.exec(argv, { stdin });
+    const result = await box.exec(timed(COMMAND_TIMEOUT_S, argv), { stdin });
     return result.exitCode === 0
       ? ok<string, FileError>(new TextDecoder().decode(result.stdout))
       : err<string, FileError>(

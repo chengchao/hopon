@@ -189,3 +189,98 @@ test("a new game and a change to it end done with their files; a re-POST of a ru
   assert.deepEqual(b.at(-1), a.at(-1));
   assert.equal(await restores("draft-a"), before + 1);
 });
+
+test(
+  "music ends done with music.js; the deadline, the 13th step and cancel end failed; no box ends busy",
+  { timeout: 60_000 },
+  async (t) => {
+    t.after(kill);
+    t.after(() => {
+      if (!t.passed) {
+        process.stdout.write(Buffer.concat(serverLog));
+      }
+    });
+    await start();
+    const withMusic = (brief) => {
+      const plain = job(0, {}, brief);
+      return { ...plain, spec: { ...plain.spec, music: "chiptune" } };
+    };
+    const [music, late, lateMusic, steps, busy] = await Promise.all([
+      build("draft-music", "job-1", withMusic("music")),
+      // The "slow" brief's deadline is 1 s (test/coder/worker.ts); its reason names the real one.
+      build("draft-late", "job-1", job(0, {}, "slow")),
+      build("draft-late-music", "job-1", withMusic("slow")),
+      build("draft-loop", "job-1", job(0, {}, "loop")),
+      build("nobox-1", "job-1", job(0, {}, "new")),
+    ]);
+    const cancelled = await post("draft-cancel", "job-1", job(0, {}, "cancel"));
+
+    // Music: written and rendered in the run, ending in music.js, which index.html loads.
+    assert.deepEqual(
+      music.slice(0, -1).map((event) => event.label ?? event.type),
+      [
+        "Writing the game",
+        "Writing the game",
+        "Writing music",
+        "Playtesting",
+        "playtest",
+      ]
+    );
+    const done = music.at(-1);
+    assert.equal(done.type, "done");
+    assert.equal(done.summary, "Built it with music.");
+    assert.deepEqual(Object.keys(done.files).toSorted(), [
+      "game.js",
+      "game.ts",
+      "index.html",
+      "music.js",
+      "music.mjs",
+    ]);
+    // test/coder/worker.ts's music.opus, in base64.
+    assert.equal(done.files["music.js"], 'hopon.music = "T2dnUw==";\n');
+    assert.match(done.files["index.html"], /music\.js/u);
+
+    // 120 s, or 150 s with music.
+    assert.deepEqual(late, [
+      { reason: "past the 120 s deadline", type: "failed" },
+    ]);
+    assert.deepEqual(lateMusic, [
+      { reason: "past the 150 s deadline", type: "failed" },
+    ]);
+
+    // Twelve steps run; the 13th is blocked and ends the job.
+    assert.deepEqual(steps, [
+      ...Array.from({ length: 12 }, () => ({
+        label: "Writing the game",
+        type: "step",
+      })),
+      { reason: "over 12 steps", type: "failed" },
+    ]);
+
+    // A box that can't start built nothing: `busy`, which the Talker refunds.
+    assert.deepEqual(busy, [{ reason: "busy", type: "failed" }]);
+
+    // Cancel stops the running command and ends the job.
+    await until("the command", () => cancelled.events.length > 0);
+    const response = await coder("draft-cancel", "/jobs/job-1/cancel", {
+      method: "POST",
+    });
+    assert.equal(response.status, 204);
+    assert.deepEqual(await cancelled.done, [
+      { label: "Writing the game", type: "step" },
+      { reason: "cancelled", type: "failed" },
+    ]);
+
+    // Every command the box ran was under `timeout --kill-after=5`, so an abort stops all it started.
+    for (const draft of ["draft-music", "draft-cancel", "draft-loop"]) {
+      // oxlint-disable-next-line no-await-in-loop -- one Draft at a time
+      const logged = await coder(draft, "/fake/log");
+      // oxlint-disable-next-line no-await-in-loop -- one Draft at a time
+      const log = await logged.json();
+      assert.ok(log.length > 0);
+      for (const command of log) {
+        assert.match(command, /^timeout --kill-after=5 \d+ /u);
+      }
+    }
+  }
+);

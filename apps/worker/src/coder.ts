@@ -215,7 +215,7 @@ export class DraftCoder extends DurableObject<Env> {
       const steps = job.steps + 1;
       this.job = { ...job, steps };
       if (steps > MAX_STEPS) {
-        setTimeout(() => this.stop(`over ${MAX_STEPS} steps`), 0);
+        this.stop(`over ${MAX_STEPS} steps`);
         return { block: `Over the ${MAX_STEPS}-step limit.` };
       }
       this.emit({
@@ -278,6 +278,26 @@ export class DraftCoder extends DurableObject<Env> {
 
   lifecycle = Lifecycle.install(this).use(this.harness);
 
+  // The running job's deadline: armed when it begins, and again whenever the object starts mid-job, since pi resumes
+  // a run after a restart with nobody connected.
+  deadline = this.armDeadline();
+
+  armDeadline() {
+    clearTimeout(this.deadline);
+    const state = this.job;
+    if (!state || state.stopped || this.final(state.jobId)) {
+      return;
+    }
+    return setTimeout(
+      () => {
+        if (this.job?.jobId === state.jobId && !this.final(state.jobId)) {
+          this.stop(pastDeadline(deadlineFor(state.job) / 1000));
+        }
+      },
+      Math.max(0, state.deadlineAt - Date.now())
+    );
+  }
+
   // A new job: the workspace rewritten from its source, a fresh conversation, the job's prompt submitted under its id.
   async begin(jobId: string, job: Job) {
     await restore(jobBox(this.edge), job.source);
@@ -293,6 +313,7 @@ export class DraftCoder extends DurableObject<Env> {
       playtests: [],
       steps: 0,
     };
+    this.deadline = this.armDeadline();
     await this.harness.submit(prompt(job), { operationId: jobId });
   }
 
@@ -319,20 +340,11 @@ export class DraftCoder extends DurableObject<Env> {
     if (this.job?.jobId !== jobId) {
       await this.begin(jobId, job);
     }
-    const { deadlineAt } = this.job as JobState;
-    const deadline = setTimeout(
-      () => this.stop(pastDeadline(deadlineFor(job) / 1000)),
-      Math.max(0, deadlineAt - Date.now())
+    const result = await this.harness.wait(jobId);
+    send(
+      this.final(jobId) ??
+        (await this.finish(this.job as JobState, result.text ?? ""))
     );
-    try {
-      const result = await this.harness.wait(jobId);
-      send(
-        this.final(jobId) ??
-          (await this.finish(this.job as JobState, result.text ?? ""))
-      );
-    } finally {
-      clearTimeout(deadline);
-    }
   }
 
   override async fetch(request: Request) {
