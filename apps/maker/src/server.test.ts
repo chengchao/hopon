@@ -8,8 +8,8 @@ import type { Sandbox } from "e2b";
 import { Layer } from "effect";
 
 import { littlejsHtml } from "../image/page.ts";
-import { musicScript } from "./coder.ts";
-import type { CoderEvent } from "./coder.ts";
+import { musicScript } from "./job.ts";
+import type { CoderEvent } from "./job.ts";
 import { CANDIDATES } from "./models.ts";
 import type { ModelHandler } from "./models.ts";
 import { Box, makeCoder, Models } from "./server.ts";
