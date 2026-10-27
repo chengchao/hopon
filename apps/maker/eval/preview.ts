@@ -39,6 +39,7 @@ const UNKNOWN = null;
 const STEER_AFTER_MS = 1000;
 const PING_MS = 20_000;
 const RECONNECT_MS = 1000;
+const DELETE_TRIES = 3;
 const OPEN_MS = 30_000;
 const POLL_MS = 100;
 const TURN_MS = 10 * 60_000;
@@ -543,6 +544,22 @@ export const runPreviewE2E = async ({
     };
   };
 
+  // A Delete that fails partway finishes on a retry. One that keeps failing leaves the Draft behind but keeps the
+  // chat's results.
+  const deleteDraft = async (id: string, attempt = 1): Promise<void> => {
+    try {
+      await api(`/api/drafts/${id}`, "DELETE");
+    } catch (error) {
+      console.warn(
+        `Couldn't delete Draft ${id} (try ${attempt}): ${String(error)}`
+      );
+      if (attempt < DELETE_TRIES) {
+        await sleep(RECONNECT_MS * attempt);
+        await deleteDraft(id, attempt + 1);
+      }
+    }
+  };
+
   const builds: Awaited<ReturnType<typeof coderRecord>>[] = [];
   const turns: ReturnType<typeof turnRecord>[] = [];
   try {
@@ -560,7 +577,7 @@ export const runPreviewE2E = async ({
     draftId = undefined;
     socket?.close();
     if (id) {
-      await api(`/api/drafts/${id}`, "DELETE");
+      await deleteDraft(id);
     }
   }
   const talker = await judgeChat({
