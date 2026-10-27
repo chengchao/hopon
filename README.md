@@ -85,9 +85,9 @@ pnpm run db:local
 部署由 GitHub Actions 的 Deploy workflow（`.github/workflows/deploy.yml`）完成，用仓库密钥 `CLOUDFLARE_API_TOKEN`（Workers Scripts、D1、Containers、R2 的 Edit 权限）和 `E2B_API_KEY`。两个命令都要用 Docker 构建 Coder 的容器镜像，Cloudflare 的 Workers Builds 没有 Docker，所以不用它（它的生产部署曾在迁移 D1 之后才失败）：
 
 - **生产**：`hopon` Worker，推送到 `main`（合并 PR）时运行 `pnpm run deploy`：合并就是上线，进度在 Actions 的 Deploy 运行里。
-- **预览**：`hopon` Worker 的 [Worker Previews](https://developers.cloudflare.com/workers/previews/)（`wrangler.jsonc` 的 `previews`）。推送到 `main` 以外的分支（每个 PR 的分支）时运行 `pnpm run deploy:preview`：重建 E2B 模板 `hopon-maker-preview`，把迁移应用到 D1 `hopon-staging`（`wrangler.preview-migrations.jsonc`），再 `wrangler preview`。每个分支一个预览，URL 是 `<分支>-hopon.<子域>.workers.dev`，在 workflow 的日志里；有自己的 Talker 和 Coder（Durable Object 命名空间和容器应用都是新的），D1 `hopon-staging` 和 R2 `hopon-staging` 由所有预览共用。没有 staging：PR 的预览已经提前演练了迁移、Durable Object 迁移、容器滚动和 E2B 模板构建，只有 `wrangler deploy` 这条命令本身第一次在生产上运行（失败时旧 Worker 继续服务）。在真机上测 PR：开发版应用的 `EXPO_PUBLIC_API_URL` 指向这个 URL，用 Clerk 的 Development 发布密钥。
+- **预览**：`hopon` Worker 的 [Worker Previews](https://developers.cloudflare.com/workers/previews/)（`wrangler.jsonc` 的 `previews`）。推送到 `main` 以外的分支（每个 PR 的分支）时运行 `pnpm run deploy:preview`：重建 E2B 模板 `hopon-maker-preview`，把迁移应用到 D1 `hopon-staging`（`wrangler.preview-migrations.jsonc`），再 `wrangler preview`。每个分支一个预览，URL 是 `<分支>-hopon.<子域>.workers.dev`，在 workflow 的日志里；有自己的 Talker 和 Coder（Durable Object 命名空间和容器应用都是新的），D1 `hopon-staging` 和 R2 `hopon-staging` 由所有预览共用。没有 staging：PR 的预览提前演练了 Durable Object 迁移、容器滚动、E2B 模板构建，和迁移在新建 D1 上的执行。预览演练不到的有两样：迁移遇到生产 D1 里已有的数据，和 `wrangler deploy` 这条命令本身。部署在迁移之后失败时，旧 Worker 接着服务迁移后的 D1，所以迁移只追加（见下）。在真机上测 PR：开发版应用的 `EXPO_PUBLIC_API_URL` 指向这个 URL，用 Clerk 的 Development 发布密钥。
 
-两个命令都按同一顺序：先重建 E2B 模板（`pnpm -F maker template`；E2B 缓存每一步，只有文件变了的步骤会重做），再应用 D1 迁移（生产先把已发布游戏的 HTML 复制到 R2，见下），最后 `wrangler deploy`（预览是 `wrangler preview`）一次发布 Worker、Talker 和 Coder 的容器镜像。容器的 `rollout_active_grace_period` 是 300 秒，部署会等正在运行的构建结束。推送到 `main` 就部署，不等 GitHub 检查，所以 `main` 受分支保护：PR 须通过 Check 和 Commit messages 才能合并。`test/previews.test.js` 检查 `previews` 与顶层的绑定、变量和容器一致（预览不继承这些），并检查迁移配置和预览绑定的是同一个 D1。
+两个命令都按同一顺序：先重建 E2B 模板（`pnpm -F maker template`；E2B 缓存每一步，只有文件变了的步骤会重做），再应用 D1 迁移，最后 `wrangler deploy`（预览是 `wrangler preview`）一次发布 Worker、Talker 和 Coder 的容器镜像。容器的 `rollout_active_grace_period` 是 300 秒，部署会等正在运行的构建结束。推送到 `main` 就部署，不等 GitHub 检查，所以 `main` 受分支保护：PR 须通过 Check 和 Commit messages 才能合并。`test/previews.test.js` 检查 `previews` 与顶层的绑定、变量和容器一致（预览不继承这些），并检查迁移配置和预览绑定的是同一个 D1。
 
 首次配置（预览的 D1 和 R2、`hopon` Worker 和预览基础配置的全部运行时密钥 `CLERK_JWT_KEY`、`CLERK_SECRET_KEY`、`OPERATOR_PASSWORD`、`OPERATOR_WEBHOOK_URL`、`CLOUDFLARE_API_KEY`、`E2B_API_KEY`、`PREVIEW_SECRET`，Deploy workflow 的仓库密钥 `CLOUDFLARE_API_TOKEN` 和 `E2B_API_KEY`，`main` 的分支保护，第一次上线）运行向导，可中断后用 `FROM=<n>` 从某一步重跑。预览用 Clerk 的 Development 实例，生产用 Production 实例：
 
@@ -95,7 +95,7 @@ pnpm run db:local
 scripts/deploy-setup.sh
 ```
 
-迁移只追加，新代码可能写入新列，正在运行的旧 Worker 不受影响。例外是 `*_games_are_files.sql`（#145）：它删除 `games.html` 和未发布的行，不可逆。所以生产的 `pnpm run deploy` 在应用迁移前先运行 `games-to-r2 --remote`，把每个已发布游戏的 HTML 写入 R2 `games/<id>/index.html`（构建日志应为 `Remote: copied N games`）；迁移应用后它什么也不做（`Remote: D1 is past the migration`）。预览的 D1 是新建的，原创游戏在 R2 里没有文件，信息流里打不开。
+迁移只追加：新代码可能写入新列，正在运行的旧 Worker、部署失败后留下的旧 Worker 都不受影响。删除或改名列、表的迁移晚一个部署：先合并不再读它的代码，迁移里再写 `-- contract: #<那个 PR>`，`test/migrations.test.js` 检查删除列的迁移有这一行。唯一的例外是已应用的 `*_games_are_files.sql`（#145）：它删除了旧代码还在读的 `games.html`，#180 合并时部署在它之后失败（Workers Builds 没有 Docker），生产返回了几分钟 500。预览的 D1 是新建的，原创游戏在 R2 里没有文件，信息流里打不开。
 
 预览的密钥：预览不继承 `hopon` 的 Worker 密钥，也不能写进 `wrangler.jsonc`（wrangler 4.152 不认 `previews.secrets`，缺密钥的预览照样部署）。每个新预览创建时复制一份预览基础配置里的密钥，向导用 `wrangler preview base-config secret put <NAME>` 设置。之后改基础配置只影响此后新建的预览，已有的预览用 `wrangler preview secret put <NAME> --name <预览>` 单独改。没有用 Secrets Store：它的绑定要在代码里 `await env.X.get()`，而且一个 store 密钥被生产和所有预览共用，换值时无法只换预览的。
 

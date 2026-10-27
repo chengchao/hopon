@@ -59,6 +59,50 @@ test("table rebuilds copy only columns the old table has", async (t) => {
   }
 });
 
+// A migration that drops or renames a column or a table breaks the Worker serving while it applies, and the one left
+// serving when the deploy fails after it, as `games_are_files` did (#181). The drop ships a deploy after the code that
+// stops reading it, and the migration names that PR as `-- contract: #<n>`.
+test("a migration that drops a column names the PR that stopped reading it", async (t) => {
+  const proxy = await getPlatformProxy({
+    configPath: new URL("wrangler.jsonc", import.meta.url).pathname,
+    envFiles: [],
+    persist: false,
+    remoteBindings: false,
+  });
+  t.after(() => proxy.dispose());
+  const { DB } = proxy.env;
+  // Rebuilds' scratch tables (`__new_t`) and SQLite's and D1's own start with `_` or `sqlite_`.
+  const columns = async () => {
+    const { results } = await DB.prepare(
+      "SELECT m.name || '.' || p.name AS c FROM sqlite_master m, pragma_table_info(m.name) p WHERE m.type = 'table' AND substr(m.name, 1, 1) != '_' AND m.name NOT LIKE 'sqlite_%'"
+    ).all();
+    return new Set(results.map((r) => r.c));
+  };
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith(".sql"))
+    .toSorted();
+  const unmarked = [];
+  for (const file of files) {
+    const sql = readFileSync(new URL(file, migrationsDir), "utf-8");
+    // oxlint-disable-next-line no-await-in-loop -- each migration sees the tables the ones before it left
+    const before = await columns();
+    // oxlint-disable-next-line no-await-in-loop -- migrations apply in order
+    await DB.batch(statements(file).map((s) => DB.prepare(s)));
+    // oxlint-disable-next-line no-await-in-loop -- see above
+    const after = await columns();
+    const lost = [...before].filter((c) => !after.has(c));
+    // games_are_files dropped `games.html` in the deploy that stopped reading it; it's applied, and this check came after.
+    if (
+      lost.length > 0 &&
+      !/^-- contract: #\d+/mu.test(sql) &&
+      !file.endsWith("_games_are_files.sql")
+    ) {
+      unmarked.push(`${file} drops ${lost.join(", ")}`);
+    }
+  }
+  assert.deepEqual(unmarked, []);
+});
+
 test("the check reads the rebuild that would have copied 'body' into every report", () => {
   assert.deepEqual(
     copiedColumns(
