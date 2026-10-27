@@ -22,7 +22,7 @@ import type {
 import type { AgentEvent } from "@earendil-works/pi-durable";
 
 import { isLittlejsHtml, MUSIC } from "../image/page.ts";
-import type { PlaytestResult, Spec } from "../src/coder.ts";
+import type { PlaytestResult, Spec } from "../src/job.ts";
 import { passes, previewHtml, warningsOf } from "./coder.ts";
 import type { CoderJob } from "./coder.ts";
 import { judgeCoder } from "./judge.ts";
