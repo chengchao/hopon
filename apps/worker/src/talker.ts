@@ -1,17 +1,12 @@
-import type { FetchFunction } from "@earendil-works/pi-ai";
-import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 // The Talker (ADR 0003, #128): one Durable Object per Draft, running pi-durable through PiHarness on the Agent class.
 // pi owns the run: the transcript, queued steers, model calls, and resuming after an eviction. Ours is the Effect
 // service around pi, the requests the Worker forwards, and the sockets: every connect gets pi's snapshot of the
 // conversation, then live batches (#128). Builds come with the `build` tool (#143).
-import { createModels, createProvider } from "@earendil-works/pi-ai/models";
-import { CLOUDFLARE_AI_GATEWAY_MODELS } from "@earendil-works/pi-ai/providers/cloudflare-ai-gateway.models";
 import { createRegistry, Harness } from "@earendil-works/pi-durable";
 import type {
   AgentEventStream,
   SubmissionId,
 } from "@earendil-works/pi-durable";
-import { modelFetch } from "@hopon/model-fetch";
 import { Agent } from "agents";
 import type { Connection } from "agents";
 import { PiHarness } from "agents/harness/pi";
@@ -19,54 +14,11 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Context, Data, Effect, Layer, ManagedRuntime } from "effect";
 
+import { piModels } from "./pi-models.ts";
 import { drafts, now } from "./schema.ts";
 import { killBox } from "./storage.ts";
 import { buildTool } from "./talker-build.ts";
 import { TALKER_PROMPT } from "./talker-prompt.ts";
-
-// pi's Anthropic client posts to this host, and its `fetch` hands each request to modelFetch in-process, which adds
-// the key, routes the model and tags the call with the Draft (#136). The key pi wants is never sent.
-const MODELS_URL = "http://models.internal/anthropic";
-
-// The gateway's descriptor, not Anthropic's, whose mid-conversation system messages Cloudflare's endpoint for Haiku
-// rejects (apps/maker/src/models.ts).
-const talkerModels = (env: Env, draftId: string) => {
-  const api = anthropicMessagesApi();
-  const fetch: FetchFunction = (input, init) =>
-    modelFetch(new Request(input, init), env, {
-      metadata: { agent: "talker", draftId },
-    });
-  const models = createModels();
-  models.setProvider(
-    createProvider({
-      api: {
-        stream: (model, context, options) =>
-          api.stream(model, context, { ...options, fetch }),
-        streamSimple: (model, context, options) =>
-          api.streamSimple(model, context, { ...options, fetch }),
-      },
-      auth: {
-        apiKey: {
-          name: "modelFetch",
-          resolve: () =>
-            Promise.resolve({
-              auth: { apiKey: "placeholder" },
-              source: "modelFetch",
-            }),
-        },
-      },
-      id: "anthropic",
-      models: [
-        {
-          ...CLOUDFLARE_AI_GATEWAY_MODELS[env.MAKER_TALKER_MODEL],
-          baseUrl: MODELS_URL,
-          provider: "anthropic",
-        },
-      ],
-    })
-  );
-  return models;
-};
 
 class PiError extends Data.TaggedError("PiError")<{
   readonly cause: unknown;
@@ -138,7 +90,10 @@ export class Talker extends Agent<Env> {
       return Harness.open(
         storage,
         {
-          models: talkerModels(this.env, this.name),
+          models: piModels(this.env, this.env.MAKER_TALKER_MODEL, () => ({
+            agent: "talker",
+            draftId: this.name,
+          })),
           onWake,
           registry,
           settings: { contextRetentionMs: 0, documentRetentionMs: 0 },

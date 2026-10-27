@@ -7,8 +7,7 @@
     "build:runtime": "node src/runtime.ts",
     "template": "node --env-file-if-exists=.env image/build.ts",
     "test": "node --test",
-    "typecheck": "tsc --noEmit",
-    "start": "node src/main.ts"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@earendil-works/chord": "1.4.0",

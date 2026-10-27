@@ -1,7 +1,7 @@
 // The Coder (#122): one build job in, events out. A fresh pi-coding-agent session per job, pi's read/bash/edit/write
 // plus a playtest tool executing in the Draft's E2B box, the job's source written over the workspace first. What the
-// job does in the box (job.ts) goes through jobBox. The eval runs it in-process; the Container wraps the same
-// function in POST /jobs/:jobId (server.ts).
+// job does in the box (job.ts) goes through jobBox. The eval runs it in-process; the Worker's Coder (apps/worker/src/
+// coder.ts) runs the same job rules on pi-durable.
 import { once } from "node:events";
 import { cpSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -1,5 +1,5 @@
 // What the routes (api.ts) and the build tool (talker-build.ts) both keep: Drafts' and Games' files in R2, whose layout
-// lives only here, the Draft's box in E2B, and the per-account daily quotas in D1.
+// lives only here, the Draft's box (its Coder's container), and the per-account daily quotas in D1.
 import { and, eq, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 
@@ -32,7 +32,7 @@ export const currentRevision = async (files: R2Bucket, id: string) => {
   );
 };
 
-// Kills the Draft's E2B box, if it has one: on Delete, and when the Talker has been idle (#122).
+// Kills the Draft's box, if it has one: on Delete, and when the Talker has been idle (#122).
 export const killBox = async (env: Env, id: string) => {
   const response = await env.CODER.getByName(id).fetch("http://coder/box", {
     method: "DELETE",

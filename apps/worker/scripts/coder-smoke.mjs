@@ -1,6 +1,6 @@
 // `pnpm -F worker smoke:coder [--music]`, with `pnpm -F worker dev:coder` running: posts one build job for a new Draft to its
 // Coder through the dev route, prints each event as it arrives, then kills the Draft's box. A real model and a real
-// E2B box: about a minute and a cent.
+// box in Docker: about a minute and a cent.
 const base = process.env.CODER_URL ?? "http://localhost:8787";
 const draftId = `smoke-${Date.now()}`;
 const music = process.argv.includes("--music");

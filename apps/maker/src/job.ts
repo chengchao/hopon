@@ -134,6 +134,10 @@ export const stepLabel = (tool: string, args: Record<string, unknown>) => {
   if (tool === "playtest") {
     return "Playtesting";
   }
+  // pi-durable's Coder loads skills with activate_skill; pi-coding-agent's reads their SKILL.md.
+  if (tool === "activate_skill") {
+    return "Reading the docs";
+  }
   if (tool === "read") {
     return String(args.path).includes("SKILL.md")
       ? "Reading the docs"

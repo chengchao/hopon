@@ -21,14 +21,16 @@ Each Preview has its own Talker and Coder namespaces, so the GraphQL rows mix pr
 curl -s "https://api.cloudflare.com/client/v4/accounts/$A/workers/workers/hopon/previews/<slug>/deployments/latest" -H "Authorization: Bearer $T"
 ```
 
-## Who holds the Coder containers
+## Who holds the Coder's boxes
 
-A Preview's container app is `hopon_<slug>_Coder`, capped at `max_instances: 2`. Get the app id from `wrangler containers list`, then:
+A Preview has no box (#175): the Coder's box is a `durable_object`-policy container, which wrangler takes only at the top level, and `wrangler preview` deploys none from there. A build on a Preview ends `failed` with "no box here".
 
-- `wrangler containers instances <app id>` lists the instances Coder objects hold; an instance's id is its Coder's object id. When every instance is held, a new Draft's build gets none.
-- `wrangler containers info <app id>` reports `active` and `assigned` health counts, which don't say who holds an instance. Read `instances` for that.
+Production's box app is `hopon-draftcoder`. Get its id from `wrangler containers list`, then:
 
-Run both with `CLOUDFLARE_ACCOUNT_ID=$A`.
+- `wrangler containers instances <app id>` lists the running boxes; an instance's id is its Coder's object id.
+- `wrangler containers info <app id>` reports `active` and `assigned` health counts, which don't say whose a box is. Read `instances` for that.
+
+Run both with `CLOUDFLARE_ACCOUNT_ID=$A`. Older Previews' `hopon_<slug>_Coder` apps are the old Container Coder's; delete them with `wrangler containers delete <id>`.
 
 ## Driving a Preview as the Creator
 

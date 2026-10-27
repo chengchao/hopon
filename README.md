@@ -41,13 +41,13 @@ apps/worker/   Cloudflare Worker API（D1 + Drizzle、Workers AI、Clerk JWT 校
    echo 'OPERATOR_PASSWORD=...' >> apps/worker/.dev.vars
    ```
 
-7. Maker 的 Coder 是一个 Cloudflare Container（`apps/maker/Dockerfile`），每个 Draft 一个实例。它的模型请求经 Worker 的 `modelFetch` 发出，要用 `CLOUDFLARE_API_KEY`（需 AI Gateway Run 和 Workers AI 权限）；它的 E2B box 要用 `E2B_API_KEY`，这是唯一进入容器的密钥。两者都列在 `secrets.required` 里，值与 `apps/maker/.env` 中的相同，写入 `apps/worker/.dev.vars`：
+7. Maker 的 Coder 是 Worker 里每个 Draft 一个的 Durable Object（`apps/worker/src/coder.ts`），它的 box 是它自己启动的 Cloudflare Container（`apps/maker/image/Dockerfile`），box 里没有任何密钥。Coder 的模型请求经 `modelFetch` 发出，要用 `CLOUDFLARE_API_KEY`（需 AI Gateway Run 和 Workers AI 权限）；`E2B_API_KEY` 在 E2B 移除（#178）之前仍然必填。两者都列在 `secrets.required` 里，值与 `apps/maker/.env` 中的相同，写入 `apps/worker/.dev.vars`：
 
    ```sh
    grep -E '^(CLOUDFLARE_API_KEY|E2B_API_KEY)=' apps/maker/.env >> apps/worker/.dev.vars
    ```
 
-   `pnpm run api` 不启动容器。要本地跑 Coder，先打开 Docker Desktop，再运行 `pnpm -F worker dev:coder`（首次会构建镜像），然后在另一个终端用 `pnpm -F worker smoke:coder` 给一个新 Draft 发一个真实的构建任务（加 `--music` 带音乐）：它会逐条打印事件，最后删掉这个 Draft 的 box。用的是真实模型和 E2B，一次大约一分钟。
+   `pnpm run api` 不启动容器。要本地跑 Coder，先打开 Docker Desktop，再运行 `pnpm -F worker dev:coder`（首次会构建镜像），然后在另一个终端用 `pnpm -F worker smoke:coder` 给一个新 Draft 发一个真实的构建任务（加 `--music` 带音乐）：它会逐条打印事件，最后删掉这个 Draft 的 box。用的是真实模型和 Docker 里的 box，一次大约一分钟。
 
 8. Draft 的试玩链接（`GET /api/drafts/:id/preview`）用 `PREVIEW_SECRET` 签名（HMAC-SHA256，一小时有效），同样列在 `secrets.required` 里。本地随便生成一个写入 `apps/worker/.dev.vars`；缺少时签发和打开试玩链接都会失败。Draft 的文件放在 R2 的 `FILES` 绑定（bucket `hopon`），本地由 wrangler 模拟：
 
@@ -85,9 +85,9 @@ pnpm run db:local
 部署由 GitHub Actions 的 Deploy workflow（`.github/workflows/deploy.yml`）完成，用仓库密钥 `CLOUDFLARE_API_TOKEN`（Workers Scripts、D1、Containers、R2 的 Edit 权限）和 `E2B_API_KEY`。两个命令都要用 Docker 构建 Coder 的容器镜像，Cloudflare 的 Workers Builds 没有 Docker，所以不用它（它的生产部署曾在迁移 D1 之后才失败）：
 
 - **生产**：`hopon` Worker，推送到 `main`（合并 PR）时运行 `pnpm run deploy`：合并就是上线，进度在 Actions 的 Deploy 运行里。
-- **预览**：`hopon` Worker 的 [Worker Previews](https://developers.cloudflare.com/workers/previews/)（`wrangler.jsonc` 的 `previews`）。推送到 `main` 以外的分支（每个 PR 的分支）时运行 `pnpm run deploy:preview`：重建 E2B 模板 `hopon-maker-preview`，把迁移应用到 D1 `hopon-staging`（`wrangler.preview-migrations.jsonc`），再 `wrangler preview`。每个分支一个预览，URL 是 `<分支>-hopon.<子域>.workers.dev`，在 workflow 的日志里；有自己的 Talker 和 Coder（Durable Object 命名空间和容器应用都是新的），D1 `hopon-staging` 和 R2 `hopon-staging` 由所有预览共用。没有 staging：PR 的预览提前演练了 Durable Object 迁移、容器滚动、E2B 模板构建，和迁移在新建 D1 上的执行。预览演练不到的有两样：迁移遇到生产 D1 里已有的数据，和 `wrangler deploy` 这条命令本身。部署在迁移之后失败时，旧 Worker 接着服务迁移后的 D1，所以迁移只追加（见下）。在真机上测 PR：开发版应用的 `EXPO_PUBLIC_API_URL` 指向这个 URL，用 Clerk 的 Development 发布密钥。
+- **预览**：`hopon` Worker 的 [Worker Previews](https://developers.cloudflare.com/workers/previews/)（`wrangler.jsonc` 的 `previews`）。推送到 `main` 以外的分支（每个 PR 的分支）时运行 `pnpm run deploy:preview`：重建 E2B 模板 `hopon-maker-preview`，把迁移应用到 D1 `hopon-staging`（`wrangler.preview-migrations.jsonc`），再 `wrangler preview`。每个分支一个预览，URL 是 `<分支>-hopon.<子域>.workers.dev`，在 workflow 的日志里；有自己的 Talker 和 Coder（Durable Object 命名空间是新的；Coder 的 box 是 `durable_object` 策略的容器，wrangler 只接受写在顶层，`wrangler preview` 不部署它，所以预览里的构建因没有 box 而失败），D1 `hopon-staging` 和 R2 `hopon-staging` 由所有预览共用。没有 staging：PR 的预览提前演练了 Durable Object 迁移、E2B 模板构建，和迁移在新建 D1 上的执行。预览演练不到的有两样：迁移遇到生产 D1 里已有的数据，和 `wrangler deploy` 这条命令本身。部署在迁移之后失败时，旧 Worker 接着服务迁移后的 D1，所以迁移只追加（见下）。在真机上测 PR：开发版应用的 `EXPO_PUBLIC_API_URL` 指向这个 URL，用 Clerk 的 Development 发布密钥。
 
-两个命令都按同一顺序：先重建 E2B 模板（`pnpm -F maker template`；E2B 缓存每一步，只有文件变了的步骤会重做），再应用 D1 迁移，最后 `wrangler deploy`（预览是 `wrangler preview`）一次发布 Worker、Talker 和 Coder 的容器镜像。容器的 `rollout_active_grace_period` 是 300 秒，部署会等正在运行的构建结束。推送到 `main` 就部署，不等 GitHub 检查，所以 `main` 受分支保护：PR 须通过 Check 和 Commit messages 才能合并。`test/previews.test.js` 检查 `previews` 与顶层的绑定、变量和容器一致（预览不继承这些），并检查迁移配置和预览绑定的是同一个 D1。
+两个命令都按同一顺序：先重建 E2B 模板（`pnpm -F maker template`；E2B 缓存每一步，只有文件变了的步骤会重做），再应用 D1 迁移，最后 `wrangler deploy`（预览是 `wrangler preview`）一次发布 Worker、Talker 和 Coder 的容器镜像。推送到 `main` 就部署，不等 GitHub 检查，所以 `main` 受分支保护：PR 须通过 Check 和 Commit messages 才能合并。`test/previews.test.js` 检查 `previews` 与顶层的绑定和变量一致（预览不继承这些）、Coder 的 box 配置，并检查迁移配置和预览绑定的是同一个 D1。
 
 首次配置（预览的 D1 和 R2、`hopon` Worker 和预览基础配置的全部运行时密钥 `CLERK_JWT_KEY`、`CLERK_SECRET_KEY`、`OPERATOR_PASSWORD`、`OPERATOR_WEBHOOK_URL`、`CLOUDFLARE_API_KEY`、`E2B_API_KEY`、`PREVIEW_SECRET`，Deploy workflow 的仓库密钥 `CLOUDFLARE_API_TOKEN` 和 `E2B_API_KEY`，`main` 的分支保护，第一次上线）运行向导，可中断后用 `FROM=<n>` 从某一步重跑。预览用 Clerk 的 Development 实例，生产用 Production 实例：
 

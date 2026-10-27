@@ -49,36 +49,47 @@
     "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
     "CLOUDFLARE_GATEWAY_ID": "default",
   },
-  // The Coder (#112, #122): one instance per Draft. max_instances is the global cap on running builds: E2B Hobby's 20
-  // running boxes, less 2 for the Previews (below), since both run in one E2B team. A deploy waits up to 300 s for a
-  // running build.
+  // The Coder's box (#175): one per Draft, which its Coder starts and sizes itself (src/coder-box.ts). No max_instances:
+  // the durable_object policy refuses it, and the account's vCPU are the cap.
   "containers": [
     {
-      "class_name": "Coder",
-      "image": "../maker/Dockerfile",
-      "image_build_context": "../..",
-      "instance_type": "basic",
-      "max_instances": 18,
-      "rollout_active_grace_period": 300,
+      "class_name": "DraftCoder",
+      "scheduling_policy": "durable_object",
+      "images": {
+        "box": {
+          "dockerfile": "../maker/image/Dockerfile",
+          "build_context": "../maker/image",
+        },
+      },
     },
   ],
-  // A container needs Docker: `pnpm -F worker dev:coder` runs the Coder locally; plain `dev` and the tests'
-  // getPlatformProxy leave it out.
+  // A container needs Docker: `pnpm -F worker dev:coder` runs the Coder's box locally; plain `dev` and the tests'
+  // getPlatformProxy leave it out, and a build there fails for lack of a box.
   "dev": { "enable_containers": false },
+  // The Coder bundles the Coder's AGENTS.md and skills (apps/maker/agent-home) as text.
+  "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   // One Talker (src/talker.ts) and one Coder (src/coder.ts) per Draft, each named by the Draft's id.
   "durable_objects": {
     "bindings": [
       { "name": "TALKER", "class_name": "Talker" },
-      { "name": "CODER", "class_name": "Coder" },
+      { "name": "CODER", "class_name": "DraftCoder" },
     ],
   },
+  // A Container application can't move to the durable_object policy in place, so the Coder is a new class, DraftCoder,
+  // and the old Container class goes: it held nothing durable (#175). Its container app outlives the class and is
+  // deleted by hand (`wrangler containers delete`).
   "migrations": [
     { "tag": "talker", "new_sqlite_classes": ["Talker"] },
     { "tag": "coder", "new_sqlite_classes": ["Coder"] },
+    {
+      "tag": "draft-coder",
+      "new_sqlite_classes": ["DraftCoder"],
+      "deleted_classes": ["Coder"],
+    },
   ],
   "compatibility_flags": ["nodejs_compat"],
   // A Worker Preview of the hopon Worker for each branch but main (.github/workflows/deploy.yml runs
-  // `pnpm run deploy:preview`). A Preview inherits nothing, so the bindings, vars and container are repeated, and
+  // `pnpm run deploy:preview`). A Preview inherits nothing, so the bindings and vars are repeated, and
   // test/previews.test.js keeps them in step. Each Preview gets its own Talker and Coder namespaces and its own container
   // app; D1 and R2 are hopon-staging, shared by every Preview, and wrangler.preview-migrations.jsonc migrates that D1.
   // Its secrets are the Preview base config's (README).
@@ -107,22 +118,13 @@
       "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
       "CLOUDFLARE_GATEWAY_ID": "default",
     },
-    // Per Preview: each has its own container app. ponytail: Previews building at once can pass the E2B team's 20
-    // running boxes on top of production's 18; E2B then refuses the box and that build fails.
-    "containers": [
-      {
-        "class_name": "Coder",
-        "image": "../maker/Dockerfile",
-        "image_build_context": "../..",
-        "instance_type": "basic",
-        "max_instances": 2,
-        "rollout_active_grace_period": 300,
-      },
-    ],
+    // No `containers`: wrangler 4.152–4.154 refuses a durable_object-policy container here ("configured only in the
+    // top-level containers array") and `wrangler preview` deploys none from the top level, so a Preview's Coder has no
+    // box and its builds fail saying so (#175).
     "durable_objects": {
       "bindings": [
         { "name": "TALKER", "class_name": "Talker" },
-        { "name": "CODER", "class_name": "Coder" },
+        { "name": "CODER", "class_name": "DraftCoder" },
       ],
     },
   },

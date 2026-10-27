@@ -1,49 +1,114 @@
-// The Coder (#139): one Container instance per Draft, `env.CODER.getByName(draftId)`, running apps/maker's job server
-// (apps/maker/src/server.ts). The Talker POSTs a job to /jobs/:jobId and reads NDJSON events back.
+// The Coder (ADR 0003, #171): one SQLite Durable Object per Draft, `env.CODER.getByName(draftId)`, running pi-durable
+// through PiHarness and Lifecycle, as the Talker does. Its box is a Container it drives itself (src/coder-box.ts). The
+// Talker POSTs a job to /jobs/:jobId and reads NDJSON events back (talker-build.ts); the job id is the pi submission's
+// operationId, so a re-POST attaches to the running job, and a finished job's final event is kept in storage.
 //
-// The container holds the E2B key and nothing else. Its model requests go to `http://models.internal`, which only
-// the `models` handler below answers, here in the Worker: it adds the key through modelFetch and tags the call with
-// the Draft (this instance's name) and the job.
-import { Container } from "@cloudflare/containers";
-import type { OutboundHandlerContext } from "@cloudflare/containers";
-import { MODELS_HOST, modelFetch } from "@hopon/model-fetch";
+// What the job does in the box (the prompt, the playtest, the workspace it starts from, its ending) is the game rules'
+// (apps/maker/src/job.ts). pi's own CodingTools (read, write, edit, bash) run in the box, the skills come through
+// agents' skills(), and playtest is a replay-safe tool.
+import { Type } from "@earendil-works/pi-ai";
+import {
+  createRegistry,
+  defineTool,
+  GenerationTask,
+  Harness,
+  hook,
+  ToolTask,
+} from "@earendil-works/pi-durable";
+import { CodingTools } from "@earendil-works/pi-durable/tools";
+import { PiHarness, skills } from "agents/harness/pi";
+import { Lifecycle } from "agents/lifecycle";
+import { fromManifest, parseSkillMarkdown } from "agents/skills";
+import { DurableObject } from "cloudflare:workers";
+import { Schema } from "effect";
 
-const JOB_PATH = /^\/jobs\/(?<jobId>[^/]+)$/u;
-const CANCEL_PATH = /^\/jobs\/[^/]+\/cancel$/u;
+import DOM_GAMES from "../../maker/agent-home/.agents/skills/dom-games/SKILL.md";
+import LITTLEJS from "../../maker/agent-home/.agents/skills/littlejs-api/SKILL.md";
+import MUSIC_SYNTH from "../../maker/agent-home/.agents/skills/music-synth/SKILL.md";
+import ZZFX from "../../maker/agent-home/.agents/skills/zzfx/SKILL.md";
+import AGENTS from "../../maker/agent-home/AGENTS.md";
+import {
+  boxPlaytest,
+  deadlineFor,
+  finishJob,
+  JobSchema,
+  MAX_STEPS,
+  pastDeadline,
+  prompt,
+  restore,
+  screenshots,
+  stepLabel,
+  SYSTEM_PROMPT,
+} from "../../maker/src/job.ts";
+import type { CoderEvent, Job, PlaytestResult } from "../../maker/src/job.ts";
+import { boxEnv, containerBox, jobBox, NoBoxError } from "./coder-box.ts";
+import type { BoxEdge } from "./coder-box.ts";
+import { piModels } from "./pi-models.ts";
 
-interface ModelCallParams {
-  draftId: string;
+const JOB_PATH = /^\/jobs\/(?<jobId>[^/]+)(?<cancel>\/cancel)?$/u;
+const PING_MS = 10_000;
+
+// AGENTS.md as the project section, with its "read the skill" lines pointed at activate_skill: the skills aren't files.
+const READ_SKILL =
+  "Read the skill for the engine with the **read tool**. Skills are not in the workspace, so bash can't see them; don't look for them with bash";
+if (!AGENTS.includes(READ_SKILL)) {
+  throw new Error("AGENTS.md no longer says how to read a skill");
+}
+const PROJECT = AGENTS.replace(
+  READ_SKILL,
+  "Load the skill for the engine with **activate_skill**. Skills are not in the workspace, so bash can't see them; don't look for them with bash"
+)
+  .replaceAll("Read the `", "Load the `")
+  .replaceAll("read the `", "load the `");
+
+const SKILLS = fromManifest({
+  fingerprint: "v1",
+  id: "hopon-coder",
+  skills: [DOM_GAMES, LITTLEJS, MUSIC_SYNTH, ZZFX].map((raw) => {
+    const parsed = parseSkillMarkdown(raw);
+    if (!parsed) {
+      throw new Error(`a SKILL.md without frontmatter: ${raw.slice(0, 80)}`);
+    }
+    const { body, description, name } = parsed;
+    return { body, description, name };
+  }),
+});
+
+const Input = Type.Object({
+  at: Type.Number({ description: "ms after the start tap" }),
+  dx: Type.Optional(Type.Number({ description: "swipe distance, CSS px" })),
+  dy: Type.Optional(Type.Number({ description: "swipe distance, CSS px" })),
+  type: Type.Union([Type.Literal("tap"), Type.Literal("swipe")]),
+  x: Type.Number(),
+  y: Type.Number(),
+});
+
+// The running or last job, in the object's storage, so a restarted object still knows its limits and playtests.
+interface JobState {
   jobId: string;
+  job: Job;
+  deadlineAt: number;
+  steps: number;
+  playtests: PlaytestResult[];
+  // Why it was stopped: the deadline, the step limit or a cancel.
+  stopped?: string;
 }
 
-export class Coder extends Container<Env> {
-  defaultPort = 8080;
-  sleepAfter = "2m";
+type Line = CoderEvent | { type: "ping" };
 
-  // Assigned, not declared: the base class registers handlers in its static setter, which a class field skips.
-  static {
-    this.outboundHandlers = {
-      models: (
-        request: Request,
-        env: Env,
-        { params }: OutboundHandlerContext<ModelCallParams>
-      ) =>
-        modelFetch(request, env, {
-          metadata: { agent: "coder", ...params },
-        }),
-    };
+const text = (content: readonly { type: string; text?: string }[]) =>
+  content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
+
+export class DraftCoder extends DurableObject<Env> {
+  // Overridden by the contract test's fake box (test/coder/worker.ts).
+  boxEdge(): BoxEdge {
+    return containerBox(this.ctx.container);
   }
 
-  constructor(ctx: DurableObjectState<Record<string, never>>, env: Env) {
-    super(ctx, env);
-    this.envVars = {
-      DRAFT_ID: this.draftId,
-      E2B_API_KEY: env.E2B_API_KEY,
-      MAKER_CODER_EFFORT: env.MAKER_CODER_EFFORT,
-      MAKER_CODER_MODEL: env.MAKER_CODER_MODEL,
-      MAKER_E2B_TEMPLATE: env.MAKER_E2B_TEMPLATE,
-    };
-  }
+  edge = this.boxEdge();
+  registry = createRegistry();
+  // Every open job stream.
+  listeners = new Set<(line: Line) => void>();
 
   get draftId() {
     const { name } = this.ctx.id;
@@ -55,36 +120,284 @@ export class Coder extends Container<Env> {
     return name;
   }
 
+  get job() {
+    return this.ctx.storage.kv.get<JobState>("job");
+  }
+
+  set job(state: JobState | undefined) {
+    this.ctx.storage.kv.put("job", state);
+  }
+
+  // The last job's final event only: the Talker re-POSTs no other, and one with music.js runs to hundreds of KB.
+  final(jobId: string) {
+    const last = this.ctx.storage.kv.get<{ jobId: string; event: CoderEvent }>(
+      "final"
+    );
+    return last?.jobId === jobId ? last.event : undefined;
+  }
+
+  emit(line: Line) {
+    for (const listener of this.listeners) {
+      listener(line);
+    }
+  }
+
+  stop(reason: string) {
+    const { job } = this;
+    if (job) {
+      this.job = { ...job, stopped: job.stopped ?? reason };
+    }
+    // oxlint-disable-next-line no-void -- the run ends on its own; its waiter reads `stopped`
+    void this.harness.session().abort();
+  }
+
+  // The job's ending: the music rendered, the files read back. Its final event is kept for re-POSTs.
+  async finish(state: JobState, summary: string) {
+    const { event } = await finishJob(jobBox(this.edge), {
+      deadlineAt: state.deadlineAt,
+      deadlineMs: deadlineFor(state.job),
+      job: state.job,
+      playtests: state.playtests,
+      stopped: state.stopped,
+      summary: summary.trim(),
+    });
+    this.ctx.storage.kv.put("final", { event, jobId: state.jobId });
+    return event;
+  }
+
+  playtest = defineTool({
+    description:
+      "Typecheck and play the game in headless Chromium (360×640): loads it, taps the centre to start, runs your inputs, and returns the result with screenshots of the start and the end.",
+    execute: async ({ inputs }) => {
+      const box = jobBox(this.edge);
+      const result = await boxPlaytest(
+        box,
+        JSON.stringify({ inputs: inputs ?? [] })
+      );
+      const { job } = this;
+      if (job) {
+        this.job = { ...job, playtests: [...job.playtests, result] };
+      }
+      this.emit({
+        errors: [...result.typeErrors, ...result.errors],
+        ok: result.ok,
+        type: "playtest",
+      });
+      const images = result.typeErrors.length > 0 ? [] : await screenshots(box);
+      return {
+        output: [
+          { text: JSON.stringify(result), type: "text" as const },
+          ...images,
+        ],
+      };
+    },
+    executionMode: "sequential",
+    name: "playtest",
+    parameters: Type.Object({
+      inputs: Type.Optional(
+        Type.Array(Input, {
+          description:
+            "Taps and swipes for your game's controls, in CSS px; 3 s of play when empty",
+        })
+      ),
+    }),
+    // It plays the workspace as it is and writes only its own screenshots, so running it twice is harmless.
+    replay: "safe",
+  });
+
+  // #116's step limit: the 13th call is blocked and the run aborted. Each step's label goes to the Talker.
+  limits = hook(ToolTask, {
+    beforeTool: (call) => {
+      const { job } = this;
+      if (!job || call.parent) {
+        return;
+      }
+      const steps = job.steps + 1;
+      this.job = { ...job, steps };
+      if (steps > MAX_STEPS) {
+        setTimeout(() => this.stop(`over ${MAX_STEPS} steps`), 0);
+        return { block: `Over the ${MAX_STEPS}-step limit.` };
+      }
+      this.emit({
+        label: stepLabel(
+          call.name,
+          (call.arguments ?? {}) as Record<string, unknown>
+        ),
+        type: "step",
+      });
+    },
+  });
+
+  // The ending runs inside pi's run, at the model's final answer, so it completes with nobody connected. A stopped run
+  // never yields; its request handler ends it.
+  ending = hook(GenerationTask, {
+    onYield: async (answer) => {
+      const state = this.job;
+      if (!state || this.final(state.jobId)) {
+        return;
+      }
+      this.emit(await this.finish(state, text(answer.content)));
+    },
+  });
+
+  harness = new PiHarness({
+    defaults: {
+      model: { id: this.env.MAKER_CODER_MODEL, provider: "anthropic" },
+      thinkingLevel: this.env.MAKER_CODER_EFFORT,
+    },
+    harness: async ({ storage, context, onWake }) => {
+      this.registry.install(CodingTools);
+      this.registry.install({
+        hooks: [this.limits, this.ending],
+        name: "coder",
+        sections: [
+          { key: "preamble", render: () => SYSTEM_PROMPT, tag: false },
+          { key: "project", render: () => PROJECT },
+        ],
+        tools: [this.playtest],
+      });
+      this.registry.install(await skills([SKILLS]));
+      // Retention 0: pi drops a finished conversation at once; each job starts a fresh one.
+      return Harness.open(
+        storage,
+        {
+          env: () => boxEnv(this.edge, `box:${this.draftId}`),
+          models: piModels(this.env, this.env.MAKER_CODER_MODEL, () => ({
+            agent: "coder",
+            draftId: this.draftId,
+            jobId: this.job?.jobId ?? "none",
+          })),
+          onWake,
+          registry: this.registry,
+          settings: { contextRetentionMs: 0, documentRetentionMs: 0 },
+        },
+        context
+      );
+    },
+  });
+
+  lifecycle = Lifecycle.install(this).use(this.harness);
+
+  // A new job: the workspace rewritten from its source, a fresh conversation, the job's prompt submitted under its id.
+  async begin(jobId: string, job: Job) {
+    await restore(jobBox(this.edge), job.source);
+    const session = this.harness.session();
+    if (await session.busy()) {
+      await session.abort();
+    }
+    await session.reset();
+    this.job = {
+      deadlineAt: Date.now() + deadlineFor(job),
+      job,
+      jobId,
+      playtests: [],
+      steps: 0,
+    };
+    await this.harness.submit(prompt(job), { operationId: jobId });
+  }
+
+  // The job's events until its final one: a job already finished answers at once, a running one is attached to.
+  async run(jobId: string, job: Job, send: (line: Line) => void) {
+    const stored = this.final(jobId);
+    if (stored) {
+      send(stored);
+      return;
+    }
+    if (!this.edge.running) {
+      try {
+        await this.edge.start();
+      } catch (error) {
+        console.error(`Coder ${this.draftId}: no box`, error);
+        // A box that can't start built nothing, so the Talker refunds it (#122).
+        send({
+          reason: error instanceof NoBoxError ? error.message : "busy",
+          type: "failed",
+        });
+        return;
+      }
+    }
+    if (this.job?.jobId !== jobId) {
+      await this.begin(jobId, job);
+    }
+    const { deadlineAt } = this.job as JobState;
+    const deadline = setTimeout(
+      () => this.stop(pastDeadline(deadlineFor(job) / 1000)),
+      Math.max(0, deadlineAt - Date.now())
+    );
+    try {
+      const result = await this.harness.wait(jobId);
+      send(
+        this.final(jobId) ??
+          (await this.finish(this.job as JobState, result.text ?? ""))
+      );
+    } finally {
+      clearTimeout(deadline);
+    }
+  }
+
   override async fetch(request: Request) {
-    // A stopped container has no job to cancel; don't start one just to say so.
-    if (
-      request.method === "POST" &&
-      CANCEL_PATH.test(new URL(request.url).pathname) &&
-      !this.ctx.container?.running
-    ) {
+    const { pathname } = new URL(request.url);
+    if (request.method === "DELETE" && pathname === "/box") {
+      if (this.edge.running) {
+        await this.edge.destroy();
+      }
       return new Response(null, { status: 204 });
     }
-    const jobId =
-      request.method === "POST"
-        ? JOB_PATH.exec(new URL(request.url).pathname)?.groups?.jobId
-        : undefined;
-    if (jobId) {
-      // ponytail: the tag is the instance's, not the request's, so a second job POSTed while one runs (the container
-      // refuses it) re-tags the running job's last calls. The Talker runs one build per turn.
-      await this.setOutboundByHost(MODELS_HOST, "models", {
-        draftId: this.draftId,
-        jobId,
-      } satisfies ModelCallParams);
+    const route = JOB_PATH.exec(pathname)?.groups;
+    if (request.method !== "POST" || !route?.jobId) {
+      return new Response("Not found", { status: 404 });
     }
-    const response = await this.containerFetch(request);
-    // No container to start: past max_instances (503), while a deploy is still provisioning the image (503), or too
-    // many starts per second (429). The Talker reads them all as a busy build (#122).
-    if (jobId && (response.status === 503 || response.status === 429)) {
-      return new Response(
-        `${JSON.stringify({ reason: "busy", type: "failed" })}\n`,
-        { headers: { "content-type": "application/x-ndjson" } }
-      );
+    const { jobId } = route;
+    if (route.cancel) {
+      if (this.job?.jobId === jobId && !this.final(jobId)) {
+        this.stop("cancelled");
+      }
+      return new Response(null, { status: 204 });
     }
-    return response;
+    let job: Job;
+    try {
+      job = Schema.decodeUnknownSync(JobSchema)(await request.json());
+    } catch (error) {
+      return new Response(`Not a job: ${String(error)}`, { status: 400 });
+    }
+
+    const { readable, writable } = new TransformStream<Uint8Array>();
+    const writer = writable.getWriter();
+    const encoder = new TextEncoder();
+    let ended = false;
+    // One final event per stream, whether the ending or the handler sends it first.
+    const send = async (line: Line) => {
+      if (ended) {
+        return;
+      }
+      ended = line.type === "done" || line.type === "failed";
+      try {
+        await writer.write(encoder.encode(`${JSON.stringify(line)}\n`));
+      } catch {
+        // The Talker hung up; the job runs on, and a re-POST attaches to it.
+      }
+    };
+    const ping = setInterval(() => send({ type: "ping" }), PING_MS);
+    this.listeners.add(send);
+    const work = async () => {
+      try {
+        await this.run(jobId, job, send);
+      } catch (error) {
+        console.error(`Coder ${this.draftId}: job ${jobId}`, error);
+        send({ reason: `the coder failed: ${String(error)}`, type: "failed" });
+      } finally {
+        clearInterval(ping);
+        this.listeners.delete(send);
+        try {
+          await writer.close();
+        } catch {
+          // Already closed by a Talker that hung up.
+        }
+      }
+    };
+    this.ctx.waitUntil(work());
+    return new Response(readable, {
+      headers: { "content-type": "application/x-ndjson" },
+    });
   }
 }
