@@ -140,7 +140,7 @@ const saveArtifacts = async (
 
 const atLeast4 = (score?: { score: number }) => (score?.score ?? 0) >= 4;
 
-const passes = (
+export const passes = (
   kind: CoderJob["kind"],
   finalGreen: boolean,
   scores: Awaited<ReturnType<typeof judgeCoder>> | { error: string } | undefined
@@ -154,9 +154,9 @@ const passes = (
   );
 };
 
-const warningsOf = (playtests: ({ warnings?: string[] } | undefined)[]) => [
-  ...new Set(playtests.flatMap((playtest) => playtest?.warnings ?? [])),
-];
+export const warningsOf = (
+  playtests: ({ warnings?: string[] } | undefined)[]
+) => [...new Set(playtests.flatMap((playtest) => playtest?.warnings ?? []))];
 
 export const runCoder = async ({
   modelId,

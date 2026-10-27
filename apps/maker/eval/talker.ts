@@ -42,6 +42,55 @@ interface Stub {
   steer?: () => void;
 }
 
+// One turn as the report reads it. The end-to-end run against a Preview (preview.ts) makes the same record from the
+// Draft's socket.
+export const turnRecord = ({
+  turn,
+  reply,
+  builds,
+  cost,
+  ms,
+  buildMs,
+  firstTokenMs,
+  firstVisibleMs,
+  status,
+  unanswered,
+}: {
+  turn: ChatTurn;
+  reply: string;
+  builds: Spec[];
+  cost: number;
+  ms: number;
+  buildMs: number;
+  firstTokenMs: number | undefined;
+  firstVisibleMs: number | undefined;
+  status: string;
+  // Why an input went unanswered (a model error, a refused request), for the report and the billing stop.
+  unanswered: string | undefined;
+}) => ({
+  builds,
+  buildsExpected: turn.builds,
+  codeShown: CODE.test(reply),
+  cost,
+  creator: turn.text,
+  firstTokenMs,
+  firstVisibleMs,
+  mentionOk: turn.briefMentions
+    ? builds.some((spec) =>
+        `${spec.title} ${spec.brief}`
+          .toLowerCase()
+          .includes(turn.briefMentions ?? "")
+      )
+    : true,
+  reply,
+  replyMs: ms - buildMs,
+  status,
+  steer: turn.steer,
+  unanswered,
+  words: reply.split(/\s+/u).filter(Boolean).length,
+});
+type TurnRecord = ReturnType<typeof turnRecord>;
+
 const playTurn = async (talker: Talker, stub: Stub, turn: ChatTurn) => {
   stub.builds = [];
   stub.buildMs = 0;
@@ -92,81 +141,40 @@ const playTurn = async (talker: Talker, stub: Stub, turn: ChatTurn) => {
   const ms = Date.now() - started;
   unlisten();
   const reply = texts.join("\n").trim();
-  const { builds } = stub;
-  return {
-    builds,
-    buildsExpected: turn.builds,
-    codeShown: CODE.test(reply),
+  return turnRecord({
+    buildMs: stub.buildMs,
+    builds: stub.builds,
     cost: totalCost(await talker.usage()) - costBefore,
-    creator: turn.text,
     firstTokenMs: firstToken === undefined ? undefined : firstToken - started,
     firstVisibleMs:
       firstVisible === undefined ? undefined : firstVisible - started,
-    mentionOk: turn.briefMentions
-      ? builds.some((spec) =>
-          `${spec.title} ${spec.brief}`
-            .toLowerCase()
-            .includes(turn.briefMentions ?? "")
-        )
-      : true,
+    ms,
     reply,
-    replyMs: ms - stub.buildMs,
     status: settled.status,
-    steer: turn.steer,
-    // Why an input went unanswered (a model error, a refused request), for the report and the billing stop.
+    turn,
     unanswered:
       settled.status === "done"
         ? undefined
         : JSON.stringify(settled).slice(0, 500),
-    words: reply.split(/\s+/u).filter(Boolean).length,
-  };
+  });
 };
 
-export const runTalker = async ({
-  modelId,
+// The chat judged and scored, into result.json.
+export const judgeChat = async ({
   chat,
-  run,
   dir,
-  coder,
-  thinking = "high",
+  modelId,
+  run,
+  thinking,
+  turns,
 }: {
-  modelId: string;
   chat: Chat;
-  run: number;
   dir: string;
-  // The real Coder, for the end-to-end run; without it, a stub returns a canned success after 3 s.
-  coder?: (spec: Spec) => Promise<BuildResult>;
-  thinking?: Thinking;
+  modelId: string;
+  run: number;
+  thinking: string;
+  turns: TurnRecord[];
 }) => {
-  mkdirSync(dir, { recursive: true });
-  const stub: Stub = { buildMs: 0, builds: [] };
-  const talker = await openTalker({
-    build: async (spec) => {
-      stub.builds.push(spec);
-      const started = Date.now();
-      setTimeout(() => stub.steer?.(), STEER_AFTER_MS);
-      const result = coder
-        ? await coder(spec)
-        : await sleep(STUB_BUILD_MS).then((): BuildResult => ({
-            ok: true,
-            summary: `Built "${spec.title}". ${spec.brief.split(/(?<=\.)\s/u)[0]} It plays well and the playtest is green.`,
-          }));
-      stub.buildMs += Date.now() - started;
-      return result;
-    },
-    modelId,
-    thinking,
-  });
-  const turns: Awaited<ReturnType<typeof playTurn>>[] = [];
-  try {
-    for (const turn of chat.turns) {
-      // oxlint-disable-next-line no-await-in-loop -- a chat's turns are sequential
-      turns.push(await playTurn(talker, stub, turn));
-    }
-  } finally {
-    await talker.close();
-  }
-
   const scores = await judgeTalker(
     chat.behaviour,
     turns.map((turn): TalkerTurnRecord => ({
@@ -211,4 +219,51 @@ export const runTalker = async ({
   return record;
 };
 
-export type TalkerRecord = Awaited<ReturnType<typeof runTalker>>;
+export const runTalker = async ({
+  modelId,
+  chat,
+  run,
+  dir,
+  coder,
+  thinking = "high",
+}: {
+  modelId: string;
+  chat: Chat;
+  run: number;
+  dir: string;
+  // The real Coder, for the end-to-end run; without it, a stub returns a canned success after 3 s.
+  coder?: (spec: Spec) => Promise<BuildResult>;
+  thinking?: Thinking;
+}) => {
+  mkdirSync(dir, { recursive: true });
+  const stub: Stub = { buildMs: 0, builds: [] };
+  const talker = await openTalker({
+    build: async (spec) => {
+      stub.builds.push(spec);
+      const started = Date.now();
+      setTimeout(() => stub.steer?.(), STEER_AFTER_MS);
+      const result = coder
+        ? await coder(spec)
+        : await sleep(STUB_BUILD_MS).then((): BuildResult => ({
+            ok: true,
+            summary: `Built "${spec.title}". ${spec.brief.split(/(?<=\.)\s/u)[0]} It plays well and the playtest is green.`,
+          }));
+      stub.buildMs += Date.now() - started;
+      return result;
+    },
+    modelId,
+    thinking,
+  });
+  const turns: TurnRecord[] = [];
+  try {
+    for (const turn of chat.turns) {
+      // oxlint-disable-next-line no-await-in-loop -- a chat's turns are sequential
+      turns.push(await playTurn(talker, stub, turn));
+    }
+  } finally {
+    await talker.close();
+  }
+  return await judgeChat({ chat, dir, modelId, run, thinking, turns });
+};
+
+export type TalkerRecord = Awaited<ReturnType<typeof judgeChat>>;
