@@ -1,16 +1,12 @@
-// scripts/games-to-r2.mjs's bindings: the Worker's D1 and R2, and nothing else. `remote` takes effect only with --remote.
+// scripts/games-to-r2.mjs's bindings: the Worker's local D1 and R2, and nothing else.
 {
   "compatibility_date": "2026-09-01",
-  "account_id": "51a5a41f7bd8425703a6f1d92f867f4d",
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "hopon",
       "database_id": "6be33570-2067-48c6-b716-69e0afb04586",
-      "remote": true,
     },
   ],
-  "r2_buckets": [
-    { "binding": "FILES", "bucket_name": "hopon", "remote": true },
-  ],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "hopon" }],
 }
