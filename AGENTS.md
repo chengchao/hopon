@@ -14,6 +14,10 @@ Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 
 Single-context: one root `GLOSSARY.md` plus `docs/adr/`, created lazily. See `docs/agents/domain.md`.
 
+### Worker Previews
+
+Debugging a Preview (`wrangler tail` doesn't see one): read `docs/agents/previews.md`.
+
 ### Vendored source
 
 `repos/effect` is Effect's source (v4), vendored with `git subtree` as read-only reference. When writing or reviewing Effect code, grep it for the real API and idiomatic patterns (`packages/*/src`, `packages/*/test`) before guessing or searching the web. Import from the `effect` npm package; edit nothing under `repos/`. Update by re-adding it; `git subtree pull` fails because squash-merged PRs drop the subtree metadata:
