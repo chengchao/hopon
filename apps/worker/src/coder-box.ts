@@ -1,7 +1,7 @@
 // The Coder's box (#175): a Cloudflare Container the Coder starts and drives itself through `ctx.container`, under the
-// `durable_object` policy, with no internet and no secrets. All the Coder does in it goes through `BoxEdge`, so the
-// contract test fakes the box there (test/coder/worker.ts). pi's tools reach it through boxEnv, an ExecutionEnv, and
-// the game rules (apps/maker/src/job.ts) through jobBox.
+// `durable_object` policy, with no internet and no secrets. All the Coder does in it goes through the `Box` service, so
+// the contract test swaps its Layer for a fake (test/coder/worker.ts). pi's tools reach it through boxEnv, an
+// ExecutionEnv, and the game rules (apps/maker/src/job.ts) through jobBox.
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -19,9 +19,10 @@ import type {
   FileInfo,
   Result,
 } from "@earendil-works/pi-durable/env";
+import { Context, Data, Effect, Layer } from "effect";
 
 import { WORKSPACE } from "../../maker/src/job.ts";
-import type { Box } from "../../maker/src/job.ts";
+import type { Box as JobBox } from "../../maker/src/job.ts";
 
 // The image's unprivileged user (apps/maker/image/Dockerfile). exec() inherits only PATH, so each call passes the rest.
 const USER = "1001:1001";
@@ -35,8 +36,15 @@ const INSTANCE = { diskMb: 6000, memoryMib: 6144, vcpu: 2 };
 const BOX_IDLE_MS = 300_000;
 // A cold box answers exec() in 0.2–0.5 s, a first boot on a new host in up to 21 s.
 const READY_MS = 60_000;
+const READY_POLL_MS = 100;
 // No command a job runs (a playtest, the music render) should take longer; pi's bash passes its own.
 const COMMAND_TIMEOUT_S = 120;
+// How long `timeout` waits after its SIGTERM before it SIGKILLs what's left.
+const KILL_AFTER_S = 5;
+const SIGTERM = 15;
+// GNU timeout's exit codes: the time ran out, or it had to SIGKILL.
+const TIMED_OUT = 124;
+const KILLED = 137;
 
 export interface Exec {
   exitCode: number;
@@ -51,40 +59,62 @@ export interface ExecOptions {
   onOutput?: (text: string, stream: "stdout" | "stderr") => void;
 }
 
-// What the Coder needs of its box.
-export interface BoxEdge {
-  readonly running: boolean;
-  // Resolves once the box answers exec(); throws when it can't start.
-  start: () => Promise<void>;
-  // The box stops BOX_IDLE_MS after its last activity. Set at start(), and again when the Coder restarts, since the
-  // timeout doesn't outlive the object.
-  setInactivityTimeout: () => Promise<void>;
-  destroy: () => Promise<void>;
-  // One process, both streams read to the end.
+export type BoxFiles = Pick<
+  Files,
+  | "readFile"
+  | "writeFile"
+  | "stat"
+  | "lstat"
+  | "readDirectory"
+  | "mkdir"
+  | "rename"
+  | "remove"
+>;
+
+// What a job does in the box: run a command (one process, both streams read to the end), and its files. Promises,
+// since pi's ExecutionEnv and job.ts's Box, their only callers, are promise interfaces.
+export interface BoxOps {
   exec: (argv: string[], options?: ExecOptions) => Promise<Exec>;
-  files: Pick<
-    Files,
-    | "readFile"
-    | "writeFile"
-    | "stat"
-    | "lstat"
-    | "readDirectory"
-    | "mkdir"
-    | "rename"
-    | "remove"
-  >;
+  files: BoxFiles;
 }
 
+// Plain `wrangler dev` and the tests' getPlatformProxy run without containers.
+export class NoBox extends Data.TaggedError("NoBox") {
+  override readonly message =
+    "no box here: run `pnpm -F worker dev:coder`, with Docker";
+}
+
+// The platform refused to start the box, or it didn't answer in READY_MS.
+export class BoxStartFailed extends Data.TaggedError("BoxStartFailed")<{
+  readonly cause: unknown;
+}> {}
+
+// The box at the Coder's edge.
+export class Box extends Context.Service<
+  Box,
+  BoxOps & {
+    readonly running: Effect.Effect<boolean>;
+    // Done once the box answers exec().
+    readonly start: Effect.Effect<void, NoBox | BoxStartFailed>;
+    // The box stops BOX_IDLE_MS after its last activity. Set at start, and again when the Coder restarts, since the
+    // timeout doesn't outlive the object.
+    readonly keepAlive: Effect.Effect<void>;
+    readonly destroy: Effect.Effect<void>;
+  }
+>()("hopon/worker/Box") {}
+
 // Every command as `timeout`'s child, which ends it and every process it started, at its time or on an abort.
-const timed = (seconds: number, argv: string[]) => [
+const timed = (argv: string[], seconds = COMMAND_TIMEOUT_S) => [
   "timeout",
-  "--kill-after=5",
+  `--kill-after=${KILL_AFTER_S}`,
   String(seconds),
   ...argv,
 ];
 
+const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+
 const drain = async (
-  stream: ReadableStream | null,
+  stream: ReadableStream<Uint8Array> | null,
   name: "stdout" | "stderr",
   onOutput?: ExecOptions["onOutput"]
 ) => {
@@ -93,29 +123,25 @@ const drain = async (
     return new Uint8Array();
   }
   const decoder = new TextDecoder();
-  for await (const chunk of stream as unknown as AsyncIterable<Uint8Array>) {
-    chunks.push(chunk);
-    onOutput?.(decoder.decode(chunk, { stream: true }), name);
-  }
+  await stream.pipeTo(
+    new WritableStream({
+      write: (chunk) => {
+        chunks.push(chunk);
+        onOutput?.(decoder.decode(chunk, { stream: true }), name);
+      },
+    })
+  );
   return new Uint8Array(await new Blob(chunks).arrayBuffer());
 };
 
-// Plain `wrangler dev` and the tests' getPlatformProxy run without containers: a build there fails saying so.
-export class NoBoxError extends Error {
-  override name = "NoBoxError";
-  constructor() {
-    super("no box here: run `pnpm -F worker dev:coder`, with Docker");
-  }
-}
-
-export const containerBox = (maybe: Container | undefined): BoxEdge => {
+export const containerBox = (maybe: Container | undefined) => {
   const container = () => {
     if (!maybe) {
-      throw new NoBoxError();
+      throw new NoBox();
     }
     return maybe;
   };
-  const exec: BoxEdge["exec"] = async (argv, options = {}) => {
+  const exec: BoxOps["exec"] = async (argv, options = {}) => {
     const { signal } = options;
     signal?.throwIfAborted();
     const proc = await container().exec(argv, {
@@ -127,8 +153,8 @@ export const containerBox = (maybe: Container | undefined): BoxEdge => {
       user: USER,
     });
     // An abort sends SIGTERM to `timeout`, which passes it to every process the command started, then SIGKILLs them
-    // 5 s on. exec()'s own signal would SIGKILL `timeout` alone and leave the rest running.
-    const term = () => proc.kill(15);
+    // KILL_AFTER_S on. exec()'s own signal would SIGKILL `timeout` alone and leave the rest running.
+    const term = () => proc.kill(SIGTERM);
     signal?.addEventListener("abort", term, { once: true });
     // An unread stream keeps the process from reporting its exit.
     const [stdout, stderr, exitCode] = await Promise.all([
@@ -136,7 +162,7 @@ export const containerBox = (maybe: Container | undefined): BoxEdge => {
       drain(proc.stderr, "stderr", options.onOutput),
       proc.exitCode,
     ]).finally(() => signal?.removeEventListener("abort", term));
-    return { exitCode, stderr: new TextDecoder().decode(stderr), stdout };
+    return { exitCode, stderr: decode(stderr), stdout };
   };
   // Up once an exec() answers.
   const answers = async () => {
@@ -150,44 +176,76 @@ export const containerBox = (maybe: Container | undefined): BoxEdge => {
       return false;
     }
   };
-  const setInactivityTimeout = () =>
-    container().setInactivityTimeout(BOX_IDLE_MS);
-  return {
-    destroy: () => container().destroy(),
+  const keepAlive = Effect.promise(() =>
+    container().setInactivityTimeout(BOX_IDLE_MS)
+  );
+  // Ready at the first exec() that answers: the entrypoint starts Chromium in the background, and the playtest
+  // launches its own if it isn't up yet.
+  // Production's box is a durable_object-policy app, so start names its image and size. A Preview's can only be a
+  // default-policy app (wrangler.jsonc), whose image and size are its config's.
+  const start = Effect.gen(function* () {
+    if (!maybe) {
+      return yield* new NoBox();
+    }
+    const { images } = maybe;
+    yield* Effect.tryPromise({
+      catch: (cause) => new BoxStartFailed({ cause }),
+      try: async () => {
+        maybe.start(
+          images.box
+            ? { enableInternet: false, image: images.box, instance: INSTANCE }
+            : { enableInternet: false }
+        );
+        const startedAt = Date.now();
+        // oxlint-disable-next-line no-await-in-loop -- polling until the box answers
+        while (!(await answers())) {
+          if (Date.now() - startedAt > READY_MS) {
+            throw new Error(`the box didn't answer in ${READY_MS / 1000} s`);
+          }
+          // oxlint-disable-next-line no-await-in-loop -- polling until the box answers
+          await sleep(READY_POLL_MS);
+        }
+      },
+    });
+    yield* keepAlive;
+  });
+  return Layer.succeed(Box, {
+    destroy: Effect.promise(() => container().destroy()),
     exec,
     files: new Files({
       exec: (argv, options) => container().exec(argv, options),
     }),
-    get running() {
-      return maybe?.running ?? false;
-    },
-    setInactivityTimeout,
-    // Ready at the first exec() that answers: the entrypoint starts Chromium in the background, and the playtest
-    // launches its own if it isn't up yet.
-    // Production's box is a durable_object-policy app, so start() names its image and size. A Preview's can only be a
-    // default-policy app (wrangler.jsonc), whose image and size are its config's.
-    start: async () => {
-      const { images } = container();
-      container().start(
-        images.box
-          ? { enableInternet: false, image: images.box, instance: INSTANCE }
-          : { enableInternet: false }
-      );
-      const startedAt = Date.now();
-      // oxlint-disable-next-line no-await-in-loop -- polling until the box answers
-      while (!(await answers())) {
-        if (Date.now() - startedAt > READY_MS) {
-          throw new Error(`the box didn't answer in ${READY_MS / 1000} s`);
-        }
-        // oxlint-disable-next-line no-await-in-loop -- polling until the box answers
-        await sleep(100);
-      }
-      await setInactivityTimeout();
+    keepAlive,
+    running: Effect.sync(() => maybe?.running ?? false),
+    start,
+  });
+};
+
+// The box's commands and files, each after `ready` (the Coder's: start a box that stopped, and restore its job).
+export const readyFirst = (box: BoxOps, ready: () => Promise<void>): BoxOps => {
+  const after =
+    <A extends unknown[], R>(op: (...args: A) => Promise<R>) =>
+    async (...args: A) => {
+      await ready();
+      return await op(...args);
+    };
+  const { files } = box;
+  return {
+    exec: after(box.exec),
+    files: {
+      lstat: after(files.lstat.bind(files)),
+      mkdir: after(files.mkdir.bind(files)),
+      readDirectory: after(files.readDirectory.bind(files)),
+      readFile: after(files.readFile.bind(files)),
+      remove: after(files.remove.bind(files)),
+      rename: after(files.rename.bind(files)),
+      stat: after(files.stat.bind(files)),
+      writeFile: after(files.writeFile.bind(files)),
     },
   };
 };
 
-const as = { user: USER };
+const asUser = { user: USER };
 const resolve = (p: string) => path.posix.resolve(WORKSPACE, p);
 
 // Files' typed errors as pi-durable's.
@@ -215,7 +273,7 @@ const attempt = async <T>(p: string, run: () => Promise<T>) => {
   }
 };
 // A file operation's success with no value.
-const DONE: Result<void, FileError> = { ok: true, value: undefined };
+const OK: Result<void, FileError> = { ok: true, value: undefined };
 const unsupported = (name: string) => () =>
   Promise.resolve(
     err<never, FileError>(
@@ -238,26 +296,35 @@ const info = (
   size: Number(stat.size),
 });
 
-const readBytes = async (files: BoxEdge["files"], file: string) => {
-  const response = await files.readFile(file, as);
+const readBytes = async (files: BoxFiles, file: string) => {
+  const response = await files.readFile(file, asUser);
   return new Uint8Array(await response.arrayBuffer());
 };
-const readText = async (files: BoxEdge["files"], file: string) => {
-  const response = await files.readFile(file, as);
+const readText = async (files: BoxFiles, file: string) => {
+  const response = await files.readFile(file, asUser);
   return await response.text();
+};
+// With its parent directory, which Files' writeFile doesn't make.
+const write = async (
+  files: BoxFiles,
+  file: string,
+  content: Parameters<BoxFiles["writeFile"]>[1]
+) => {
+  await files.mkdir(path.posix.dirname(file), { ...asUser, recursive: true });
+  await files.writeFile(file, content, asUser);
 };
 
 // pi-durable's ExecutionEnv over the box: what CodingTools (read, write, edit, bash) call, through Files where it has
 // the operation and exec() for the rest (realpath, append, truncate).
-export const boxEnv = (box: BoxEdge, id: string): ExecutionEnv => {
+export const boxEnv = (box: BoxOps, id: string): ExecutionEnv => {
   const { files } = box;
   const read = (p: string) => attempt(p, () => readBytes(files, resolve(p)));
   const fileInfo = (p: string) =>
-    attempt(p, async () => info(p, await files.stat(resolve(p), as)));
+    attempt(p, async () => info(p, await files.stat(resolve(p), asUser)));
   const command = async (argv: string[], p: string, stdin?: ReadableStream) => {
-    const result = await box.exec(timed(COMMAND_TIMEOUT_S, argv), { stdin });
+    const result = await box.exec(timed(argv), { stdin });
     return result.exitCode === 0
-      ? ok<string, FileError>(new TextDecoder().decode(result.stdout))
+      ? ok<string, FileError>(decode(result.stdout))
       : err<string, FileError>(
           new FileError(
             /No such file/iu.test(result.stderr) ? "not_found" : "unknown",
@@ -266,16 +333,16 @@ export const boxEnv = (box: BoxEdge, id: string): ExecutionEnv => {
           )
         );
   };
-  const done = async (
+  const withoutValue = async (
     pending: ReturnType<typeof command>
   ): Promise<Result<void, FileError>> => {
     const result = await pending;
-    return result.ok ? DONE : err(result.error);
+    return result.ok ? OK : err(result.error);
   };
   return {
     absolutePath: (p) => Promise.resolve(ok(resolve(p))),
     appendFile: (p, content) =>
-      done(
+      withoutValue(
         command(
           ["bash", "-c", 'cat >> "$1"', "append", resolve(p)],
           p,
@@ -290,7 +357,7 @@ export const boxEnv = (box: BoxEdge, id: string): ExecutionEnv => {
     createDir: (p, options) =>
       attempt(p, () =>
         files.mkdir(resolve(p), {
-          ...as,
+          ...asUser,
           recursive: options?.recursive ?? false,
         })
       ),
@@ -301,7 +368,7 @@ export const boxEnv = (box: BoxEdge, id: string): ExecutionEnv => {
       const argv = typeof cmd === "string" ? ["bash", "-lc", cmd] : [...cmd];
       const seconds = options?.timeout ?? COMMAND_TIMEOUT_S;
       try {
-        const result = await box.exec(timed(seconds, argv), {
+        const result = await box.exec(timed(argv, seconds), {
           cwd: options?.cwd ? resolve(options.cwd) : WORKSPACE,
           onOutput: (text, stream) =>
             options?.onOutput?.(text, context, { stream }),
@@ -310,8 +377,7 @@ export const boxEnv = (box: BoxEdge, id: string): ExecutionEnv => {
         if (context.abortSignal?.aborted) {
           return err(new ExecutionError("aborted", "aborted"));
         }
-        // GNU timeout exits 124 when the time ran out, 137 when it had to SIGKILL.
-        if (result.exitCode === 124 || result.exitCode === 137) {
+        if (result.exitCode === TIMED_OUT || result.exitCode === KILLED) {
           return err(
             new ExecutionError("timeout", `timed out after ${seconds} s`)
           );
@@ -334,16 +400,16 @@ export const boxEnv = (box: BoxEdge, id: string): ExecutionEnv => {
       return found.error.code === "not_found" ? ok(false) : found;
     },
     fileInfo,
-    flushFile: () => Promise.resolve(DONE),
+    flushFile: () => Promise.resolve(OK),
     id,
     joinPath: (parts) => Promise.resolve(ok(path.posix.join(...parts))),
     listDir: (p) =>
       attempt(p, async () => {
-        const entries = await files.readDirectory(resolve(p), as);
+        const entries = await files.readDirectory(resolve(p), asUser);
         return await Promise.all(
           entries.map(async (entry) => {
             const child = path.posix.join(resolve(p), entry.name);
-            return info(child, await files.lstat(child, as));
+            return info(child, await files.lstat(child, asUser));
           })
         );
       }),
@@ -384,40 +450,31 @@ export const boxEnv = (box: BoxEdge, id: string): ExecutionEnv => {
     remove: (p, options) =>
       attempt(p, () =>
         files.remove(resolve(p), {
-          ...as,
+          ...asUser,
           force: options?.force ?? false,
           recursive: options?.recursive ?? false,
         })
       ),
     renameFile: (from, to) =>
-      attempt(from, () => files.rename(resolve(from), resolve(to), as)),
+      attempt(from, () => files.rename(resolve(from), resolve(to), asUser)),
     truncateFile: (p, size) =>
-      done(command(["truncate", "-s", String(size), "--", resolve(p)], p)),
+      withoutValue(
+        command(["truncate", "-s", String(size), "--", resolve(p)], p)
+      ),
     watch: unsupported("watch"),
-    // pi's write makes the parent directory, as Files' writeFile doesn't.
+    // pi's write makes the parent directory.
     writeFile: (p, content) =>
-      attempt(p, async () => {
-        await files.mkdir(path.posix.dirname(resolve(p)), {
-          ...as,
-          recursive: true,
-        });
-        await files.writeFile(resolve(p), content, as);
-      }),
+      attempt(p, () => write(files, resolve(p), content)),
   };
 };
 
 // The game rules' Box: commands in the workspace under the command timeout, their output whatever the exit code.
-export const jobBox = (box: BoxEdge): Box => ({
+export const jobBox = (box: BoxOps): JobBox => ({
   read: (file) => readText(box.files, file),
   readBytes: (file) => readBytes(box.files, file),
   run: async (command) => {
-    const result = await box.exec(
-      timed(COMMAND_TIMEOUT_S, ["bash", "-lc", command])
-    );
-    return { ...result, stdout: new TextDecoder().decode(result.stdout) };
+    const result = await box.exec(timed(["bash", "-lc", command]));
+    return { ...result, stdout: decode(result.stdout) };
   },
-  write: async (file, text) => {
-    await box.files.mkdir(path.posix.dirname(file), { ...as, recursive: true });
-    await box.files.writeFile(file, text, as);
-  },
+  write: (file, text) => write(box.files, file, text),
 });

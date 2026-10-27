@@ -3,13 +3,18 @@
 //   scripted Anthropic stream. The job's brief names the script (SCRIPTS); each reply is the script's next step, by
 //   how many answers the conversation already holds. A script can be a function, for a model that never stops.
 // - The box: files in the Coder's own storage (so they outlive a restart, as a running box does), every command logged
-//   and answered by fakeExec: the playtest always green, music.mjs rendering a fixed track, the rest a no-op. A Draft
-//   whose id starts with "nobox" gets a box that can't start; `sleep 600` runs until it's aborted.
+//   and answered by fakeExec: the playtest always green, music.mjs rendering a fixed track, the rest a no-op. As the
+//   platform's, a stopped box refuses every command and file, and one started again is empty. A Draft whose id starts
+//   with "nobox" gets a box that can't start, and one starting "lost" a box that stops with the server (its running
+//   flag lives in memory); `sleep 600` runs until it's aborted.
 // - The deadline: the "late" brief's is 1 s, so its case is quick; its reason still names the job's real deadline.
 // /__coder/<draftId>/fake/log returns the box's commands, and its start, destroy and inactivity timeout; /fake/release
 // lets a held model step ("hold") answer.
+import { Effect, Layer } from "effect";
+
 import type { Job } from "../../../maker/src/job.ts";
-import type { BoxEdge, Exec } from "../../src/coder-box.ts";
+import { Box, NoBox } from "../../src/coder-box.ts";
+import type { Exec } from "../../src/coder-box.ts";
 import { DraftCoder as Coder } from "../../src/coder.ts";
 
 export { default } from "../../src/index.ts";
@@ -196,14 +201,34 @@ const fileError = (code: string, operation: string, path: string) =>
   });
 
 export class DraftCoder extends Coder {
-  override boxEdge(): BoxEdge {
+  override boxLayer() {
     const { kv } = this.ctx.storage;
     const paths = () =>
       [...kv.list<Uint8Array>({ prefix: "fakebox:/" })].map(([k]) =>
         k.slice("fakebox:".length)
       );
     const put = (path: string, bytes: Uint8Array) => kv.put(key(path), bytes);
+    const lost = this.ctx.id.name?.startsWith("lost") ?? false;
+    let runningHere = false;
+    const isRunning = () =>
+      lost ? runningHere : kv.get("fakebox:running") === true;
+    const setRunning = (running: boolean) => {
+      runningHere = running;
+      kv.put("fakebox:running", running);
+    };
+    const wipe = () => {
+      for (const path of paths()) {
+        kv.delete(key(path));
+      }
+    };
+    // What the platform's exec() does on a box that isn't running.
+    const live = () => {
+      if (!isRunning()) {
+        throw new Error("the container is not running");
+      }
+    };
     const get = (path: string, operation: string) => {
+      live();
       const bytes = kv.get<Uint8Array>(key(path));
       if (!bytes) {
         throw fileError("ENOENT", operation, path);
@@ -213,6 +238,7 @@ export class DraftCoder extends Coder {
     const isDir = (path: string) =>
       path === "/workspace" || paths().some((p) => p.startsWith(`${path}/`));
     const stat = (path: string, operation: string) => {
+      live();
       const type = isDir(path) ? "directory" : "file";
       const size = type === "file" ? get(path, operation).length : 0;
       return Promise.resolve({
@@ -230,9 +256,7 @@ export class DraftCoder extends Coder {
       kv.put("fakelog", [...(kv.get<string[]>("fakelog") ?? []), command]);
     const fakeExec = (command: string): Exec => {
       if (command.includes("find /workspace -mindepth 1 -delete")) {
-        for (const path of paths()) {
-          kv.delete(key(path));
-        }
+        wipe();
       } else if (command.includes("/opt/hopon/playtest.js")) {
         put("/workspace/game.js", encode("// built"));
         put("/workspace/playtest-start.png", PNG);
@@ -244,13 +268,13 @@ export class DraftCoder extends Coder {
       }
       return ok();
     };
-    const box: BoxEdge = {
-      destroy: () => {
+    return Layer.succeed(Box, {
+      destroy: Effect.sync(() => {
         log("destroy");
-        kv.delete("fakebox:running");
-        return Promise.resolve();
-      },
+        setRunning(false);
+      }),
       exec: (argv, options) => {
+        live();
         const command = argv.join(" ");
         log(command);
         if (command.includes("sleep 600")) {
@@ -265,8 +289,12 @@ export class DraftCoder extends Coder {
       },
       files: {
         lstat: (path) => stat(path, "lstat"),
-        mkdir: () => Promise.resolve(),
+        mkdir: () => {
+          live();
+          return Promise.resolve();
+        },
         readDirectory: (path) => {
+          live();
           const names = new Set(
             paths()
               .filter((p) => p.startsWith(`${path}/`))
@@ -282,6 +310,7 @@ export class DraftCoder extends Coder {
         readFile: (path) =>
           Promise.resolve(new Response(get(path, "readFile"))),
         remove: (path) => {
+          live();
           for (const p of paths()) {
             if (p === path || p.startsWith(`${path}/`)) {
               kv.delete(key(p));
@@ -296,26 +325,30 @@ export class DraftCoder extends Coder {
         },
         stat: (path) => stat(path, "stat"),
         writeFile: async (path, content) => {
+          live();
           put(path, new Uint8Array(await new Response(content).arrayBuffer()));
         },
       },
-      get running() {
-        return kv.get("fakebox:running") === true;
-      },
-      setInactivityTimeout: () => {
-        log("inactivity timeout");
-        return Promise.resolve();
-      },
-      start: () => {
-        if (this.ctx.id.name?.startsWith("nobox")) {
-          return Promise.reject(new Error("no box to start"));
-        }
-        log("start");
-        kv.put("fakebox:running", true);
-        return Promise.resolve();
-      },
-    };
-    return box;
+      keepAlive: Effect.sync(() => log("inactivity timeout")),
+      running: Effect.sync(isRunning),
+      // Plain `wrangler dev`'s failure: no container at all.
+      start: this.ctx.id.name?.startsWith("nobox")
+        ? Effect.fail(new NoBox())
+        : Effect.sync(() => {
+            log("start");
+            wipe();
+            setRunning(true);
+          }),
+    });
+  }
+
+  // The resume test waits for this line: a job pi finished with nobody connected.
+  override async finish(...args: Parameters<Coder["finish"]>) {
+    const event = await super.finish(...args);
+    console.info(
+      `Coder ${this.ctx.id.name}: job ${args[0].jobId} ${event.type}`
+    );
+    return event;
   }
 
   override async begin(jobId: string, job: Job) {

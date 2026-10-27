@@ -20,7 +20,7 @@ import { PiHarness, skills } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { fromManifest, parseSkillMarkdown } from "agents/skills";
 import { DurableObject } from "cloudflare:workers";
-import { Schema } from "effect";
+import { Cause, Effect, ManagedRuntime, Schema, Semaphore } from "effect";
 
 import DOM_GAMES from "../../maker/agent-home/.agents/skills/dom-games/SKILL.md";
 import LITTLEJS from "../../maker/agent-home/.agents/skills/littlejs-api/SKILL.md";
@@ -41,8 +41,7 @@ import {
   SYSTEM_PROMPT,
 } from "../../maker/src/job.ts";
 import type { CoderEvent, Job, PlaytestResult } from "../../maker/src/job.ts";
-import { boxEnv, containerBox, jobBox, NoBoxError } from "./coder-box.ts";
-import type { BoxEdge } from "./coder-box.ts";
+import { Box, boxEnv, containerBox, jobBox, readyFirst } from "./coder-box.ts";
 import { piModels } from "./pi-models.ts";
 
 const JOB_PATH = /^\/jobs\/(?<jobId>[^/]+)(?<cancel>\/cancel)?$/u;
@@ -101,11 +100,36 @@ const text = (content: readonly { type: string; text?: string }[]) =>
 
 export class DraftCoder extends DurableObject<Env> {
   // Overridden by the contract test's fake box (test/coder/worker.ts).
-  boxEdge(): BoxEdge {
+  boxLayer() {
     return containerBox(this.ctx.container);
   }
 
-  edge = this.boxEdge();
+  runtime = ManagedRuntime.make(this.boxLayer());
+  // One start at a time: a call that finds the box starting waits for it, restore included.
+  starting = Semaphore.makeUnsafe(1);
+
+  // The box is a cache over the job: one that stopped (idle, a deploy, a crash) starts again from the unfinished
+  // job's source, whether pi resumes the run with nobody connected or a re-POST attaches to it. What the old box held
+  // since the job began is gone; the run goes on from the source.
+  up = this.starting.withPermit(
+    Effect.gen({ self: this }, function* () {
+      const box = yield* Box;
+      if (yield* box.running) {
+        return;
+      }
+      yield* box.start;
+      const state = this.job;
+      if (state && !this.final(state.jobId)) {
+        yield* Effect.promise(() => restore(jobBox(box), state.job.source));
+      }
+    })
+  );
+
+  // Every command and file the job touches comes through `up` first.
+  box = readyFirst(this.runtime.runSync(Box), () =>
+    this.runtime.runPromise(this.up)
+  );
+
   registry = createRegistry();
   // Every open job stream.
   listeners = new Set<(line: Line) => void>();
@@ -114,17 +138,26 @@ export class DraftCoder extends DurableObject<Env> {
     super(ctx, env);
     // A box that outlived the object (a crash, an eviction, a deploy) lost its inactivity timeout with it.
     // oxlint-disable-next-line no-void -- blockConcurrencyWhile holds every event until it settles
-    void ctx.blockConcurrencyWhile(async () => {
-      if (!this.edge.running) {
-        return;
-      }
-      try {
-        await this.edge.setInactivityTimeout();
-      } catch (error) {
-        // Thrown here, it would reset the object, failing every request it holds.
-        console.error(`Coder ${this.draftId}: no inactivity timeout`, error);
-      }
-    });
+    void ctx.blockConcurrencyWhile(() =>
+      this.runtime.runPromise(
+        Effect.gen(function* () {
+          const box = yield* Box;
+          if (yield* box.running) {
+            yield* box.keepAlive;
+          }
+        }).pipe(
+          // Thrown here, it would reset the object, failing every request it holds.
+          Effect.catchCause((cause) =>
+            Effect.sync(() =>
+              console.error(
+                `Coder ${this.draftId}: no inactivity timeout`,
+                Cause.pretty(cause)
+              )
+            )
+          )
+        )
+      )
+    );
   }
 
   get draftId() {
@@ -170,7 +203,7 @@ export class DraftCoder extends DurableObject<Env> {
 
   // The job's ending: the music rendered, the files read back. Its final event is kept for re-POSTs.
   async finish(state: JobState, summary: string) {
-    const { event } = await finishJob(jobBox(this.edge), {
+    const { event } = await finishJob(jobBox(this.box), {
       deadlineAt: state.deadlineAt,
       deadlineMs: deadlineFor(state.job),
       job: state.job,
@@ -179,7 +212,6 @@ export class DraftCoder extends DurableObject<Env> {
       summary: summary.trim(),
     });
     this.ctx.storage.kv.put("final", { event, jobId: state.jobId });
-    console.log(`Coder ${this.draftId}: job ${state.jobId} ${event.type}`);
     return event;
   }
 
@@ -187,7 +219,7 @@ export class DraftCoder extends DurableObject<Env> {
     description:
       "Typecheck and play the game in headless Chromium (360×640): loads it, taps the centre to start, runs your inputs, and returns the result with screenshots of the start and the end.",
     execute: async ({ inputs }) => {
-      const box = jobBox(this.edge);
+      const box = jobBox(this.box);
       const result = await boxPlaytest(
         box,
         JSON.stringify({ inputs: inputs ?? [] })
@@ -237,10 +269,7 @@ export class DraftCoder extends DurableObject<Env> {
         return { block: `Over the ${MAX_STEPS}-step limit.` };
       }
       this.emit({
-        label: stepLabel(
-          call.name,
-          (call.arguments ?? {}) as Record<string, unknown>
-        ),
+        label: stepLabel(call.name, call.arguments),
         type: "step",
       });
     },
@@ -279,7 +308,7 @@ export class DraftCoder extends DurableObject<Env> {
       return Harness.open(
         storage,
         {
-          env: () => boxEnv(this.edge, `box:${this.draftId}`),
+          env: () => boxEnv(this.box, `box:${this.draftId}`),
           models: piModels(this.env, this.env.MAKER_CODER_MODEL, () => ({
             agent: "coder",
             draftId: this.draftId,
@@ -318,7 +347,7 @@ export class DraftCoder extends DurableObject<Env> {
 
   // A new job: the workspace rewritten from its source, a fresh conversation, the job's prompt submitted under its id.
   async begin(jobId: string, job: Job) {
-    await restore(jobBox(this.edge), job.source);
+    await restore(jobBox(this.box), job.source);
     const session = this.harness.session();
     if (await session.busy()) {
       await session.abort();
@@ -342,35 +371,45 @@ export class DraftCoder extends DurableObject<Env> {
       send(stored);
       return;
     }
-    if (!this.edge.running) {
-      try {
-        await this.edge.start();
-      } catch (error) {
-        console.error(`Coder ${this.draftId}: no box`, error);
-        // A box that can't start built nothing, so the Talker refunds it (#122).
-        send({
-          reason: error instanceof NoBoxError ? error.message : "busy",
-          type: "failed",
-        });
-        return;
-      }
+    const up = await this.runtime.runPromise(
+      this.up.pipe(
+        Effect.as(true),
+        // NoBox's message says how to get a box under plain `wrangler dev`.
+        Effect.catch((error) =>
+          Effect.sync(() => {
+            console.error(`Coder ${this.draftId}: no box`, error);
+            return false;
+          })
+        )
+      )
+    );
+    if (!up) {
+      // A box that can't start built nothing: `busy`, which the Talker refunds (#122).
+      send({ reason: "busy", type: "failed" });
+      return;
     }
     if (this.job?.jobId !== jobId) {
       await this.begin(jobId, job);
     }
     const result = await this.harness.wait(jobId);
-    send(
-      this.final(jobId) ??
-        (await this.finish(this.job as JobState, result.text ?? ""))
-    );
+    const { job: state } = this;
+    if (!state) {
+      throw new Error(`job ${jobId} ran without its state`);
+    }
+    send(this.final(jobId) ?? (await this.finish(state, result.text ?? "")));
   }
 
   override async fetch(request: Request) {
     const { pathname } = new URL(request.url);
     if (request.method === "DELETE" && pathname === "/box") {
-      if (this.edge.running) {
-        await this.edge.destroy();
-      }
+      await this.runtime.runPromise(
+        Effect.gen(function* () {
+          const box = yield* Box;
+          if (yield* box.running) {
+            yield* box.destroy;
+          }
+        })
+      );
       return new Response(null, { status: 204 });
     }
     const route = JOB_PATH.exec(pathname)?.groups;

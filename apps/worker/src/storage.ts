@@ -32,7 +32,7 @@ export const currentRevision = async (files: R2Bucket, id: string) => {
   );
 };
 
-// Kills the Draft's box, if it has one: on Delete, and when the Talker has been idle (#122).
+// Kills the Draft's box, if it has one, when the Draft is deleted. An idle box stops on its own (src/coder-box.ts).
 export const killBox = async (env: Env, id: string) => {
   const response = await env.CODER.getByName(id).fetch("http://coder/box", {
     method: "DELETE",

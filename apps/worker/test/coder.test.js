@@ -290,7 +290,7 @@ test(
   }
 );
 
-test("a job whose server is killed mid-build ends on its own; a re-POST gets its final event; the box is kept, then destroyed", async (t) => {
+test("a job whose server is killed mid-build ends on its own, on its box or on a fresh one from its source; a re-POST gets its final event; the box is kept, then destroyed", async (t) => {
   t.after(kill);
   t.after(() => {
     if (!t.passed) {
@@ -299,15 +299,23 @@ test("a job whose server is killed mid-build ends on its own; a re-POST gets its
   });
   await start();
 
-  // Killed while the model answers its last step, after a green playtest.
+  // Killed while the model answers its last step, after a green playtest. lost-r's box stops with the server.
+  const lostSource = { "game.ts": "let speed = 3;\n" };
   const first = await post("draft-r", "job-r", job(0, {}, "slow"));
-  await until("the playtest", () =>
-    first.events.some((event) => event.type === "playtest")
-  );
+  const lost = await post("lost-r", "job-r", job(1, lostSource, "slow"));
+  for (const { events } of [first, lost]) {
+    // oxlint-disable-next-line no-await-in-loop -- one Draft at a time
+    await until("the playtest", () =>
+      events.some((event) => event.type === "playtest")
+    );
+  }
   const before = await boxLog("draft-r");
   assert.ok(!before.includes("inactivity timeout"));
+  const { length: lostBefore } = await boxLog("lost-r");
   kill();
-  await first.done.catch(() => {});
+  await Promise.all(
+    [first.done, lost.done].map((done) => done.catch(() => {}))
+  );
   assert.ok(!first.events.some((event) => event.type === "done"));
 
   // Back up, and no request: pi-durable's heartbeat restarts the Coder, which finishes the job by itself and sets the
@@ -325,6 +333,26 @@ test("a job whose server is killed mid-build ends on its own; a re-POST gets its
   );
   const log = await boxLog("draft-r");
   assert.ok(log.includes("inactivity timeout"));
+
+  // lost-r's job ends on a fresh box, started again and given the job's source: what the old box held is gone.
+  await until(
+    "lost-r's end with no request",
+    () =>
+      Buffer.concat(serverLog)
+        .subarray(from)
+        .toString()
+        .includes("Coder lost-r: job job-r done"),
+    60_000
+  );
+  const lostAll = await boxLog("lost-r");
+  const lostLog = lostAll.slice(lostBefore);
+  assert.equal(lostLog[0], "start");
+  assert.match(lostLog[1], /find \/workspace -mindepth 1 -delete/u);
+  const [lostDone] = await build("lost-r", "job-r", job(1, lostSource, "slow"));
+  assert.equal(lostDone.type, "done");
+  assert.deepEqual(lostDone.deleted, []);
+  assert.equal(lostDone.files["game.ts"], undefined);
+  assert.equal(lostDone.files["game.js"], undefined);
 
   // A re-POST of the finished job gets its final event at once, without building again.
   const again = await build("draft-r", "job-r", job(0, {}, "slow"));
