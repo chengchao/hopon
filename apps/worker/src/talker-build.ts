@@ -97,7 +97,18 @@ const writeRevision = async (
 
 // The job's answer, its `done` or `failed`, with each `step` label passed on as it comes. Undefined if the stream ends
 // without one.
-const answer = async (response: Response, step: (label: string) => void) => {
+const answer = async (
+  response: Response,
+  step: (label: string) => void
+): Promise<Final | undefined> => {
+  // The Container's own errors are text, such as "Failed to start container: …"; say what it said.
+  if (!response.ok) {
+    const text = await response.text();
+    return {
+      reason: `the coder answered ${response.status}: ${text.slice(0, 300)}`,
+      type: "failed",
+    };
+  }
   if (!response.body) {
     return;
   }

@@ -106,11 +106,15 @@ const setup = async (t) => {
     if (action === "busy") {
       return Response.json({ busy: talker.busy });
     }
+    // As on Cloudflare: destroy() resets the Talker before its 204 gets back.
+    if (action === "delete") {
+      throw Object.assign(new Error("destroyed"), { durableObjectReset: true });
+    }
     return new Response(null, { status: 204 });
   };
   const TALKER = {
     getByName: (draft) => ({
-      fetch: (request, init) => Promise.resolve(answer(draft, request, init)),
+      fetch: (request, init) => Promise.try(answer, draft, request, init),
     }),
     newUniqueId: () => ({ toString: () => randomBytes(32).toString("hex") }),
   };

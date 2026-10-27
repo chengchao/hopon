@@ -27,7 +27,7 @@ const handle = makeCoder(
   { draftId: env("DRAFT_ID") }
 );
 
-createServer(async (incoming, outgoing) => {
+const server = createServer(async (incoming, outgoing) => {
   const hasBody = incoming.method !== "GET" && incoming.method !== "HEAD";
   let response: Response;
   try {
@@ -52,3 +52,11 @@ createServer(async (incoming, outgoing) => {
     // The caller went away. That cancels its stream, not the job: the next POST attaches.
   }
 }).listen(PORT);
+
+// The Coder signals SIGTERM once it has been idle for its sleepAfter, and a deploy does too. As PID 1, node ignores a
+// signal it doesn't handle, so the container would run on and keep its instance: past max_instances, every other
+// Draft's Coder gets none. Exit once the open responses end. ponytail: a job whose Talker went away has none open, so
+// it ends with the process and its box isn't paused; E2B reaps it, and the next job restores from R2.
+process.on("SIGTERM", () => {
+  server.close(() => process.exit(0));
+});
