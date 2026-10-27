@@ -160,16 +160,15 @@ export const containerBox = (maybe: Container | undefined): BoxEdge => {
     setInactivityTimeout,
     // Ready at the first exec() that answers: the entrypoint starts Chromium in the background, and the playtest
     // launches its own if it isn't up yet.
+    // Production's box is a durable_object-policy app, so start() names its image and size. A Preview's can only be a
+    // default-policy app (wrangler.jsonc), whose image and size are its config's.
     start: async () => {
       const { images } = container();
-      if (!images.box) {
-        throw new Error("the Worker has no box image");
-      }
-      container().start({
-        enableInternet: false,
-        image: images.box,
-        instance: INSTANCE,
-      });
+      container().start(
+        images.box
+          ? { enableInternet: false, image: images.box, instance: INSTANCE }
+          : { enableInternet: false }
+      );
       const startedAt = Date.now();
       // oxlint-disable-next-line no-await-in-loop -- polling until the box answers
       while (!(await answers())) {
