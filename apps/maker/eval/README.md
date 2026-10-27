@@ -15,10 +15,13 @@ pnpm -F maker eval smoke                               # Kimi: 5 jobs, images in
 pnpm -F maker eval coder --models a,b [--runs 3] [--jobs id,id] [--concurrency 6] [--sweep name]
 pnpm -F maker eval talker --models a,b [--runs 3] [--chats id,id]
 pnpm -F maker eval e2e [--talker id] [--talker-thinking high] [--coder id] [--thinking low]  # real Talker → real Coder
+pnpm -F maker eval e2e --preview https://<branch>-hopon.calendeam.workers.dev [--chats id,id] [--runs 3]  # on a Preview
 pnpm -F maker eval blind                               # 20 runs for the owner to score, without model names
 pnpm -F maker eval calibrate < scores.json             # the blind page's scores into calibration.json
 pnpm -F maker eval report                              # report.md, report.json, contact-sheet.png in out/<sweep>/
 ```
+
+**On a Preview** (#174), `e2e` runs what ships: each chat goes through the Draft routes and the WebSocket as the app's, signed in as a Clerk Development user, and each build's Revision is read back through its preview link, given the eval's final checks here (local Chromium) and judged. It needs `CLERK_PUBLISHABLE_KEY` (the Development instance's) and `EVAL_CLERK_EMAIL` in `.env`: a `+clerk_test` address, which a Development instance signs in with the code 424242, so there's no password. The Talker and Coder models are the Preview's vars. What the Preview doesn't report is null and left out of the stats: the Coder's dollars, first green and tool calls. Its seconds run from the `build` call to its result, so they include R2, and the replay check plays 3 s with no inputs, since the Coder's last inputs aren't reported. Each chat deletes its Draft at the end. A user gets 10 builds a UTC day, so a full run (72 builds) needs that user's count in the `hopon-staging` D1 cleared between batches (`DELETE FROM generation_limits WHERE bucket LIKE '<user id>:%'`).
 
 A sweep resumes: runs with a `result.json` under `out/<sweep>/` are skipped. Models: `claude-haiku-5-5`, `claude-sonnet-5-5`, `kimi-k3` (DeepSeek dropped by the owner), all at reasoning "low".
 

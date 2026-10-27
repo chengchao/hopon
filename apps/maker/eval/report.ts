@@ -55,13 +55,19 @@ const groupBy = <T>(items: T[], key: (item: T) => string) => {
   return groups;
 };
 
+// A run against a Preview (preview.ts) holds null for what the Preview doesn't report; a stat leaves it out.
+const reported = <T>(values: (T | null)[]) =>
+  values.filter((value): value is T => value !== null);
+
 export const coderStats = (runs: CoderRecord[]) => {
   // Music jobs get +30 s: measured against the same limits after taking it off.
   const latency = runs.map(
     (run) => run.seconds - (run.music ? MUSIC_EXTRA_S : 0)
   );
+  const firstGreen = reported<boolean>(runs.map((run) => run.firstGreen));
+  const costs = reported<number>(runs.map((run) => run.cost));
   const stats = {
-    firstGreen: runs.filter((run) => run.firstGreen).length / runs.length,
+    firstGreen: firstGreen.filter(Boolean).length / firstGreen.length,
     // The judge's "looks" (1–5), over the judged runs: reported, not part of a pass.
     looks: mean(
       runs.flatMap((run) =>
@@ -85,7 +91,10 @@ export const coderStats = (runs: CoderRecord[]) => {
     ),
     passRate: runs.filter((run) => run.pass).length / runs.length,
     runs: runs.length,
-    totalCost: runs.reduce((sum, run) => sum + run.cost, 0),
+    totalCost:
+      costs.length > 0
+        ? costs.reduce((sum, cost) => sum + cost, 0)
+        : Number.NaN,
     warnings: runs.filter((run) => run.warnings.length > 0).length,
   };
   return {

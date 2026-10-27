@@ -25,6 +25,7 @@ import {
 } from "./coder.ts";
 import type { CoderJob, CoderRecord } from "./coder.ts";
 import { runE2E } from "./e2e.ts";
+import { runPreviewE2E, signIn } from "./preview.ts";
 import {
   coderStats,
   quantile,
@@ -44,6 +45,8 @@ const { positionals, values } = parseArgs({
     concurrency: { default: "6", type: "string" },
     jobs: { type: "string" },
     models: { type: "string" },
+    // e2e: a Worker Preview's URL, to run the chats there instead of in-process.
+    preview: { type: "string" },
     runs: { default: "3", type: "string" },
     sweep: { default: "sweep", type: "string" },
     talker: { default: "claude-haiku-5-5", type: "string" },
@@ -316,7 +319,11 @@ const commands: Record<string, () => Promise<void> | void> = {
   },
   // The real Talker driving the real Coder through the scripted chats; every built game is judged.
   e2e: async () => {
-    const pair = `${values.talker}-${values["talker-thinking"]}+${values.coder}-${values.thinking}`;
+    const { preview } = values;
+    const token = preview ? await signIn() : undefined;
+    const pair = preview
+      ? `preview-${new URL(preview).host}`
+      : `${values.talker}-${values["talker-thinking"]}+${values.coder}-${values.thinking}`;
     const chats = CHATS.filter((chat) =>
       list(
         values.chats,
@@ -330,15 +337,24 @@ const commands: Record<string, () => Promise<void> | void> = {
           return;
         }
         try {
-          const { builds, talker } = await runE2E({
-            chat,
-            coderModel: values.coder,
-            dir,
-            run: run + 1,
-            talkerModel: values.talker,
-            talkerThinking: values["talker-thinking"] as Thinking,
-            thinking: values.thinking as Thinking,
-          });
+          const { builds, talker } =
+            preview && token
+              ? await runPreviewE2E({
+                  base: preview,
+                  chat,
+                  dir,
+                  run: run + 1,
+                  token,
+                })
+              : await runE2E({
+                  chat,
+                  coderModel: values.coder,
+                  dir,
+                  run: run + 1,
+                  talkerModel: values.talker,
+                  talkerThinking: values["talker-thinking"] as Thinking,
+                  thinking: values.thinking as Thinking,
+                });
           if (refusedForBilling(dir, { builds, talker })) {
             return;
           }
