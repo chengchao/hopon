@@ -302,11 +302,12 @@ set_worker_secrets() {
   done
 }
 
-banner "Deploys: Workers Builds for production and Previews"
+banner "Deploys: Workers Builds for production, GitHub Actions for Previews"
 
 stage_start() {
-  say "Workers Builds deploys the hopon Worker from the production branch and a Preview of it from every other"
-  say "branch (main's stands in for staging), with the scripts in apps/worker/package.json. This sets it up, once."
+  say "Workers Builds deploys the hopon Worker from main, and the Preview workflow (.github/workflows/preview.yml) a"
+  say "Preview of it from every other branch, with the scripts in apps/worker/package.json. There's no staging:"
+  say "merging a PR is going live. This sets it up, once."
   local tool
   for tool in git gh pnpm openssl; do
     command -v "$tool" >/dev/null 2>&1 || stop "Install $tool first."
@@ -318,7 +319,7 @@ stage_start() {
   fi
   git fetch -q origin
   grep -q '"deploy:preview"' < <(git show origin/main:apps/worker/package.json) ||
-    stop "origin/main has no deploy:preview yet. Merge the Previews PR first: Workers Builds runs the branch's scripts."
+    stop "origin/main has no deploy:preview yet. Merge the Previews PR first: the deploys run the branch's scripts."
   printf '  %s✓%s logged in, and main has the deploy scripts\n' "$GREEN" "$RESET"
   pause
 }
@@ -373,30 +374,17 @@ stage_games_to_r2() {
 }
 run_stage "R2 for published Games, before production migrates" stage_games_to_r2
 
-stage_production_branch() {
-  say "The hopon Worker deploys from the production branch; you promote main by pushing it there."
-  if git ls-remote --exit-code --heads origin production >/dev/null; then
-    note "origin/production exists"
-  else
-    say "It starts one commit behind main, so the first promotion (the last stage) is a push Workers Builds sees."
-    confirm "Create origin/production at origin/main~1?" || stop "The hopon Worker's build needs the branch."
-    git push origin "origin/main~1:refs/heads/production"
-  fi
-  pause
-}
-run_stage "The production branch" stage_production_branch
-
 stage_connect() {
   open_url "$CF_WORKERS"
   step "Open hopon → Settings → Build → Connect, then GitHub → $REPO (install the Cloudflare app if asked)."
-  step "Git branch: production"
+  step "Git branch: main"
   step "Build command: pnpm install --frozen-lockfile"
   step "Deploy command: pnpm run deploy"
-  step "Builds for non-production branches: on, Preview command: pnpm run deploy:preview"
+  step "Builds for non-production branches: off (the Preview workflow deploys those; Workers Builds has no Docker there)"
   step "Root directory: apps/worker"
   step "API token: Create new token."
   step "Build variable: PNPM_VERSION = $PNPM_VERSION"
-  step "Build secret: E2B_API_KEY = the E2B key, for the template build in the deploy and Preview commands."
+  step "Build secret: E2B_API_KEY = the E2B key, for the template build in the deploy command."
   step "Build watch paths: include *, exclude apps/mobile/* and docs/*"
   ask_secret E2B_API_KEY "Paste the E2B key to copy it to the clipboard (Enter keeps $ENV_FILE's):"
   if command -v pbcopy >/dev/null 2>&1 && [[ -n "$E2B_API_KEY" ]]; then
@@ -411,13 +399,19 @@ stage_connect() {
 run_stage "Connect hopon to GitHub" stage_connect
 
 stage_previews() {
-  say "Every other branch (main and each PR) gets a Worker Preview of hopon: its own URL, Talker, Coder and container,"
+  say "Every other branch (each PR) gets a Worker Preview of hopon: its own URL, Talker, Coder and container,"
   say "on hopon-staging's D1 and R2 (the previews block in apps/worker/wrangler.jsonc)."
-  open_url "$CF_WORKERS"
-  step "Open hopon → Settings → Build. If a \"Set up Worker Previews\" banner shows (hopon was connected before"
-  step "Previews), select Set up, check the Preview command is pnpm run deploy:preview, and Switch to Worker Previews."
-  warn "That switch can't be undone: the old model ran other branches with production's settings."
-  pause "Switched, or no banner?"
+  say "The Preview workflow deploys them with two repository secrets. Make its Cloudflare token now:"
+  open_url "https://dash.cloudflare.com/profile/api-tokens"
+  step "Create Token → Custom token, named \"hopon Previews (GitHub Actions)\", for account $ACCOUNT, with Account →"
+  step "Workers Scripts, D1, Containers and Workers R2 Storage → Edit, and Account Settings → Read. Don't reuse the"
+  step "model key: it can't edit Workers Scripts, so wrangler preview gets \"No access to the specified resource\"."
+  ask_secret CLOUDFLARE_API_TOKEN "Paste the token:"
+  [[ -n "$CLOUDFLARE_API_TOKEN" ]] || stop "CLOUDFLARE_API_TOKEN is empty."
+  set_secret CLOUDFLARE_API_TOKEN "$CLOUDFLARE_API_TOKEN"
+  ask_secret E2B_API_KEY "Paste the E2B key, for the template build (Enter keeps $ENV_FILE's):"
+  [[ -n "$E2B_API_KEY" ]] || stop "E2B_API_KEY is empty."
+  set_secret E2B_API_KEY "$E2B_API_KEY"
   say "A Preview inherits none of hopon's secrets: each starts from the Preview base config's. Changing one later"
   say "reaches only Previews created after it (wrangler preview secret put NAME --name <preview> fixes one)."
   set_worker_secrets preview
@@ -426,7 +420,7 @@ stage_previews() {
 run_stage "Worker Previews of hopon" stage_previews
 
 stage_token() {
-  say "Both commands apply D1 migrations and push the Coder's container image. Cloudflare's docs list"
+  say "Production's deploy applies D1 migrations and pushes the Coder's container image. Cloudflare's docs list"
   say "neither permission on the builds' default token, so check it now rather than on a failed build."
   open_url "https://dash.cloudflare.com/profile/api-tokens"
   step "Edit the token you created when connecting hopon."
@@ -456,27 +450,21 @@ JSON
 }
 run_stage "Protect main" stage_protect_main
 
-stage_promote() {
-  say "main's Preview builds on the next push to main (any merged PR). Its first build makes the hopon-maker-preview"
-  say "E2B template from scratch, so it takes a few minutes."
-  open_url "$CF_WORKERS"
-  step "Open hopon → Builds and wait for main's Preview build to go green."
-  step "Point a dev build of the app at it: EXPO_PUBLIC_API_URL=https://main-hopon.<subdomain>.workers.dev"
+stage_first_deploy() {
+  say "Open a PR: its Preview deploys on the push. The first run makes the hopon-maker-preview E2B template from"
+  say "scratch, so it takes a few minutes."
+  open_url "https://github.com/$REPO/actions/workflows/preview.yml"
+  step "Wait for the PR's Preview run to go green; its log has the Preview's URL."
+  step "Point a dev build of the app at it: EXPO_PUBLIC_API_URL=https://<branch>-hopon.<subdomain>.workers.dev"
   step "with the Clerk Development publishable key, and make a game in a new Draft."
-  step "Once, check a deploy mid-build: while a build runs, merge a PR to main. The turn should still finish."
-  pause "main's Preview checked?"
-  say "Promoting copies published Games' HTML to R2, runs production's migrations (with *_games_are_files.sql)"
-  say "and deploys the hopon Worker."
-  if confirm "Push origin/main to production now?"; then
-    git push origin "origin/main:production"
-    step "Watch hopon → Deployments until it's green."
-    pause
-  else
-    SKIPPED+=("promote: git push origin origin/main:production")
-  fi
+  step "Once, check a deploy mid-build: while a build runs, push to the PR. The turn should still finish."
+  pause "The PR's Preview checked?"
+  say "Merging it deploys production: it copies published Games' HTML to R2, runs production's migrations (with"
+  say "*_games_are_files.sql) and deploys the hopon Worker."
+  step "Merge the PR, then watch hopon → Deployments until it's green."
+  pause
 }
-run_stage "main's Preview, then production" stage_promote
+run_stage "A PR's Preview, then production" stage_first_deploy
 
 finish
 (( ${#WORKER_SECRETS[@]} )) && note "set Worker secrets: ${WORKER_SECRETS[*]}"
-note "Later promotions: git push origin origin/main:production"
