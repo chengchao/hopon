@@ -305,8 +305,8 @@ set_worker_secrets() {
 banner "Deploys: Workers Builds for production and Previews"
 
 stage_start() {
-  say "Workers Builds deploys the hopon Worker from the production branch and a Preview of it from every other"
-  say "branch (main's stands in for staging), with the scripts in apps/worker/package.json. This sets it up, once."
+  say "Workers Builds deploys the hopon Worker from main and a Preview of it from every other branch, with the"
+  say "scripts in apps/worker/package.json. There's no staging: merging a PR is going live. This sets it up, once."
   local tool
   for tool in git gh pnpm openssl; do
     command -v "$tool" >/dev/null 2>&1 || stop "Install $tool first."
@@ -373,23 +373,10 @@ stage_games_to_r2() {
 }
 run_stage "R2 for published Games, before production migrates" stage_games_to_r2
 
-stage_production_branch() {
-  say "The hopon Worker deploys from the production branch; you promote main by pushing it there."
-  if git ls-remote --exit-code --heads origin production >/dev/null; then
-    note "origin/production exists"
-  else
-    say "It starts one commit behind main, so the first promotion (the last stage) is a push Workers Builds sees."
-    confirm "Create origin/production at origin/main~1?" || stop "The hopon Worker's build needs the branch."
-    git push origin "origin/main~1:refs/heads/production"
-  fi
-  pause
-}
-run_stage "The production branch" stage_production_branch
-
 stage_connect() {
   open_url "$CF_WORKERS"
   step "Open hopon → Settings → Build → Connect, then GitHub → $REPO (install the Cloudflare app if asked)."
-  step "Git branch: production"
+  step "Git branch: main"
   step "Build command: pnpm install --frozen-lockfile"
   step "Deploy command: pnpm run deploy"
   step "Builds for non-production branches: on, Preview command: pnpm run deploy:preview"
@@ -411,7 +398,7 @@ stage_connect() {
 run_stage "Connect hopon to GitHub" stage_connect
 
 stage_previews() {
-  say "Every other branch (main and each PR) gets a Worker Preview of hopon: its own URL, Talker, Coder and container,"
+  say "Every other branch (each PR) gets a Worker Preview of hopon: its own URL, Talker, Coder and container,"
   say "on hopon-staging's D1 and R2 (the previews block in apps/worker/wrangler.jsonc)."
   open_url "$CF_WORKERS"
   step "Open hopon → Settings → Build. If a \"Set up Worker Previews\" banner shows (hopon was connected before"
@@ -456,27 +443,21 @@ JSON
 }
 run_stage "Protect main" stage_protect_main
 
-stage_promote() {
-  say "main's Preview builds on the next push to main (any merged PR). Its first build makes the hopon-maker-preview"
-  say "E2B template from scratch, so it takes a few minutes."
+stage_first_deploy() {
+  say "Open a PR: its Preview builds on the push. The first build makes the hopon-maker-preview E2B template from"
+  say "scratch, so it takes a few minutes."
   open_url "$CF_WORKERS"
-  step "Open hopon → Builds and wait for main's Preview build to go green."
-  step "Point a dev build of the app at it: EXPO_PUBLIC_API_URL=https://main-hopon.<subdomain>.workers.dev"
+  step "Open hopon → Builds and wait for the PR's Preview build to go green."
+  step "Point a dev build of the app at it: EXPO_PUBLIC_API_URL=https://<branch>-hopon.<subdomain>.workers.dev"
   step "with the Clerk Development publishable key, and make a game in a new Draft."
-  step "Once, check a deploy mid-build: while a build runs, merge a PR to main. The turn should still finish."
-  pause "main's Preview checked?"
-  say "Promoting copies published Games' HTML to R2, runs production's migrations (with *_games_are_files.sql)"
-  say "and deploys the hopon Worker."
-  if confirm "Push origin/main to production now?"; then
-    git push origin "origin/main:production"
-    step "Watch hopon → Deployments until it's green."
-    pause
-  else
-    SKIPPED+=("promote: git push origin origin/main:production")
-  fi
+  step "Once, check a deploy mid-build: while a build runs, push to the PR. The turn should still finish."
+  pause "The PR's Preview checked?"
+  say "Merging it deploys production: it copies published Games' HTML to R2, runs production's migrations (with"
+  say "*_games_are_files.sql) and deploys the hopon Worker."
+  step "Merge the PR, then watch hopon → Deployments until it's green."
+  pause
 }
-run_stage "main's Preview, then production" stage_promote
+run_stage "A PR's Preview, then production" stage_first_deploy
 
 finish
 (( ${#WORKER_SECRETS[@]} )) && note "set Worker secrets: ${WORKER_SECRETS[*]}"
-note "Later promotions: git push origin origin/main:production"
