@@ -16,7 +16,6 @@ import { Context, Data, Effect, Layer, ManagedRuntime } from "effect";
 
 import { piModels } from "./pi-models.ts";
 import { drafts, now } from "./schema.ts";
-import { killBox } from "./storage.ts";
 import { buildTool } from "./talker-build.ts";
 import { TALKER_PROMPT } from "./talker-prompt.ts";
 
@@ -172,34 +171,9 @@ export class Talker extends Agent<Env> {
             .update(drafts)
             .set({ updatedAt: now })
             .where(eq(drafts.id, this.name));
-          // oxlint-disable-next-line no-await-in-loop -- one run ends per batch at most.
-          await this.idle();
         }
       }
     });
-  }
-
-  // The box is killed once the Draft has had no turn for MAKER_BOX_IDLE_S (a day, #144); the next build restores it from
-  // the job's source files. Each turn's end puts the alarm off again.
-  async idle() {
-    for (const schedule of await this.listSchedules({ type: "delayed" })) {
-      if (schedule.callback === "killBox") {
-        // oxlint-disable-next-line no-await-in-loop -- there is one at most.
-        await this.cancelSchedule(schedule.id);
-      }
-    }
-    await this.schedule(Number(this.env.MAKER_BOX_IDLE_S), "killBox");
-  }
-
-  async killBox() {
-    // A turn that started just before the alarm puts it off again when it ends.
-    if (this.ticker) {
-      return;
-    }
-    // talker-check looks for this line: under plain `wrangler dev` there is no container to answer.
-    console.log(`Talker ${this.name}: idle, DELETE /box`);
-    // Thrown, the schedule retries it.
-    await killBox(this.env, this.name);
   }
 
   // From a run's start to its end (watch), every socket hears something at least every 15 s, and dead ones are closed.

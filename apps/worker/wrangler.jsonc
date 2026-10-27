@@ -39,8 +39,6 @@
     // The Coder's (#116): Haiku 5.5 at low effort.
     "MAKER_CODER_MODEL": "claude-haiku-5-5",
     "MAKER_CODER_EFFORT": "low",
-    // A Draft's box is killed after this long with no turn (#144). talker-check shortens it.
-    "MAKER_BOX_IDLE_S": "86400",
     // The Talker's abort timer on a build (#116, #122), 30 s more with music: 30 s past the Coder's own deadline, so the
     // Coder reports `failed` first. The Talker test shortens it.
     "MAKER_BUILD_ABORT_S": "150",
@@ -110,7 +108,6 @@
       "MAKER_TALKER_EFFORT": "high",
       "MAKER_CODER_MODEL": "claude-haiku-5-5",
       "MAKER_CODER_EFFORT": "low",
-      "MAKER_BOX_IDLE_S": "86400",
       "MAKER_BUILD_ABORT_S": "150",
       // Every Preview build rebuilds this one from its branch, so a Preview runs its own box image. ponytail: shared by
       // all Previews, last build wins; name it per Preview if two branches change apps/maker/image at once.

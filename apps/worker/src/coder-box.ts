@@ -56,6 +56,9 @@ export interface BoxEdge {
   readonly running: boolean;
   // Resolves once the box answers exec(); throws when it can't start.
   start: () => Promise<void>;
+  // The box stops BOX_IDLE_MS after its last activity. Set at start(), and again when the Coder restarts, since the
+  // timeout doesn't outlive the object.
+  setInactivityTimeout: () => Promise<void>;
   destroy: () => Promise<void>;
   // One process, both streams read to the end.
   exec: (argv: string[], options?: ExecOptions) => Promise<Exec>;
@@ -143,6 +146,8 @@ export const containerBox = (maybe: Container | undefined): BoxEdge => {
       return false;
     }
   };
+  const setInactivityTimeout = () =>
+    container().setInactivityTimeout(BOX_IDLE_MS);
   return {
     destroy: () => container().destroy(),
     exec,
@@ -152,6 +157,7 @@ export const containerBox = (maybe: Container | undefined): BoxEdge => {
     get running() {
       return maybe?.running ?? false;
     },
+    setInactivityTimeout,
     // Ready at the first exec() that answers: the entrypoint starts Chromium in the background, and the playtest
     // launches its own if it isn't up yet.
     start: async () => {
@@ -173,7 +179,7 @@ export const containerBox = (maybe: Container | undefined): BoxEdge => {
         // oxlint-disable-next-line no-await-in-loop -- polling until the box answers
         await sleep(100);
       }
-      await container().setInactivityTimeout(BOX_IDLE_MS);
+      await setInactivityTimeout();
     },
   };
 };

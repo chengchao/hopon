@@ -13,7 +13,6 @@
 //   4. restart mid-turn with a client that reconnects on its own: the view matches the server's
 //   5. 40 s idle with the socket held: the object hibernated, and the next message wakes it
 //   6. Stop mid-turn: turn_failed, and the view matches the server's
-//   7. restarted with MAKER_BOX_IDLE_S at 3 s: a turn's end sets the idle alarm, which tells the Coder to kill the box
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -74,7 +73,7 @@ const run = async (args) => {
 // server's log is printed only when a step fails.
 let server;
 const serverLog = [];
-const start = async (overrides = []) => {
+const start = async () => {
   server = spawn(
     "npx",
     [
@@ -89,7 +88,6 @@ const start = async (overrides = []) => {
       vars,
       "--var",
       "HOPON_OFFLINE:1",
-      ...overrides.flatMap((v) => ["--var", v]),
     ],
     { cwd: API, detached: true, stdio: ["ignore", "pipe", "pipe"] }
   );
@@ -395,25 +393,8 @@ try {
     "the row is dated at the end of each turn"
   );
 
-  // 7. The idle alarm, shortened. There is no container under plain `wrangler dev`, so the Coder's call fails (and
-  // retries); the Talker's log line shows it was made.
   client.reconnect = false;
   client.close();
-  kill();
-  await start(["MAKER_BOX_IDLE_S:3"]);
-  const idle = new Client(id, { reconnect: false });
-  await idle.connect();
-  mark = Date.now();
-  await send(idle, "Say ok.");
-  await settled(idle, mark);
-  const told = `Talker ${id}: idle, DELETE /box`;
-  await until(
-    "the idle alarm",
-    () => serverLog.join("").includes(told),
-    15_000
-  );
-  idle.close();
-  log("7 idle: the alarm told the Coder to kill the box");
   log("all checks passed");
 } catch (error) {
   if (process.env.CI) {
