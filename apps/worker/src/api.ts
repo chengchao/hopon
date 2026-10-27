@@ -170,18 +170,25 @@ const screen = Effect.fn("screen")(function* (
     503,
     "We couldn't check your text just now. Please try again."
   );
+  // Llama Guard answers in under 2 s or stalls for 3–12 s, at random, on Previews and production alike. A
+  // stalled call is aborted and asked again, which almost always answers fast: 3 tries of 3 s each.
   const result = yield* Effect.tryPromise({
     catch: () => unavailable,
-    try: () =>
-      env.AI.run("@cf/meta/llama-guard-3-8b", {
-        messages: [{ content: text, role: "user" }],
-        response_format: { type: "json_object" },
-      }),
+    try: (signal) =>
+      env.AI.run(
+        "@cf/meta/llama-guard-3-8b",
+        {
+          messages: [{ content: text, role: "user" }],
+          response_format: { type: "json_object" },
+        },
+        { signal }
+      ),
   }).pipe(
     Effect.timeoutOrElse({
       duration: "3 seconds",
       orElse: () => Effect.fail(unavailable),
-    })
+    }),
+    Effect.retry({ times: 2 })
   );
   const response = result?.response;
   if (typeof response !== "object" || typeof response?.safe !== "boolean") {
