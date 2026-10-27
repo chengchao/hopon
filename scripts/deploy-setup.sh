@@ -356,10 +356,8 @@ stage_production_secrets() {
 }
 run_stage "Production Worker secrets" stage_production_secrets
 
-stage_games_to_r2() {
-  say "The first production deploy applies *_games_are_files.sql (#145), which drops every published Game's HTML"
-  say "from D1. The deploy copies that HTML to R2 bucket hopon first (games-to-r2 --remote, which does nothing once"
-  say "D1 is past the migration), so the bucket has to exist."
+stage_games_r2() {
+  say "hopon serves every published Game's files from R2 bucket hopon (#145), so the bucket has to exist."
   if wr r2 bucket info hopon </dev/null >/dev/null 2>&1; then
     note "R2 hopon exists"
   elif confirm "Create R2 bucket hopon?"; then
@@ -370,7 +368,7 @@ stage_games_to_r2() {
   fi
   pause
 }
-run_stage "R2 for published Games, before production migrates" stage_games_to_r2
+run_stage "R2 for published Games" stage_games_r2
 
 stage_deploy_secrets() {
   say "The Deploy workflow (.github/workflows/deploy.yml) deploys with two repository secrets. Make its Cloudflare"
