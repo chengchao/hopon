@@ -77,7 +77,7 @@
     { "tag": "coder", "new_sqlite_classes": ["Coder"] },
   ],
   "compatibility_flags": ["nodejs_compat"],
-  // A Worker Preview of the hopon Worker for each branch but main (.github/workflows/preview.yml runs
+  // A Worker Preview of the hopon Worker for each branch but main (.github/workflows/deploy.yml runs
   // `pnpm run deploy:preview`). A Preview inherits nothing, so the bindings, vars and container are repeated, and
   // test/previews.test.js keeps them in step. Each Preview gets its own Talker and Coder namespaces and its own container
   // app; D1 and R2 are hopon-staging, shared by every Preview, and wrangler.preview-migrations.jsonc migrates that D1.
