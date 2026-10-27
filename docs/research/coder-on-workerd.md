@@ -168,7 +168,7 @@ Run 2026-10-25 under `wrangler dev`, after the deployed run, following [the Pi h
 | Workarounds needed on workerd | All five (`define`s, TypeBox setting, drained streams, `autoResizeImages: false`), plus moving `routeModels`' global `fetch` to per-job state | Only draining the box's streams, which is about `exec()`, not pi. `read` sends PNGs as they are, with no Photon. The model's `fetch` is per request. |
 | Bundle | 14.4 MB, 2.6 MB gzipped | **3.6 MB, 753 KB gzipped**, including `agents/skills`' peers |
 | Startup, local profile | 549 ms active | **56 ms** active |
-| Versions | pi-coding-agent 1.3.0 (today's) | `agents` 0.30.1 and Pi 1.4.0, the docs' minimum. The repo pins `agents` 0.28.1 and Pi 1.3.0. |
+| Versions | pi-coding-agent 1.3.0 (today's) | `agents` 0.30.1 and Pi 1.4.0, the docs' minimum. The repo pinned `agents` 0.28.1 and Pi 1.3.0 then; [#172](https://github.com/chengchao/hopon/issues/172) upgrades it. |
 
 **What it found:**
 
