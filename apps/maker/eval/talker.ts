@@ -3,7 +3,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import type { Spec, Thinking } from "../src/coder.ts";
+import type { Thinking } from "../src/coder.ts";
+import type { Spec } from "../src/job.ts";
 import { openTalker } from "../src/talker.ts";
 import type { BuildResult, Talker } from "../src/talker.ts";
 import { judgeTalker } from "./judge.ts";

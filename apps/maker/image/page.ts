@@ -1,5 +1,5 @@
 // A LittleJS game's index.html: the runtime, then its music when it has some, then the game. The harness writes it into
-// each Revision (src/coder.ts) and the box's playtest serves it (helpers.js), so both use these bytes. Siblings are
+// each Revision (src/job.ts) and the box's playtest serves it (helpers.js), so both use these bytes. Siblings are
 // relative, so the page plays the same under a Draft's preview URL and a published Game's.
 export const MUSIC = "music.js";
 // The served scaffolds, at the same paths in the box's playtest and the Worker (apps/maker/src/runtime.ts copies them).

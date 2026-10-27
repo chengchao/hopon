@@ -9,12 +9,12 @@ import {
 } from "node:fs";
 import path from "node:path";
 
-import type { Sandbox } from "e2b";
-
 import { isLittlejsHtml, MUSIC } from "../image/page.ts";
-import { createBox, EVAL_TEMPLATE, WORKSPACE } from "../src/box.ts";
-import { boxPlaytest, runJob } from "../src/coder.ts";
-import type { Spec, Thinking } from "../src/coder.ts";
+import { createBox, EVAL_TEMPLATE, jobBox } from "../src/box.ts";
+import { runJob } from "../src/coder.ts";
+import type { Thinking } from "../src/coder.ts";
+import { boxPlaytest, WORKSPACE } from "../src/job.ts";
+import type { Box, Spec } from "../src/job.ts";
 import { resolve } from "../src/models.ts";
 import { judgeCoder } from "./judge.ts";
 
@@ -92,11 +92,9 @@ export const previewHtml = (files: Record<string, string>) => {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:#000;overflow:hidden;touch-action:none}</style></head><body><script>${inline(readFileSync(RUNTIME, "utf-8"))}</script>${music}${game}</body></html>`;
 };
 
-const readBytes = async (sandbox: Sandbox, file: string) => {
+const readBytes = async (box: Box, file: string) => {
   try {
-    return Buffer.from(
-      await sandbox.files.read(`${WORKSPACE}/${file}`, { format: "bytes" })
-    );
+    return Buffer.from(await box.readBytes(`${WORKSPACE}/${file}`));
   } catch {
     return null;
   }
@@ -104,15 +102,15 @@ const readBytes = async (sandbox: Sandbox, file: string) => {
 
 // The eval's own checks on the final game: the Coder's last inputs replayed, then the fixed random script. The
 // random run's screenshots are the ones kept and judged.
-const finalChecks = async (sandbox: Sandbox, inputs: unknown[]) => {
-  const replay = await boxPlaytest(sandbox, JSON.stringify({ inputs }));
-  const random = await boxPlaytest(sandbox, "random");
+const finalChecks = async (box: Box, inputs: unknown[]) => {
+  const replay = await boxPlaytest(box, JSON.stringify({ inputs }));
+  const random = await boxPlaytest(box, "random");
   return { random, replay };
 };
 
 // The game, its screenshots, its music and a playable preview, for the report and the owner.
 const saveArtifacts = async (
-  sandbox: Sandbox,
+  box: Box,
   dir: string,
   files: Record<string, string>
 ) => {
@@ -121,7 +119,7 @@ const saveArtifacts = async (
   }
   const [start, end] = await Promise.all(
     ["playtest-start.png", "playtest-end.png"].map((file) =>
-      readBytes(sandbox, file)
+      readBytes(box, file)
     )
   );
   for (const [file, bytes] of [
@@ -182,6 +180,7 @@ export const runCoder = async ({
   const events: unknown[] = [];
   const model = resolve(modelId);
   const sandbox = await createBox(EVAL_TEMPLATE);
+  const box = jobBox(sandbox);
   try {
     const result = await runJob({
       job: {
@@ -201,12 +200,12 @@ export const runCoder = async ({
       thinking,
     });
     const final = result.ok
-      ? await finalChecks(sandbox, result.lastInputs)
+      ? await finalChecks(box, result.lastInputs)
       : undefined;
     const finalGreen = final?.replay.ok === true && final.random.ok;
     // The judge reads the game, not music.js's base64.
     const { [MUSIC]: _music, ...files } = { ...source, ...result.files };
-    const { start, end } = await saveArtifacts(sandbox, dir, {
+    const { start, end } = await saveArtifacts(box, dir, {
       ...source,
       ...result.files,
     });
