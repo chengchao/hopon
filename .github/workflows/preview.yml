@@ -1,7 +1,7 @@
 # A Worker Preview of hopon for every branch but main (`pnpm run deploy:preview`; production stays on Workers Builds).
 # It runs here, not in Workers Builds, because Workers Builds has Docker only on the production branch and a Preview
 # builds the Coder's container image. The Preview's name is the branch, and its URL is in the log. Needs the
-# CLOUDFLARE_API_TOKEN (Workers Scripts, D1 and Containers Edit) and E2B_API_KEY repository secrets.
+# CLOUDFLARE_API_TOKEN (Workers Scripts, D1, Containers and R2 Edit) and E2B_API_KEY repository secrets.
 name: Preview
 
 on:
