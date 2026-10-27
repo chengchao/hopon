@@ -120,7 +120,7 @@ export class Talker extends Agent<Env> {
       model: { id: this.env.MAKER_TALKER_MODEL, provider: "anthropic" },
       thinkingLevel: this.env.MAKER_TALKER_EFFORT,
     },
-    harness: ({ storage, context }) => {
+    harness: ({ storage, context, onWake }) => {
       const registry = createRegistry();
       registry.install({
         name: "talker",
@@ -133,11 +133,13 @@ export class Talker extends Agent<Env> {
           }),
         ],
       });
-      // Retention 0: pi drops an idle conversation at once, so the object hibernates between turns (#128).
+      // Retention 0: pi drops an idle conversation at once, so the object hibernates between turns (#128). onWake: a
+      // sleeping task (a retry backoff) wakes the object by its alarm, not an in-memory timer, so it hibernates then too.
       return Harness.open(
         storage,
         {
           models: talkerModels(this.env, this.name),
+          onWake,
           registry,
           settings: { contextRetentionMs: 0, documentRetentionMs: 0 },
         },
