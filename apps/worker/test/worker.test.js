@@ -640,7 +640,33 @@ test("screening: a flag only in S6, S8 or S13 is let through", async (t) => {
   assert.deepEqual(await json(comment("no category")), REFUSED);
 });
 
-test("screening: fails closed when it errors, answers oddly or takes over 3 s", async (t) => {
+test("screening: a call that stalls past 3 s is asked again", async (t) => {
+  const { ai, call } = await setup(t);
+  const {
+    games: [game],
+  } = await json(call("/api/games"));
+  // The comment and its Handle are screened in parallel; each stalls twice, then answers.
+  const calls = new Map();
+  ai.screen = async ({ messages: [{ content }] }) => {
+    calls.set(content, (calls.get(content) ?? 0) + 1);
+    if (calls.get(content) < 3) {
+      await sleep(3500);
+    }
+    return { response: { categories: [], safe: true } };
+  };
+  assert.equal(
+    await status(
+      call(`/api/games/${game.id}/comments`, {
+        body: { body: "hello" },
+        method: "POST",
+      })
+    ),
+    201
+  );
+  assert.deepEqual([...calls.values()], [3, 3]);
+});
+
+test("screening: fails closed when it errors, answers oddly or stalls 3 times", async (t) => {
   const { ai, call, count } = await setup(t);
   const {
     games: [game],
@@ -680,7 +706,7 @@ test("screening: fails closed when it errors, answers oddly or takes over 3 s", 
   };
   const started = Date.now();
   assert.deepEqual(await comment(), tryAgain);
-  assert.ok(Date.now() - started < 3400);
+  assert.ok(Date.now() - started < 9400);
   assert.equal(await count("comments"), 0);
 });
 
