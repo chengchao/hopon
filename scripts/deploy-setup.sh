@@ -193,10 +193,9 @@ ACCOUNT=51a5a41f7bd8425703a6f1d92f867f4d
 export CLOUDFLARE_ACCOUNT_ID=$ACCOUNT
 CF_WORKERS=https://dash.cloudflare.com/$ACCOUNT/workers-and-pages
 REPO=chengchao/hopon
-PNPM_VERSION=$(sed -nE 's/.*"packageManager": "pnpm@([^"]+)".*/\1/p' package.json)
 REQUIRED_SECRETS=(CLERK_JWT_KEY CLERK_SECRET_KEY OPERATOR_PASSWORD OPERATOR_WEBHOOK_URL CLOUDFLARE_API_KEY E2B_API_KEY PREVIEW_SECRET)
 WORKER_SECRETS=() # "<Worker> <NAME>" set this run
-TOTAL_STAGES=10
+TOTAL_STAGES=9
 
 # run_stage "Name" fn: shows the stage, then runs fn unless FROM skips past it.
 run_stage() {
@@ -302,12 +301,11 @@ set_worker_secrets() {
   done
 }
 
-banner "Deploys: Workers Builds for production, GitHub Actions for Previews"
+banner "Deploys: GitHub Actions for production and Previews"
 
 stage_start() {
-  say "Workers Builds deploys the hopon Worker from main, and the Preview workflow (.github/workflows/preview.yml) a"
-  say "Preview of it from every other branch, with the scripts in apps/worker/package.json. There's no staging:"
-  say "merging a PR is going live. This sets it up, once."
+  say "The Deploy workflow deploys the hopon Worker from main and a Preview of it from every other branch, with the"
+  say "scripts in apps/worker/package.json. There's no staging: merging a PR is going live. This sets it up, once."
   local tool
   for tool in git gh pnpm openssl; do
     command -v "$tool" >/dev/null 2>&1 || stop "Install $tool first."
@@ -374,44 +372,29 @@ stage_games_to_r2() {
 }
 run_stage "R2 for published Games, before production migrates" stage_games_to_r2
 
-stage_connect() {
-  open_url "$CF_WORKERS"
-  step "Open hopon → Settings → Build → Connect, then GitHub → $REPO (install the Cloudflare app if asked)."
-  step "Git branch: main"
-  step "Build command: pnpm install --frozen-lockfile"
-  step "Deploy command: pnpm run deploy"
-  step "Builds for non-production branches: off (the Preview workflow deploys those; Workers Builds has no Docker there)"
-  step "Root directory: apps/worker"
-  step "API token: Create new token."
-  step "Build variable: PNPM_VERSION = $PNPM_VERSION"
-  step "Build secret: E2B_API_KEY = the E2B key, for the template build in the deploy command."
-  step "Build watch paths: include *, exclude apps/mobile/* and docs/*"
-  ask_secret E2B_API_KEY "Paste the E2B key to copy it to the clipboard (Enter keeps $ENV_FILE's):"
-  if command -v pbcopy >/dev/null 2>&1 && [[ -n "$E2B_API_KEY" ]]; then
-    printf '%s' "$E2B_API_KEY" | pbcopy
-    note "On the clipboard now; it's cleared when you go on."
-  fi
-  step "Save. Nothing builds until the next push."
-  pause "Saved?"
-  command -v pbcopy >/dev/null 2>&1 && pbcopy </dev/null
-  return 0
-}
-run_stage "Connect hopon to GitHub" stage_connect
-
-stage_previews() {
-  say "Every other branch (each PR) gets a Worker Preview of hopon: its own URL, Talker, Coder and container,"
-  say "on hopon-staging's D1 and R2 (the previews block in apps/worker/wrangler.jsonc)."
-  say "The Preview workflow deploys them with two repository secrets. Make its Cloudflare token now:"
+stage_deploy_secrets() {
+  say "The Deploy workflow (.github/workflows/deploy.yml) deploys with two repository secrets. Make its Cloudflare"
+  say "token now:"
   open_url "https://dash.cloudflare.com/profile/api-tokens"
-  step "Create Token → Custom token, named \"hopon Previews (GitHub Actions)\", for account $ACCOUNT, with Account →"
+  step "Create Token → Custom token, named \"hopon deploys (GitHub Actions)\", for account $ACCOUNT, with Account →"
   step "Workers Scripts, D1, Containers and Workers R2 Storage → Edit, and Account Settings → Read. Don't reuse the"
-  step "model key: it can't edit Workers Scripts, so wrangler preview gets \"No access to the specified resource\"."
+  step "model key: it can't edit Workers Scripts, so wrangler gets \"No access to the specified resource\"."
   ask_secret CLOUDFLARE_API_TOKEN "Paste the token:"
   [[ -n "$CLOUDFLARE_API_TOKEN" ]] || stop "CLOUDFLARE_API_TOKEN is empty."
   set_secret CLOUDFLARE_API_TOKEN "$CLOUDFLARE_API_TOKEN"
   ask_secret E2B_API_KEY "Paste the E2B key, for the template build (Enter keeps $ENV_FILE's):"
   [[ -n "$E2B_API_KEY" ]] || stop "E2B_API_KEY is empty."
   set_secret E2B_API_KEY "$E2B_API_KEY"
+  open_url "$CF_WORKERS"
+  step "Open hopon → Settings → Build. If it shows a connected Git repository, Disconnect it: Workers Builds has no"
+  step "Docker, so its deploy of main would migrate D1 and then fail."
+  pause "Disconnected, or never connected?"
+}
+run_stage "Deploy secrets" stage_deploy_secrets
+
+stage_previews() {
+  say "Every other branch (each PR) gets a Worker Preview of hopon: its own URL, Talker, Coder and container,"
+  say "on hopon-staging's D1 and R2 (the previews block in apps/worker/wrangler.jsonc)."
   say "A Preview inherits none of hopon's secrets: each starts from the Preview base config's. Changing one later"
   say "reaches only Previews created after it (wrangler preview secret put NAME --name <preview> fixes one)."
   set_worker_secrets preview
@@ -419,20 +402,9 @@ stage_previews() {
 }
 run_stage "Worker Previews of hopon" stage_previews
 
-stage_token() {
-  say "Production's deploy applies D1 migrations and pushes the Coder's container image. Cloudflare's docs list"
-  say "neither permission on the builds' default token, so check it now rather than on a failed build."
-  open_url "https://dash.cloudflare.com/profile/api-tokens"
-  step "Edit the token you created when connecting hopon."
-  step "Make sure it has Account → D1 → Edit and Account → Containers → Edit (add them if missing), next to"
-  step "the Workers Scripts and R2 permissions it came with."
-  pause "Done?"
-}
-run_stage "The builds' API token" stage_token
-
 stage_protect_main() {
-  say "Workers Builds doesn't wait for GitHub checks, so main only takes commits that passed them: PRs into main"
-  say "need the Check and Commit messages workflows green and up to date with main."
+  say "A push to main deploys without waiting for GitHub checks, so main only takes commits that passed them: PRs"
+  say "into main need the Check and Commit messages workflows green and up to date with main."
   if confirm "Protect main on $REPO with those required checks?"; then
     gh api -X PUT "repos/$REPO/branches/main/protection" --input - >/dev/null <<'JSON' || stop "gh api failed."
 {
@@ -453,15 +425,15 @@ run_stage "Protect main" stage_protect_main
 stage_first_deploy() {
   say "Open a PR: its Preview deploys on the push. The first run makes the hopon-maker-preview E2B template from"
   say "scratch, so it takes a few minutes."
-  open_url "https://github.com/$REPO/actions/workflows/preview.yml"
-  step "Wait for the PR's Preview run to go green; its log has the Preview's URL."
+  open_url "https://github.com/$REPO/actions/workflows/deploy.yml"
+  step "Wait for the PR's Deploy run to go green; its log has the Preview's URL."
   step "Point a dev build of the app at it: EXPO_PUBLIC_API_URL=https://<branch>-hopon.<subdomain>.workers.dev"
   step "with the Clerk Development publishable key, and make a game in a new Draft."
   step "Once, check a deploy mid-build: while a build runs, push to the PR. The turn should still finish."
   pause "The PR's Preview checked?"
   say "Merging it deploys production: it copies published Games' HTML to R2, runs production's migrations (with"
   say "*_games_are_files.sql) and deploys the hopon Worker."
-  step "Merge the PR, then watch hopon → Deployments until it's green."
+  step "Merge the PR, then watch main's Deploy run until it's green."
   pause
 }
 run_stage "A PR's Preview, then production" stage_first_deploy
