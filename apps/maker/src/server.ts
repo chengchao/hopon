@@ -9,8 +9,8 @@ import type { Sandbox } from "e2b";
 import { Cause, Context, Effect, Fiber, Layer, Schema } from "effect";
 
 import { killBox, openBox } from "./box.ts";
-import { deadlineFor, JobSchema, runJob } from "./coder.ts";
-import type { CoderEvent, Job, Thinking } from "./coder.ts";
+import { runJob } from "./coder.ts";
+import type { Thinking } from "./coder.ts";
 import {
   CANDIDATES,
   isCandidate,
@@ -18,6 +18,8 @@ import {
   routeModels,
 } from "./models.ts";
 import type { ModelHandler } from "./models.ts";
+import { deadlineFor, JobSchema } from "./rules.ts";
+import type { CoderEvent, Job } from "./rules.ts";
 
 const PING_MS = 10_000;
 // ponytail: the record is in memory, so a finished job is attachable only while the container is up (it sleeps 2 min

@@ -15,8 +15,9 @@ import {
 import type { AgentEvent } from "@earendil-works/pi-durable";
 
 import { TALKER_PROMPT } from "../../worker/src/talker-prompt.ts";
-import type { Spec, Thinking } from "./coder.ts";
+import type { Thinking } from "./coder.ts";
 import { createRegistry, resolve, talkerModelRef } from "./models.ts";
+import type { Spec } from "./rules.ts";
 
 const BuildParameters = Type.Object({
   brief: Type.String(),
