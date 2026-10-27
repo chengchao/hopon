@@ -110,7 +110,8 @@ export class DraftCoder extends DurableObject<Env> {
 
   // The box is a cache over the job: one that stopped (idle, a deploy, a crash) starts again from the unfinished
   // job's source, whether pi resumes the run with nobody connected or a re-POST attaches to it. What the old box held
-  // since the job began is gone; the run goes on from the source.
+  // since the job began is gone, and so are its green playtests: the run goes on from the source and must playtest
+  // again before it can end `done`.
   up = this.starting.withPermit(
     Effect.gen({ self: this }, function* () {
       const box = yield* Box;
@@ -121,6 +122,7 @@ export class DraftCoder extends DurableObject<Env> {
       const state = this.job;
       if (state && !this.final(state.jobId)) {
         yield* Effect.promise(() => restore(jobBox(box), state.job.source));
+        this.job = { ...state, playtests: [] };
       }
     })
   );
