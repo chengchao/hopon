@@ -118,9 +118,21 @@
       "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
       "CLOUDFLARE_GATEWAY_ID": "default",
     },
-    // No `containers`: wrangler 4.152–4.154 refuses a durable_object-policy container here ("configured only in the
-    // top-level containers array") and `wrangler preview` deploys none from the top level, so a Preview's Coder has no
-    // box and its builds fail saying so (#175).
+    // The same box image at the nearest size, but under the default policy: wrangler 4.152–4.154 refuses a
+    // durable_object-policy container here ("configured only in the top-level containers array"), and custom sizes are
+    // Enterprise-only under default. exec(), setInactivityTimeout() and destroy() work the same; start() takes neither
+    // image nor size (src/coder-box.ts). test/previews.test.js keeps it in step with production's box. ponytail: a
+    // default-policy app caps instances, and each Draft's box idles 5 min after its build; raise it if `eval e2e
+    // --concurrency` builds fail `busy`.
+    "containers": [
+      {
+        "class_name": "DraftCoder",
+        "image": "../maker/image/Dockerfile",
+        "image_build_context": "../maker/image",
+        "instance_type": "standard-3",
+        "max_instances": 40,
+      },
+    ],
     "durable_objects": {
       "bindings": [
         { "name": "TALKER", "class_name": "Talker" },
