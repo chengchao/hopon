@@ -82,14 +82,14 @@ pnpm run db:local
 
 已配置用户选择的 Chengchao60827@gmail.com 账号及专用 hopon D1 数据库（迁移到其他账号时才需要 `wrangler d1 create hopon`，并同时更新 `apps/worker/wrangler.jsonc` 的 `account_id` 和 `apps/worker/package.json` 里 `db:remote`、`deploy`、`deploy:preview` 的 `CLOUDFLARE_ACCOUNT_ID`；预览的 D1 换账号时也要重建，并更新 `previews.d1_databases` 和 `apps/worker/wrangler.preview-migrations.jsonc` 里的 `database_id`）。
 
-部署由 Cloudflare 的 Workers Builds（Worker 设置里的 Git 集成）完成，GitHub 上没有部署 workflow，也没有 Cloudflare 令牌：
+生产由 Cloudflare 的 Workers Builds（Worker 设置里的 Git 集成）部署，预览由 GitHub Actions 的 Preview workflow（`.github/workflows/preview.yml`）部署：预览要构建 Coder 的容器镜像，而 Workers Builds 只在生产分支上有 Docker。
 
 - **生产**：`hopon` Worker，推送到 `main`（合并 PR）时运行 `pnpm run deploy`：合并就是上线。
-- **预览**：`hopon` Worker 的 [Worker Previews](https://developers.cloudflare.com/workers/previews/)（`wrangler.jsonc` 的 `previews`）。推送到 `main` 以外的分支（每个 PR 的分支）时运行 `pnpm run deploy:preview`：重建 E2B 模板 `hopon-maker-preview`，把迁移应用到 D1 `hopon-staging`（`wrangler.preview-migrations.jsonc`），再 `wrangler preview`。每个分支一个预览，URL 是 `<分支>-hopon.<子域>.workers.dev`，Workers Builds 会把它评论到 PR 上；有自己的 Talker 和 Coder（Durable Object 命名空间和容器应用都是新的），D1 `hopon-staging` 和 R2 `hopon-staging` 由所有预览共用。没有 staging：PR 的预览已经提前演练了迁移、Durable Object 迁移、容器滚动和 E2B 模板构建，只有 `wrangler deploy` 这条命令本身第一次在生产上运行（失败时旧 Worker 继续服务）。在真机上测 PR：开发版应用的 `EXPO_PUBLIC_API_URL` 指向这个 URL，用 Clerk 的 Development 发布密钥。
+- **预览**：`hopon` Worker 的 [Worker Previews](https://developers.cloudflare.com/workers/previews/)（`wrangler.jsonc` 的 `previews`）。推送到 `main` 以外的分支（每个 PR 的分支）时，Preview workflow 运行 `pnpm run deploy:preview`（用仓库密钥 `CLOUDFLARE_API_TOKEN` 和 `E2B_API_KEY`）：重建 E2B 模板 `hopon-maker-preview`，把迁移应用到 D1 `hopon-staging`（`wrangler.preview-migrations.jsonc`），再 `wrangler preview`。每个分支一个预览，URL 是 `<分支>-hopon.<子域>.workers.dev`，在 workflow 的日志里；有自己的 Talker 和 Coder（Durable Object 命名空间和容器应用都是新的），D1 `hopon-staging` 和 R2 `hopon-staging` 由所有预览共用。没有 staging：PR 的预览已经提前演练了迁移、Durable Object 迁移、容器滚动和 E2B 模板构建，只有 `wrangler deploy` 这条命令本身第一次在生产上运行（失败时旧 Worker 继续服务）。在真机上测 PR：开发版应用的 `EXPO_PUBLIC_API_URL` 指向这个 URL，用 Clerk 的 Development 发布密钥。
 
 两个命令都按同一顺序：先重建 E2B 模板（`pnpm -F maker template`；E2B 缓存每一步，只有文件变了的步骤会重做），再应用 D1 迁移（生产先把已发布游戏的 HTML 复制到 R2，见下），最后 `wrangler deploy`（预览是 `wrangler preview`）一次发布 Worker、Talker 和 Coder 的容器镜像。容器的 `rollout_active_grace_period` 是 300 秒，部署会等正在运行的构建结束。Workers Builds 不等 GitHub 检查，所以 `main` 受分支保护：PR 须通过 Check 和 Commit messages 才能合并。`test/previews.test.js` 检查 `previews` 与顶层的绑定、变量和容器一致（预览不继承这些），并检查迁移配置和预览绑定的是同一个 D1。
 
-首次配置（预览的 D1 和 R2、`hopon` Worker 和预览基础配置的全部运行时密钥 `CLERK_JWT_KEY`、`CLERK_SECRET_KEY`、`OPERATOR_PASSWORD`、`OPERATOR_WEBHOOK_URL`、`CLOUDFLARE_API_KEY`、`E2B_API_KEY`、`PREVIEW_SECRET`，构建密钥 `E2B_API_KEY`，在面板里连接 `hopon` 并打开非生产分支的预览构建，`main` 的分支保护，第一次上线）运行向导，可中断后用 `FROM=<n>` 从某一步重跑。预览用 Clerk 的 Development 实例，生产用 Production 实例：
+首次配置（预览的 D1 和 R2、`hopon` Worker 和预览基础配置的全部运行时密钥 `CLERK_JWT_KEY`、`CLERK_SECRET_KEY`、`OPERATOR_PASSWORD`、`OPERATOR_WEBHOOK_URL`、`CLOUDFLARE_API_KEY`、`E2B_API_KEY`、`PREVIEW_SECRET`，构建密钥 `E2B_API_KEY`，在面板里连接 `hopon` 并关闭非生产分支的构建，Preview workflow 的仓库密钥 `CLOUDFLARE_API_TOKEN` 和 `E2B_API_KEY`，`main` 的分支保护，第一次上线）运行向导，可中断后用 `FROM=<n>` 从某一步重跑。预览用 Clerk 的 Development 实例，生产用 Production 实例：
 
 ```sh
 scripts/deploy-setup.sh
