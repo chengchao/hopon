@@ -2209,7 +2209,7 @@ test("pages: /privacy#maker names the Maker's processors and the Terms screen ev
   const { call } = await setup(t);
   const privacy = await call("/privacy", { user: "" }).then((r) => r.text());
   assert.match(privacy, /<h2 id="maker">The Maker<\/h2>/u);
-  for (const company of ["Anthropic", "Cloudflare", "E2B"]) {
+  for (const company of ["Anthropic", "Cloudflare"]) {
     assert.match(privacy, new RegExp(`<strong>${company}</strong>`, "u"));
   }
   assert.match(privacy, /within 30 days/u);

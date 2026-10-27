@@ -19,7 +19,7 @@ const shape = (c) => ({
   vars: Object.keys(c.vars).toSorted(),
 });
 
-test("Previews bind everything production does, to their own D1, R2 and E2B template", () => {
+test("Previews bind everything production does, to their own D1 and R2", () => {
   const production = config("wrangler.jsonc");
   const { previews } = production;
   assert.deepEqual(shape(previews), shape(production));
@@ -30,10 +30,6 @@ test("Previews bind everything production does, to their own D1, R2 and E2B temp
   assert.notEqual(
     previews.r2_buckets[0].bucket_name,
     production.r2_buckets[0].bucket_name
-  );
-  assert.notEqual(
-    previews.vars.MAKER_E2B_TEMPLATE,
-    production.vars.MAKER_E2B_TEMPLATE
   );
 });
 

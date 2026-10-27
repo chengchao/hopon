@@ -1,7 +1,7 @@
 // The end-to-end run against a deployed Worker Preview (#174): what ships, playtest timings on Cloudflare included. A
 // Clerk Development user drives each scripted chat through the app's own Draft routes and WebSocket; each build's
 // Revision is read back through its preview link, playtested here as the box does (the eval's final checks), judged,
-// and recorded as the in-process run (e2e.ts) records it, so the same report reads both.
+// and recorded as the in-process runs before #178 were, so the same report reads both.
 import { execFile } from "node:child_process";
 import { once } from "node:events";
 import {
@@ -227,7 +227,7 @@ const toolEvent = (turn: Turn, event: AgentEvent, at: number) => {
       setTimeout(turn.steer, STEER_AFTER_MS);
     }
   } else if (event.type === "tool_execution_update" && event.output) {
-    // The Coder's `step` labels, a line each: one per tool call, which is how the in-process run counts steps.
+    // The Coder's `step` labels, a line each: one per tool call, which is how the in-process runs counted steps.
     const build = turn.builds.get(event.toolCallId);
     const { output } = event;
     if (build) {

@@ -1,6 +1,6 @@
-// Every Maker model call goes through here (#120, #136): the Talker in-process, the Coder's outbound handler for
-// `http://models.internal/<provider>`, and the eval. It routes by provider prefix and the body's `model`, adds the key,
-// and tags the call for the AI Gateway's logs, which are the only record (#120). Errors pass through; no retry.
+// Every Maker model call goes through here (#120, #136): the Talker's and the Coder's in the Worker, and the eval's,
+// all for `http://models.internal/<provider>`. It routes by provider prefix and the body's `model`, adds the key, and
+// tags the call for the AI Gateway's logs, which are the only record (#120). Errors pass through; no retry.
 // At launch the only route is `/anthropic/v1/messages`.
 
 // The host pi-ai's Claude requests go to (`baseUrl` `http://models.internal/anthropic`); only modelFetch answers it.

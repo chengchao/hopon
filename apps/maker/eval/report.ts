@@ -76,7 +76,7 @@ export const coderStats = (runs: CoderRecord[]) => {
           : []
       )
     ),
-    medianCost: median(runs.map((run) => run.cost)),
+    medianCost: median(costs),
     medianPlaytests: median(runs.map((run) => run.playtests)),
     medianSeconds: median(latency),
     medianSteps: median(runs.map((run) => run.steps)),

@@ -187,13 +187,13 @@ finish() {
 
 # Run from anywhere: paths below are from the repo root. FROM=n starts at stage n on a re-run.
 cd "$(git rev-parse --show-toplevel)"
-# The Maker's CLOUDFLARE_API_KEY and E2B_API_KEY are offered from here (Enter keeps them). Nothing is written to it.
+# The Maker's CLOUDFLARE_API_KEY is offered from here (Enter keeps it). Nothing is written to it.
 ENV_FILE=apps/maker/.env
 ACCOUNT=51a5a41f7bd8425703a6f1d92f867f4d
 export CLOUDFLARE_ACCOUNT_ID=$ACCOUNT
 CF_WORKERS=https://dash.cloudflare.com/$ACCOUNT/workers-and-pages
 REPO=chengchao/hopon
-REQUIRED_SECRETS=(CLERK_JWT_KEY CLERK_SECRET_KEY OPERATOR_PASSWORD OPERATOR_WEBHOOK_URL CLOUDFLARE_API_KEY E2B_API_KEY PREVIEW_SECRET)
+REQUIRED_SECRETS=(CLERK_JWT_KEY CLERK_SECRET_KEY OPERATOR_PASSWORD OPERATOR_WEBHOOK_URL CLOUDFLARE_API_KEY PREVIEW_SECRET)
 WORKER_SECRETS=() # "<Worker> <NAME>" set this run
 TOTAL_STAGES=9
 
@@ -286,11 +286,6 @@ set_worker_secrets() {
         ask_secret CLOUDFLARE_API_KEY "Paste the token:"
         value=$CLOUDFLARE_API_KEY
         ;;
-      E2B_API_KEY)
-        step "The E2B key (https://e2b.dev/dashboard?tab=keys), the one in $ENV_FILE. Only the Coder gets it."
-        ask_secret E2B_API_KEY "Paste the E2B key:"
-        value=$E2B_API_KEY
-        ;;
       PREVIEW_SECRET)
         note "Signs Draft preview links: a fresh random one, never shown."
         value=$(openssl rand -base64 32)
@@ -349,8 +344,7 @@ stage_preview_resources() {
 run_stage "The Previews' D1 and R2" stage_preview_resources
 
 stage_production_secrets() {
-  say "hopon's runtime secrets. It already has the older ones; the Maker adds CLOUDFLARE_API_KEY, E2B_API_KEY"
-  say "and PREVIEW_SECRET."
+  say "hopon's runtime secrets. It already has the older ones; the Maker adds CLOUDFLARE_API_KEY and PREVIEW_SECRET."
   set_worker_secrets ""
   pause
 }
@@ -371,7 +365,7 @@ stage_games_r2() {
 run_stage "R2 for published Games" stage_games_r2
 
 stage_deploy_secrets() {
-  say "The Deploy workflow (.github/workflows/deploy.yml) deploys with two repository secrets. Make its Cloudflare"
+  say "The Deploy workflow (.github/workflows/deploy.yml) deploys with one repository secret. Make its Cloudflare"
   say "token now:"
   open_url "https://dash.cloudflare.com/profile/api-tokens"
   step "Create Token → Custom token, named \"hopon deploys (GitHub Actions)\", for account $ACCOUNT, with Account →"
@@ -380,9 +374,6 @@ stage_deploy_secrets() {
   ask_secret CLOUDFLARE_API_TOKEN "Paste the token:"
   [[ -n "$CLOUDFLARE_API_TOKEN" ]] || stop "CLOUDFLARE_API_TOKEN is empty."
   set_secret CLOUDFLARE_API_TOKEN "$CLOUDFLARE_API_TOKEN"
-  ask_secret E2B_API_KEY "Paste the E2B key, for the template build (Enter keeps $ENV_FILE's):"
-  [[ -n "$E2B_API_KEY" ]] || stop "E2B_API_KEY is empty."
-  set_secret E2B_API_KEY "$E2B_API_KEY"
   open_url "$CF_WORKERS"
   step "Open hopon → Settings → Build. If it shows a connected Git repository, turn on Disable builds (or Disconnect"
   step "it): Workers Builds has no Docker, so its deploy of main would migrate D1 and then fail."
@@ -421,8 +412,7 @@ JSON
 run_stage "Protect main" stage_protect_main
 
 stage_first_deploy() {
-  say "Open a PR: its Preview deploys on the push. The first run makes the hopon-maker-preview E2B template from"
-  say "scratch, so it takes a few minutes."
+  say "Open a PR: its Preview deploys on the push."
   open_url "https://github.com/$REPO/actions/workflows/deploy.yml"
   step "Wait for the PR's Deploy run to go green; its log has the Preview's URL."
   step "Point a dev build of the app at it: EXPO_PUBLIC_API_URL=https://<branch>-hopon.<subdomain>.workers.dev"
