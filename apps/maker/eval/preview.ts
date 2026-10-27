@@ -39,6 +39,7 @@ const UNKNOWN = null;
 const STEER_AFTER_MS = 1000;
 const PING_MS = 20_000;
 const RECONNECT_MS = 1000;
+const OPEN_MS = 30_000;
 const POLL_MS = 100;
 const TURN_MS = 10 * 60_000;
 // Clerk Development instances sign in any `+clerk_test` address with this code, and send no email.
@@ -362,7 +363,8 @@ export const runPreviewE2E = async ({
       }
     };
     ws.addEventListener("close", reconnect);
-    await once(ws, "open");
+    // An EventTarget's error doesn't reject `once`: a socket that never opens times out instead.
+    await once(ws, "open", { signal: AbortSignal.timeout(OPEN_MS) });
   };
 
   // A message: the first one makes the Draft, later ones go to it (joining a running turn as a steer). A message
