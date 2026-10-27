@@ -386,9 +386,9 @@ stage_deploy_secrets() {
   [[ -n "$E2B_API_KEY" ]] || stop "E2B_API_KEY is empty."
   set_secret E2B_API_KEY "$E2B_API_KEY"
   open_url "$CF_WORKERS"
-  step "Open hopon → Settings → Build. If it shows a connected Git repository, Disconnect it: Workers Builds has no"
-  step "Docker, so its deploy of main would migrate D1 and then fail."
-  pause "Disconnected, or never connected?"
+  step "Open hopon → Settings → Build. If it shows a connected Git repository, turn on Disable builds (or Disconnect"
+  step "it): Workers Builds has no Docker, so its deploy of main would migrate D1 and then fail."
+  pause "Disabled, or never connected?"
 }
 run_stage "Deploy secrets" stage_deploy_secrets
 
