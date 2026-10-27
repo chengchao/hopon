@@ -99,8 +99,7 @@ export const PRIVACY = page(
 <p>When you make a game, your messages to the Maker and the game it makes from them (its code and pictures of it being played) go to these companies. Your email and account don't.</p>
 <ul>
 <li><strong>Anthropic</strong>: its Claude models are the Maker's AI. Anthropic doesn't train on what it receives and deletes it within 30 days, unless it is flagged for breaking Anthropic's usage policy.</li>
-<li><strong>Cloudflare</strong> hosts hopon, carries messages to the AI and runs Screening on every message. Cloudflare doesn't train on them.</li>
-<li><strong>E2B</strong> runs and plays the game's code in the US while the Maker builds it. The copy is deleted after a day without changes.</li>
+<li><strong>Cloudflare</strong> hosts hopon, carries messages to the AI, runs Screening on every message, and runs and plays the game's code while the Maker builds it. Cloudflare doesn't train on them.</li>
 </ul>
 <p>We keep a Draft's chat and game until you Delete the Draft or publish it. Publishing keeps the game and deletes the chat. Text that Screening refuses is never kept.</p>
 

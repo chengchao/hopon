@@ -2,26 +2,23 @@
 
 The suite #115 defines, kept here and run by hand on a model or framework upgrade (ADR 0003's revisit triggers). Never in CI: it costs money and needs the keys in `apps/maker/.env` (see `.env.example`).
 
-- `specs.json`: the Coder's 30 frozen jobs (22 builds, 16 LittleJS and 6 plain DOM, 8 edits, 5 with music).
-- `revisions/<base>/`: the edits' frozen starting Revisions (built once with Sonnet 5.5 by `freeze`, checked by the owner).
+- `specs.json`: the Coder sweep's 30 frozen jobs (22 builds, 16 LittleJS and 6 plain DOM, 8 edits, 5 with music).
+- `revisions/<base>/`: the edits' frozen starting Revisions (built once with Sonnet 5.5, checked by the owner).
 - `chats.json`: the Talker's 8 scripted chats, run against a stub Coder.
 - `calibration.json`: the owner's blind scores, which the report compares with the judge's.
 - `results/`: the committed report of each sweep.
 
 ```bash
-pnpm -F maker template eval                            # once, or after changing image/
-pnpm -F maker eval freeze                              # the edits' starting Revisions, if missing
-pnpm -F maker eval smoke                               # Kimi: 5 jobs, images in tool results, median ≤ 120 s
-pnpm -F maker eval coder --models a,b [--runs 3] [--jobs id,id] [--concurrency 6] [--sweep name]
 pnpm -F maker eval talker --models a,b [--runs 3] [--chats id,id]
-pnpm -F maker eval e2e [--talker id] [--talker-thinking high] [--coder id] [--thinking low]  # real Talker → real Coder
-pnpm -F maker eval e2e --preview https://<branch>-hopon.calendeam.workers.dev [--chats id,id] [--runs 3]  # on a Preview
+pnpm -F maker eval e2e --preview https://<branch>-hopon.calendeam.workers.dev [--chats id,id] [--runs 3]  # real Talker → real Coder
 pnpm -F maker eval blind                               # 20 runs for the owner to score, without model names
 pnpm -F maker eval calibrate < scores.json             # the blind page's scores into calibration.json
 pnpm -F maker eval report                              # report.md, report.json, contact-sheet.png in out/<sweep>/
 ```
 
-**On a Preview** (#174), `e2e` runs what ships: each chat goes through the Draft routes and the WebSocket as the app's, signed in as a Clerk Development user, and each build's Revision is read back through its preview link, given the eval's final checks here (local Chromium) and judged. It needs `CLERK_PUBLISHABLE_KEY` (the Development instance's) and `EVAL_CLERK_EMAIL` in `.env`: a `+clerk_test` address, which a Development instance signs in with the code 424242, so there's no password. The Talker and Coder models are the Preview's vars. What the Preview doesn't report is null and left out of the stats: the Coder's dollars, first green and tool calls. Its seconds run from the `build` call to its result, so they include R2, and the replay check plays 3 s with no inputs, since the Coder's last inputs aren't reported. Each chat deletes its Draft at the end. A user gets 10 builds a UTC day, so a full run (72 builds) needs that user's count in the `hopon-staging` D1 cleared between batches (`DELETE FROM generation_limits WHERE bucket LIKE '<user id>:%'`).
+The Coder sweeps (`coder`, `smoke`, `freeze`) and the in-process `e2e` ran the Coder here, outside the Worker; they went in #178, when the Coder's box became the Worker's Container. `specs.json`, `revisions/` and `blind` remain for the sweeps already under `out/`. Comparing Coder models now means an `e2e` run per model on a Preview, its `MAKER_CODER_MODEL` set to each.
+
+**`e2e` runs on a Preview** (#174), so it runs what ships: each chat goes through the Draft routes and the WebSocket as the app's, signed in as a Clerk Development user, and each build's Revision is read back through its preview link, given the eval's final checks here (local Chromium) and judged. It needs `CLERK_PUBLISHABLE_KEY` (the Development instance's) and `EVAL_CLERK_EMAIL` in `.env`: a `+clerk_test` address, which a Development instance signs in with the code 424242, so there's no password. The Talker and Coder models are the Preview's vars. What the Preview doesn't report is null and left out of the stats: the Coder's dollars, first green and tool calls. Its seconds run from the `build` call to its result, so they include R2, and the replay check plays 3 s with no inputs, since the Coder's last inputs aren't reported. Each chat deletes its Draft at the end. A user gets 10 builds a UTC day, so a full run (72 builds) needs that user's count in the `hopon-staging` D1 cleared between batches (`DELETE FROM generation_limits WHERE bucket LIKE '<user id>:%'`).
 
 A sweep resumes: runs with a `result.json` under `out/<sweep>/` are skipped. Models: `claude-haiku-5-5`, `claude-sonnet-5-5`, `kimi-k3` (DeepSeek dropped by the owner), all at reasoning "low".
 

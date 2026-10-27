@@ -56,6 +56,9 @@ export interface BoxEdge {
   readonly running: boolean;
   // Resolves once the box answers exec(); throws when it can't start.
   start: () => Promise<void>;
+  // The box stops BOX_IDLE_MS after its last activity. Set at start(), and again when the Coder restarts, since the
+  // timeout doesn't outlive the object.
+  setInactivityTimeout: () => Promise<void>;
   destroy: () => Promise<void>;
   // One process, both streams read to the end.
   exec: (argv: string[], options?: ExecOptions) => Promise<Exec>;
@@ -147,6 +150,8 @@ export const containerBox = (maybe: Container | undefined): BoxEdge => {
       return false;
     }
   };
+  const setInactivityTimeout = () =>
+    container().setInactivityTimeout(BOX_IDLE_MS);
   return {
     destroy: () => container().destroy(),
     exec,
@@ -156,18 +161,18 @@ export const containerBox = (maybe: Container | undefined): BoxEdge => {
     get running() {
       return maybe?.running ?? false;
     },
+    setInactivityTimeout,
     // Ready at the first exec() that answers: the entrypoint starts Chromium in the background, and the playtest
     // launches its own if it isn't up yet.
+    // Production's box is a durable_object-policy app, so start() names its image and size. A Preview's can only be a
+    // default-policy app (wrangler.jsonc), whose image and size are its config's.
     start: async () => {
       const { images } = container();
-      if (!images.box) {
-        throw new Error("the Worker has no box image");
-      }
-      container().start({
-        enableInternet: false,
-        image: images.box,
-        instance: INSTANCE,
-      });
+      container().start(
+        images.box
+          ? { enableInternet: false, image: images.box, instance: INSTANCE }
+          : { enableInternet: false }
+      );
       const startedAt = Date.now();
       // oxlint-disable-next-line no-await-in-loop -- polling until the box answers
       while (!(await answers())) {
@@ -177,7 +182,7 @@ export const containerBox = (maybe: Container | undefined): BoxEdge => {
         // oxlint-disable-next-line no-await-in-loop -- polling until the box answers
         await sleep(100);
       }
-      await container().setInactivityTimeout(BOX_IDLE_MS);
+      await setInactivityTimeout();
     },
   };
 };

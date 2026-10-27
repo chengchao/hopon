@@ -1,6 +1,6 @@
 // How the Coder does a build job, whatever runs the agent: the job and its events, the prompt, the playtest, the
 // workspace a job starts from and the Revision it ends with. It reaches the box only through `Box`, so a Coder on any
-// box runs it unchanged (#173); today's adapts its E2B sandbox (jobBox in box.ts).
+// box runs it unchanged (#173); the Worker's adapts its Container (jobBox in apps/worker/src/coder-box.ts).
 import { Schema } from "effect";
 
 import { isLittlejsHtml, littlejsHtml, MUSIC } from "../image/page.ts";

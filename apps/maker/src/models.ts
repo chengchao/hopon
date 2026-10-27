@@ -1,7 +1,6 @@
-// The Maker's models as pi-ai models: the Coder's in its Container, and the eval's candidates and judge (#115). Claude
-// goes to `http://models.internal/anthropic` everywhere, and the fetch below hands those requests to a ModelHandler:
-// modelFetch (#136) in-process for the eval, the network in the Container, whose outbound handler in the Worker runs
-// modelFetch. Kimi K3 stays on the gateway's OpenAI-compatible route for re-runs. #116 picked Haiku 5.5 for both
+// The eval's models as pi-ai models: the candidates and the judge (#115). Claude goes to
+// `http://models.internal/anthropic`, and the fetch below hands those requests to modelFetch (#136) in-process. Kimi
+// K3 stays on the gateway's OpenAI-compatible route for re-runs. #116 picked Haiku 5.5 for both
 // agents. DeepSeek and Kimi K2.6 were tried and dropped (eval/results/2026-10-20.md).
 import { createModels, createProvider } from "@earendil-works/pi-ai";
 import type { Api, Model, MutableModels } from "@earendil-works/pi-ai";
@@ -13,7 +12,7 @@ import { cloudflareStreams } from "@earendil-works/pi-ai/providers/cloudflare-st
 import { MODELS_HOST, modelFetch } from "@hopon/model-fetch";
 import type { ModelEnv } from "@hopon/model-fetch";
 
-// pi's Anthropic client wants a key; modelFetch swaps in the real one, in-process or in the Coder's outbound handler.
+// pi's Anthropic client wants a key; modelFetch swaps in the real one.
 const PLACEHOLDER_KEY = "placeholder";
 
 // The gateway's descriptor, not Anthropic's: Anthropic's turns on mid-conversation system messages, which
@@ -26,11 +25,10 @@ const claude = (
   provider: "anthropic",
 });
 
-// What answers pi-ai's requests to `http://models.internal`: modelFetch in-process for the eval, the network in the
-// Coder's Container (whose outbound handler in the Worker runs modelFetch), a script in the Coder's tests.
+// What answers pi-ai's requests to `http://models.internal`.
 export type ModelHandler = (request: Request) => Promise<Response>;
 
-// pi aborts a model request on the Coder's deadline, a cancel or the step limit, and the abort has to end it. An abort
+// pi aborts a model request on a deadline or a cancel, and the abort has to end it. An abort
 // that reaches the upstream fetch only through `new Request(input, init).signal` is lost once that Request is
 // garbage-collected (undici follows the caller's signal through a WeakRef), and the read then waits out undici's 300 s
 // body timeout: 4 eval runs hung 4–6 minutes on one request that way (PR #157). So the caller's own signal ends both
@@ -69,9 +67,7 @@ const evalHandler: ModelHandler = (request) =>
     metadata: { agent: "eval", draftId: "eval" },
   });
 
-// The Coder's Container sends them on to the network, where its outbound handler in the Worker adds the key.
 const realFetch = globalThis.fetch;
-export const networkHandler: ModelHandler = (request) => realFetch(request);
 
 let handler: ModelHandler | undefined;
 export const routeModels = (next: ModelHandler) => {
@@ -110,11 +106,6 @@ const KEYS = [
   "CLOUDFLARE_ACCOUNT_ID",
   "CLOUDFLARE_GATEWAY_ID",
 ] as const satisfies readonly (keyof ModelEnv)[];
-export const apiKey = (model: Model<Api>) =>
-  model.provider === "anthropic"
-    ? PLACEHOLDER_KEY
-    : (process.env.CLOUDFLARE_API_KEY ?? "");
-
 export const resolve = (id: string) => {
   if (!isCandidate(id)) {
     throw new Error(

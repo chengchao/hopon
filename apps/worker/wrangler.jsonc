@@ -26,8 +26,6 @@
       // modelFetch's Cloudflare API token (packages/model-fetch), for the Talker's and the Coder's model calls; it needs
       // AI Gateway Run and Workers AI.
       "CLOUDFLARE_API_KEY",
-      // The Coder's container gets this one and no other.
-      "E2B_API_KEY",
       // Signs a Draft's preview links (#118): HMAC-SHA256 over `draftId.exp`.
       "PREVIEW_SECRET",
     ],
@@ -39,13 +37,9 @@
     // The Coder's (#116): Haiku 5.5 at low effort.
     "MAKER_CODER_MODEL": "claude-haiku-5-5",
     "MAKER_CODER_EFFORT": "low",
-    // A Draft's box is killed after this long with no turn (#144). talker-check shortens it.
-    "MAKER_BOX_IDLE_S": "86400",
     // The Talker's abort timer on a build (#116, #122), 30 s more with music: 30 s past the Coder's own deadline, so the
     // Coder reports `failed` first. The Talker test shortens it.
     "MAKER_BUILD_ABORT_S": "150",
-    // The E2B template the Coder's boxes start from (apps/maker/image/build.ts); `pnpm run deploy` rebuilds it first.
-    "MAKER_E2B_TEMPLATE": "hopon-maker",
     "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
     "CLOUDFLARE_GATEWAY_ID": "default",
   },
@@ -110,17 +104,25 @@
       "MAKER_TALKER_EFFORT": "high",
       "MAKER_CODER_MODEL": "claude-haiku-5-5",
       "MAKER_CODER_EFFORT": "low",
-      "MAKER_BOX_IDLE_S": "86400",
       "MAKER_BUILD_ABORT_S": "150",
-      // Every Preview build rebuilds this one from its branch, so a Preview runs its own box image. ponytail: shared by
-      // all Previews, last build wins; name it per Preview if two branches change apps/maker/image at once.
-      "MAKER_E2B_TEMPLATE": "hopon-maker-preview",
       "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
       "CLOUDFLARE_GATEWAY_ID": "default",
     },
-    // No `containers`: wrangler 4.152–4.154 refuses a durable_object-policy container here ("configured only in the
-    // top-level containers array") and `wrangler preview` deploys none from the top level, so a Preview's Coder has no
-    // box and its builds fail saying so (#175).
+    // The same box image at the nearest size, but under the default policy: wrangler 4.152–4.154 refuses a
+    // durable_object-policy container here ("configured only in the top-level containers array"), and custom sizes are
+    // Enterprise-only under default. exec(), setInactivityTimeout() and destroy() work the same; start() takes neither
+    // image nor size (src/coder-box.ts). test/previews.test.js keeps it in step with production's box. ponytail: a
+    // default-policy app caps instances, and each Draft's box idles 5 min after its build; raise it if `eval e2e
+    // --concurrency` builds fail `busy`.
+    "containers": [
+      {
+        "class_name": "DraftCoder",
+        "image": "../maker/image/Dockerfile",
+        "image_build_context": "../maker/image",
+        "instance_type": "standard-3",
+        "max_instances": 40,
+      },
+    ],
     "durable_objects": {
       "bindings": [
         { "name": "TALKER", "class_name": "Talker" },

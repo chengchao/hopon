@@ -134,7 +134,7 @@ export const playtest = async ({ inputs = [], ms } = {}) => {
     "/game.js": readFileSync("game.js"),
     [RUNTIME_SRC]: readFileSync(path.join(here, "runtime.js")),
   };
-  // The E2B template installs Chromium next to this file; its build-time ENV doesn't reach commands.run.
+  // The box installs Chromium next to this file, and a command may not get the image's ENV.
   if (existsSync(path.join(here, "browsers"))) {
     process.env.PLAYWRIGHT_BROWSERS_PATH ??= path.join(here, "browsers");
   }

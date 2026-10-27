@@ -19,7 +19,7 @@ const shape = (c) => ({
   vars: Object.keys(c.vars).toSorted(),
 });
 
-test("Previews bind everything production does, to their own D1, R2 and E2B template", () => {
+test("Previews bind everything production does, to their own D1 and R2", () => {
   const production = config("wrangler.jsonc");
   const { previews } = production;
   assert.deepEqual(shape(previews), shape(production));
@@ -31,10 +31,6 @@ test("Previews bind everything production does, to their own D1, R2 and E2B temp
     previews.r2_buckets[0].bucket_name,
     production.r2_buckets[0].bucket_name
   );
-  assert.notEqual(
-    previews.vars.MAKER_E2B_TEMPLATE,
-    production.vars.MAKER_E2B_TEMPLATE
-  );
 });
 
 test("deploy:preview migrates the D1 the Previews bind", () => {
@@ -45,10 +41,12 @@ test("deploy:preview migrates the D1 the Previews bind", () => {
   }
 });
 
-// The Coder's box (#175) is a durable_object-policy container, which wrangler takes only at the top level, and
-// `wrangler preview` deploys none from there: a Preview's Coder has no box. Once wrangler takes one under `previews`,
-// repeat production's there and compare the two here.
-test("production's Coder has its box; a Preview's can't yet", () => {
+// wrangler resolves a Preview's container paths but not production's images.
+const resolved = (p) => new URL(`../${p}/`, import.meta.url).pathname;
+
+// The Coder's box (#175) is a durable_object-policy container, which wrangler takes only at the top level. A Preview
+// gets the same image as a default-policy app instead (wrangler.jsonc says why).
+test("a Preview's Coder gets production's box image", () => {
   const production = config("wrangler.jsonc");
   assert.deepEqual(production.containers, [
     {
@@ -63,7 +61,14 @@ test("production's Coder has its box; a Preview's can't yet", () => {
       scheduling_policy: "durable_object",
     },
   ]);
-  assert.equal(production.previews.containers, undefined);
+  const [preview] = production.previews.containers;
+  const { box } = production.containers[0].images;
+  assert.equal(production.previews.containers.length, 1);
+  assert.equal(preview.class_name, "DraftCoder");
+  assert.equal(`${preview.image}/`, resolved(box.dockerfile));
+  assert.equal(`${preview.image_build_context}/`, resolved(box.build_context));
+  // standard-3 is 2 vCPU like production's { vcpu: 2, memoryMib: 6144 }, with 8 GiB.
+  assert.equal(preview.instance_type, "standard-3");
 });
 
 // Files (@cloudflare/sandbox) runs the box's sandbox-shim, copied from cloudflare/sandbox's image of the same version.

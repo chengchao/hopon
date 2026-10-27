@@ -110,6 +110,23 @@ export class DraftCoder extends DurableObject<Env> {
   // Every open job stream.
   listeners = new Set<(line: Line) => void>();
 
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // A box that outlived the object (a crash, an eviction, a deploy) lost its inactivity timeout with it.
+    // oxlint-disable-next-line no-void -- blockConcurrencyWhile holds every event until it settles
+    void ctx.blockConcurrencyWhile(async () => {
+      if (!this.edge.running) {
+        return;
+      }
+      try {
+        await this.edge.setInactivityTimeout();
+      } catch (error) {
+        // Thrown here, it would reset the object, failing every request it holds.
+        console.error(`Coder ${this.draftId}: no inactivity timeout`, error);
+      }
+    });
+  }
+
   get draftId() {
     const { name } = this.ctx.id;
     if (!name) {
@@ -162,6 +179,7 @@ export class DraftCoder extends DurableObject<Env> {
       summary: summary.trim(),
     });
     this.ctx.storage.kv.put("final", { event, jobId: state.jobId });
+    console.log(`Coder ${this.draftId}: job ${state.jobId} ${event.type}`);
     return event;
   }
 

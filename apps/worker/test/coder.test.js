@@ -108,17 +108,20 @@ const job = (revision, source, brief) => ({
   source,
   spec: { brief, music: null, title: "Star Catcher" },
 });
-const until = async (what, check) => {
-  const deadline = Date.now() + 20_000;
+const until = async (what, check, ms = 20_000) => {
+  const deadline = Date.now() + ms;
   while (!check()) {
     assert.ok(Date.now() < deadline, `timed out waiting for ${what}`);
     // oxlint-disable-next-line no-await-in-loop -- polling
     await sleep(50);
   }
 };
-const restores = async (draft) => {
+const boxLog = async (draft) => {
   const response = await coder(draft, "/fake/log");
-  const commands = await response.json();
+  return response.json();
+};
+const restores = async (draft) => {
+  const commands = await boxLog(draft);
   return commands.filter((c) => c.includes("find /workspace -mindepth 1"))
     .length;
 };
@@ -207,9 +210,9 @@ test(
     };
     const [music, late, lateMusic, steps, busy] = await Promise.all([
       build("draft-music", "job-1", withMusic("music")),
-      // The "slow" brief's deadline is 1 s (test/coder/worker.ts); its reason names the real one.
-      build("draft-late", "job-1", job(0, {}, "slow")),
-      build("draft-late-music", "job-1", withMusic("slow")),
+      // The "late" brief's deadline is 1 s (test/coder/worker.ts); its reason names the real one.
+      build("draft-late", "job-1", job(0, {}, "late")),
+      build("draft-late-music", "job-1", withMusic("late")),
       build("draft-loop", "job-1", job(0, {}, "loop")),
       build("nobox-1", "job-1", job(0, {}, "new")),
     ]);
@@ -274,13 +277,79 @@ test(
     // Every command the box ran was under `timeout --kill-after=5`, so an abort stops all it started.
     for (const draft of ["draft-music", "draft-cancel", "draft-loop"]) {
       // oxlint-disable-next-line no-await-in-loop -- one Draft at a time
-      const logged = await coder(draft, "/fake/log");
-      // oxlint-disable-next-line no-await-in-loop -- one Draft at a time
-      const log = await logged.json();
-      assert.ok(log.length > 0);
-      for (const command of log) {
+      const log = await boxLog(draft);
+      // The rest are the box's own start, destroy and inactivity timeout.
+      const commands = log.filter(
+        (entry) => !["start", "destroy", "inactivity timeout"].includes(entry)
+      );
+      assert.ok(commands.length > 0);
+      for (const command of commands) {
         assert.match(command, /^timeout --kill-after=5 \d+ /u);
       }
     }
   }
 );
+
+test("a job whose server is killed mid-build ends on its own; a re-POST gets its final event; the box is kept, then destroyed", async (t) => {
+  t.after(kill);
+  t.after(() => {
+    if (!t.passed) {
+      process.stdout.write(Buffer.concat(serverLog));
+    }
+  });
+  await start();
+
+  // Killed while the model answers its last step, after a green playtest.
+  const first = await post("draft-r", "job-r", job(0, {}, "slow"));
+  await until("the playtest", () =>
+    first.events.some((event) => event.type === "playtest")
+  );
+  const before = await boxLog("draft-r");
+  assert.ok(!before.includes("inactivity timeout"));
+  kill();
+  await first.done.catch(() => {});
+  assert.ok(!first.events.some((event) => event.type === "done"));
+
+  // Back up, and no request: pi-durable's heartbeat restarts the Coder, which finishes the job by itself and sets the
+  // running box's inactivity timeout again.
+  const from = Buffer.concat(serverLog).length;
+  await start();
+  await until(
+    "the job's end with no request",
+    () =>
+      Buffer.concat(serverLog)
+        .subarray(from)
+        .toString()
+        .includes("Coder draft-r: job job-r done"),
+    60_000
+  );
+  const log = await boxLog("draft-r");
+  assert.ok(log.includes("inactivity timeout"));
+
+  // A re-POST of the finished job gets its final event at once, without building again.
+  const again = await build("draft-r", "job-r", job(0, {}, "slow"));
+  assert.equal(again.length, 1);
+  assert.deepEqual(
+    { ...again[0], files: Object.keys(again[0].files).toSorted() },
+    {
+      deleted: [],
+      files: ["game.js", "game.ts", "index.html"],
+      summary: "Built it after a restart.",
+      type: "done",
+    }
+  );
+  assert.deepEqual(await boxLog("draft-r"), log);
+
+  // DELETE /box (a Draft deleted) destroys the box; the next job cold-starts one.
+  const deleted = await coder("draft-r", "/box", { method: "DELETE" });
+  assert.equal(deleted.status, 204);
+  const destroyed = await boxLog("draft-r");
+  assert.equal(destroyed.at(-1), "destroy");
+  const next = await build("draft-r", "job-s", job(0, {}, "new"));
+  assert.equal(next.at(-1).type, "done");
+  const after = await boxLog("draft-r");
+  assert.deepEqual(
+    after.filter((c) => c === "start" || c === "destroy"),
+    ["start", "destroy", "start"]
+  );
+});

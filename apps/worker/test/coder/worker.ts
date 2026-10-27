@@ -5,8 +5,9 @@
 // - The box: files in the Coder's own storage (so they outlive a restart, as a running box does), every command logged
 //   and answered by fakeExec: the playtest always green, music.mjs rendering a fixed track, the rest a no-op. A Draft
 //   whose id starts with "nobox" gets a box that can't start; `sleep 600` runs until it's aborted.
-// - The deadline: the "slow" brief's is 1 s, so its case is quick; its reason still names the job's real deadline.
-// /__coder/<draftId>/fake/log returns the box's commands; /fake/release lets a held model step ("hold") answer.
+// - The deadline: the "late" brief's is 1 s, so its case is quick; its reason still names the job's real deadline.
+// /__coder/<draftId>/fake/log returns the box's commands, and its start, destroy and inactivity timeout; /fake/release
+// lets a held model step ("hold") answer.
 import type { Job } from "../../../maker/src/job.ts";
 import type { BoxEdge, Exec } from "../../src/coder-box.ts";
 import { DraftCoder as Coder } from "../../src/coder.ts";
@@ -25,7 +26,9 @@ type Step =
   | { tool: string; input: object }
   | { text: string }
   // Waits for /fake/release, then answers `text`.
-  | { hold: true; text: string };
+  | { hold: true; text: string }
+  // Answers `text` after this many ms: time to kill the server mid-job.
+  | { sleep: number; text: string };
 
 const GAME = "let speed = 1;\nfunction gameRender() {}\n";
 const SCRIPTS: Record<string, Step[] | ((turn: number) => Step)> = {
@@ -43,6 +46,8 @@ const SCRIPTS: Record<string, Step[] | ((turn: number) => Step)> = {
     { input: {}, tool: "playtest" },
     { text: "Made it faster." },
   ],
+  // Never answers: the deadline's case.
+  late: [{ hold: true, text: "Too late." }],
   // Writes forever: the step limit's case.
   loop: () => ({ input: { content: GAME, path: "game.ts" }, tool: "write" }),
   music: [
@@ -57,8 +62,11 @@ const SCRIPTS: Record<string, Step[] | ((turn: number) => Step)> = {
     { input: {}, tool: "playtest" },
     { text: "Built Star Catcher." },
   ],
-  // Never answers: the deadline's case.
-  slow: [{ hold: true, text: "Too late." }],
+  slow: [
+    { input: { content: GAME, path: "game.ts" }, tool: "write" },
+    { input: {}, tool: "playtest" },
+    { sleep: 2000, text: "Built it after a restart." },
+  ],
   wait: [
     { input: { content: GAME, path: "game.ts" }, tool: "write" },
     { input: {}, tool: "playtest" },
@@ -145,6 +153,9 @@ const model = async (request: Request) => {
       aborted.reject(request.signal.reason)
     );
     await Promise.race([gate(draftId).promise, aborted.promise]);
+  }
+  if ("sleep" in step) {
+    await scheduler.wait(step.sleep);
   }
   return reply(
     { text: "", type: "text" },
@@ -235,6 +246,7 @@ export class DraftCoder extends Coder {
     };
     const box: BoxEdge = {
       destroy: () => {
+        log("destroy");
         kv.delete("fakebox:running");
         return Promise.resolve();
       },
@@ -290,10 +302,15 @@ export class DraftCoder extends Coder {
       get running() {
         return kv.get("fakebox:running") === true;
       },
+      setInactivityTimeout: () => {
+        log("inactivity timeout");
+        return Promise.resolve();
+      },
       start: () => {
         if (this.ctx.id.name?.startsWith("nobox")) {
           return Promise.reject(new Error("no box to start"));
         }
+        log("start");
         kv.put("fakebox:running", true);
         return Promise.resolve();
       },
@@ -304,7 +321,7 @@ export class DraftCoder extends Coder {
   override async begin(jobId: string, job: Job) {
     await super.begin(jobId, job);
     const { job: state } = this;
-    if (state && job.spec.brief === "slow") {
+    if (state && job.spec.brief === "late") {
       this.job = { ...state, deadlineAt: Date.now() + 1000 };
       this.deadline = this.armDeadline();
     }

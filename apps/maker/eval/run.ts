@@ -3,7 +3,6 @@
 import {
   copyFileSync,
   rmSync,
-  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -12,27 +11,12 @@ import {
 import path from "node:path";
 import { parseArgs } from "node:util";
 
-import type { Thinking } from "../src/coder.ts";
 import { CANDIDATES } from "../src/models.ts";
 import { buildRuntime } from "../src/runtime.ts";
-import {
-  CODER_JOBS,
-  OUT,
-  readRevision,
-  REVISIONS,
-  runCoder,
-  SMOKE_JOBS,
-} from "./coder.ts";
-import type { CoderJob, CoderRecord } from "./coder.ts";
-import { runE2E } from "./e2e.ts";
+import { CODER_JOBS, OUT, REVISIONS } from "./coder.ts";
+import type { CoderRecord } from "./coder.ts";
 import { runPreviewE2E, signIn } from "./preview.ts";
-import {
-  coderStats,
-  quantile,
-  readRecords,
-  report,
-  talkerStats,
-} from "./report.ts";
+import { coderStats, readRecords, report, talkerStats } from "./report.ts";
 import type { TalkerRecord } from "./talker.ts";
 import { CHATS, runTalker } from "./talker.ts";
 
@@ -40,35 +24,24 @@ const { positionals, values } = parseArgs({
   allowPositionals: true,
   options: {
     chats: { type: "string" },
-    // e2e: the pair to run.
-    coder: { default: "claude-haiku-5-5", type: "string" },
     concurrency: { default: "6", type: "string" },
-    jobs: { type: "string" },
     models: { type: "string" },
-    // e2e: a Worker Preview's URL, to run the chats there instead of in-process.
+    // e2e: the Worker Preview's URL the chats run on.
     preview: { type: "string" },
     runs: { default: "3", type: "string" },
     sweep: { default: "sweep", type: "string" },
-    talker: { default: "claude-haiku-5-5", type: "string" },
-    // e2e: the Talker's effort.
-    "talker-thinking": { default: "high", type: "string" },
-    // The Coder's effort; the Talker always runs at low.
-    thinking: { default: "low", type: "string" },
   },
 });
 const command = positionals[0] ?? "help";
 const sweepDir = path.join(OUT, values.sweep);
 const CALIBRATION = path.join(import.meta.dirname, "calibration.json");
-const FREEZE_MODEL = "claude-sonnet-5-5";
-const FREEZE_TRIES = 3;
-const SMOKE_MEDIAN_S = 120;
 const BLIND_RUNS = 20;
 
 const list = (value: string | undefined, all: string[]) =>
   value ? value.split(",").filter(Boolean) : all;
 const models = (fallback: string[]) => list(values.models, fallback);
 
-// A fixed number of tasks in flight; E2B Hobby allows 20 running boxes.
+// A fixed number of tasks in flight.
 const pool = async <T>(tasks: (() => Promise<T>)[], size: number) => {
   const results: T[] = [];
   let next = 0;
@@ -104,17 +77,12 @@ const versions = () =>
   Object.fromEntries(
     [
       "@earendil-works/pi-ai",
-      "@earendil-works/pi-coding-agent",
       "@earendil-works/pi-durable",
-      "e2b",
       "littlejsengine",
       "playwright-core",
       "typescript",
     ].map((name) => [name, version(name)])
   );
-
-const line = (record: CoderRecord) =>
-  `${record.model} ${record.job}#${record.run}: ${record.pass ? "pass" : "FAIL"} green=${record.finalGreen} steps=${record.steps} $${record.cost.toFixed(4)} ${record.seconds.toFixed(0)}s${record.reason ? ` (${record.reason})` : ""}`;
 
 // The gateway refuses requests when Unified Billing runs short (402). Such a run says nothing about the model: its
 // result is discarded, and the sweep stops so nothing else is spent into a refusal. The next sweep reruns it.
@@ -132,60 +100,6 @@ const refusedForBilling = (dir: string, record: unknown) => {
     );
   }
   return true;
-};
-
-const sweepCoder = async (
-  jobs: CoderJob[],
-  modelIds: string[],
-  runs: number,
-  judge = true
-) => {
-  writeFileSync(
-    path.join(sweepDir, "versions.json"),
-    JSON.stringify(versions(), null, 2)
-  );
-  const tasks = modelIds.flatMap((modelId) =>
-    jobs.flatMap((job) =>
-      Array.from({ length: runs }, (_, run) => async () => {
-        const dir = path.join(
-          sweepDir,
-          "coder",
-          modelId,
-          `${job.id}-${run + 1}`
-        );
-        if (billingStopped) {
-          return null;
-        }
-        if (existsSync(path.join(dir, "result.json"))) {
-          return JSON.parse(
-            readFileSync(path.join(dir, "result.json"), "utf-8")
-          ) as CoderRecord;
-        }
-        // A lost box or a failed request skips the run, with no result.json, so the next sweep retries it.
-        try {
-          const record = await runCoder({
-            dir,
-            job,
-            judge,
-            modelId,
-            run: run + 1,
-            thinking: values.thinking as Thinking,
-          });
-          if (refusedForBilling(dir, record)) {
-            return null;
-          }
-          console.log(line(record));
-          return record;
-        } catch (error) {
-          console.log(
-            `${modelId} ${job.id}#${run + 1}: SKIPPED ${String(error).slice(0, 200)}`
-          );
-          return null;
-        }
-      })
-    )
-  );
-  return await pool(tasks, Number(values.concurrency));
 };
 
 const contactSheet = async (records: CoderRecord[]) => {
@@ -303,27 +217,14 @@ const commands: Record<string, () => Promise<void> | void> = {
     writeFileSync(CALIBRATION, `${JSON.stringify(rows, null, 2)}\n`);
     console.log(report(sweepDir, CALIBRATION).markdown);
   },
-  coder: async () => {
-    const jobs = CODER_JOBS.filter((job) =>
-      list(
-        values.jobs,
-        CODER_JOBS.map((each) => each.id)
-      ).includes(job.id)
-    );
-    await sweepCoder(
-      jobs,
-      models(Object.keys(CANDIDATES)),
-      Number(values.runs)
-    );
-    console.log(report(sweepDir, CALIBRATION).markdown);
-  },
-  // The real Talker driving the real Coder through the scripted chats; every built game is judged.
+  // The scripted chats on a Worker Preview, through the real Talker and Coder; every built game is judged.
   e2e: async () => {
     const { preview } = values;
-    const token = preview ? await signIn() : undefined;
-    const pair = preview
-      ? `preview-${new URL(preview).host}`
-      : `${values.talker}-${values["talker-thinking"]}+${values.coder}-${values.thinking}`;
+    if (!preview) {
+      throw new Error("e2e runs on a Worker Preview: pass --preview <url>");
+    }
+    const token = await signIn();
+    const pair = `preview-${new URL(preview).host}`;
     const chats = CHATS.filter((chat) =>
       list(
         values.chats,
@@ -337,24 +238,13 @@ const commands: Record<string, () => Promise<void> | void> = {
           return;
         }
         try {
-          const { builds, talker } =
-            preview && token
-              ? await runPreviewE2E({
-                  base: preview,
-                  chat,
-                  dir,
-                  run: run + 1,
-                  token,
-                })
-              : await runE2E({
-                  chat,
-                  coderModel: values.coder,
-                  dir,
-                  run: run + 1,
-                  talkerModel: values.talker,
-                  talkerThinking: values["talker-thinking"] as Thinking,
-                  thinking: values.thinking as Thinking,
-                });
+          const { builds, talker } = await runPreviewE2E({
+            base: preview,
+            chat,
+            dir,
+            run: run + 1,
+            token,
+          });
           if (refusedForBilling(dir, { builds, talker })) {
             return;
           }
@@ -387,48 +277,6 @@ const commands: Record<string, () => Promise<void> | void> = {
     );
     console.log(JSON.stringify(summary, null, 2));
   },
-  // The edit jobs' starting Revisions, built once with Sonnet and checked by the owner (preview.html in each).
-  freeze: async () => {
-    const bases = [
-      ...new Set(CODER_JOBS.flatMap((job) => (job.base ? [job.base] : []))),
-    ];
-    for (const base of bases) {
-      if (existsSync(path.join(REVISIONS, base))) {
-        continue;
-      }
-      const job = CODER_JOBS.find(
-        (candidate) => candidate.id === base
-      ) as CoderJob;
-      for (let tries = 1; tries <= FREEZE_TRIES; tries += 1) {
-        const dir = path.join(OUT, "freeze", `${base}-${tries}`);
-        // oxlint-disable-next-line no-await-in-loop -- one try after another
-        const record = await runCoder({
-          dir,
-          job,
-          modelId: FREEZE_MODEL,
-          run: tries,
-        });
-        console.log(line(record));
-        if (record.pass) {
-          mkdirSync(path.join(REVISIONS, base), { recursive: true });
-          for (const file of [
-            "game.ts",
-            "game.js",
-            "index.html",
-            "preview.html",
-          ]) {
-            if (existsSync(path.join(dir, file))) {
-              cpSync(path.join(dir, file), path.join(REVISIONS, base, file));
-            }
-          }
-          break;
-        }
-      }
-    }
-    for (const base of bases) {
-      console.log(`${base}: ${Object.keys(readRevision(base)).join(", ")}`);
-    }
-  },
   help: () => {
     console.log(
       readFileSync(path.join(import.meta.dirname, "README.md"), "utf-8")
@@ -440,28 +288,6 @@ const commands: Record<string, () => Promise<void> | void> = {
       await contactSheet(coderRuns);
     }
     console.log(markdown);
-  },
-  // Kimi before the full sweep: the 5 spike jobs once, no judge. A model passes when images in tool
-  // results work (every run sent screenshots and no request failed) and its median turn is ≤ 120 s.
-  smoke: async () => {
-    const jobs = CODER_JOBS.filter((job) => SMOKE_JOBS.includes(job.id));
-    const results = await sweepCoder(jobs, models(["kimi-k3"]), 1, false);
-    const records = results.filter((record) => record !== null);
-    for (const [model, runs = []] of Object.entries(
-      Object.groupBy(records, (record) => record.model)
-    )) {
-      const images = runs.every(
-        (run) => run.imagesSent > 0 && run.errors.length === 0
-      );
-      const medianS = quantile(
-        runs.map((run) => run.seconds),
-        0.5
-      );
-      const green = runs.filter((run) => run.finalGreen).length;
-      console.log(
-        `${model}: images in tool results ${images ? "ok" : "FAIL"}, median ${medianS.toFixed(0)} s ${medianS <= SMOKE_MEDIAN_S ? "ok" : "FAIL"}, ${green}/${runs.length} green, $${runs.reduce((sum, run) => sum + run.cost, 0).toFixed(3)} → ${images && medianS <= SMOKE_MEDIAN_S ? "joins the sweep" : "dropped"}`
-      );
-    }
   },
   talker: async () => {
     writeFileSync(
@@ -501,7 +327,7 @@ const commands: Record<string, () => Promise<void> | void> = {
   },
 };
 
-// A box whose connection drops can reject a stream nobody awaits; that run is already lost, the sweep goes on.
+// A dropped connection can reject a stream nobody awaits; that run is already lost, the sweep goes on.
 process.on("unhandledRejection", (error) => {
   console.log(`unhandled: ${String(error).slice(0, 200)}`);
 });
