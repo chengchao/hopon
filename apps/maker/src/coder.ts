@@ -1,6 +1,6 @@
 // The Coder (#122): one build job in, events out. A fresh pi-coding-agent session per job, pi's read/bash/edit/write
-// plus a playtest tool executing in the Draft's E2B box, the job's source written over the workspace first. The game
-// rules (rules.ts) see the box only through ruleBox. The eval runs it in-process; the Container wraps the same
+// plus a playtest tool executing in the Draft's E2B box, the job's source written over the workspace first. What the
+// job does in the box (job.ts) goes through jobBox. The eval runs it in-process; the Container wraps the same
 // function in POST /jobs/:jobId (server.ts).
 import { once } from "node:events";
 import { cpSync, mkdtempSync } from "node:fs";
@@ -24,9 +24,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Sandbox } from "e2b";
 
-import { ruleBox } from "./box.ts";
-import { apiKey } from "./models.ts";
-import { createE2BTools } from "./ops.ts";
+import { jobBox } from "./box.ts";
 import {
   boxPlaytest,
   deadlineFor,
@@ -39,12 +37,10 @@ import {
   stepLabel,
   SYSTEM_PROMPT,
   WORKSPACE,
-} from "./rules.ts";
-import type { CoderEvent, Job, PlaytestResult } from "./rules.ts";
-
-// The server's tests import these from here.
-export { musicScript } from "./rules.ts";
-export type { CoderEvent } from "./rules.ts";
+} from "./job.ts";
+import type { CoderEvent, Job, PlaytestResult } from "./job.ts";
+import { apiKey } from "./models.ts";
+import { createE2BTools } from "./ops.ts";
 
 const AGENT_HOME = path.join(import.meta.dirname, "..", "agent-home");
 // pi settles within moments of an abort; this bounds a tool call that doesn't, so a stopped job still ends on time.
@@ -148,7 +144,7 @@ export const runJob = async ({
   thinking = "low",
 }: RunOptions) => {
   const deadlineAt = startedAt + deadlineMs;
-  const box = ruleBox(sandbox);
+  const box = jobBox(sandbox);
   await restore(box, job.source);
 
   const playtests: PlaytestResult[] = [];

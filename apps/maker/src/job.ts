@@ -1,14 +1,14 @@
-// The Coder's game rules: the job and its events, the prompt, the playtest, the workspace a job starts from and the
-// Revision it ends with. They reach the box only through `Box`, so a Coder on any box runs them unchanged (#173):
-// today's adapts its E2B sandbox (box.ts).
+// How the Coder does a build job, whatever runs the agent: the job and its events, the prompt, the playtest, the
+// workspace a job starts from and the Revision it ends with. It reaches the box only through `Box`, so a Coder on any
+// box runs it unchanged (#173); today's adapts its E2B sandbox (jobBox in box.ts).
 import { Schema } from "effect";
 
 import { isLittlejsHtml, littlejsHtml, MUSIC } from "../image/page.ts";
 
 export const WORKSPACE = "/workspace";
 
-// What the rules need of a box: run a command in the workspace (its output whatever the exit code), and read and
-// write files at absolute paths.
+// What a job needs of its box: run a command in the workspace (its output whatever the exit code), and read and write
+// files at absolute paths. `read` and `readBytes` throw on a missing file; `write` makes the file's parent directories.
 export interface Box {
   run: (
     command: string

@@ -10,12 +10,12 @@ import {
 import path from "node:path";
 
 import { isLittlejsHtml, MUSIC } from "../image/page.ts";
-import { createBox, EVAL_TEMPLATE, ruleBox } from "../src/box.ts";
+import { createBox, EVAL_TEMPLATE, jobBox } from "../src/box.ts";
 import { runJob } from "../src/coder.ts";
 import type { Thinking } from "../src/coder.ts";
+import { boxPlaytest, WORKSPACE } from "../src/job.ts";
+import type { Box, Spec } from "../src/job.ts";
 import { resolve } from "../src/models.ts";
-import { boxPlaytest, WORKSPACE } from "../src/rules.ts";
-import type { Box, Spec } from "../src/rules.ts";
 import { judgeCoder } from "./judge.ts";
 
 const EVAL = import.meta.dirname;
@@ -180,7 +180,7 @@ export const runCoder = async ({
   const events: unknown[] = [];
   const model = resolve(modelId);
   const sandbox = await createBox(EVAL_TEMPLATE);
-  const box = ruleBox(sandbox);
+  const box = jobBox(sandbox);
   try {
     const result = await runJob({
       job: {

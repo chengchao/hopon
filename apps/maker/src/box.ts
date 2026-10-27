@@ -2,14 +2,16 @@
 // keeps one per Draft, found by its `draftId` metadata, and pauses it between jobs; the eval makes a fresh one per run.
 import { Sandbox, SandboxNotFoundError } from "e2b";
 
-import { WORKSPACE } from "./rules.ts";
-import type { Box } from "./rules.ts";
+import { WORKSPACE } from "./job.ts";
+import type { Box } from "./job.ts";
 
 // The Worker's MAKER_E2B_TEMPLATE var (Previews have their own), passed to the Container; image/build.ts builds the same.
 export const E2B_TEMPLATE = process.env.MAKER_E2B_TEMPLATE ?? "hopon-maker";
 export const EVAL_TEMPLATE = "hopon-maker-eval";
 // A job's own deadline is 2½ minutes at most; this only reaps a box whose Coder died before pausing it.
 const BOX_TIMEOUT_MS = 600_000;
+// No command a job runs (a playtest, the music render) should take longer.
+const COMMAND_TIMEOUT_MS = 120_000;
 
 export const createBox = (
   template: string,
@@ -47,14 +49,14 @@ export const killBox = async (draftId: string) => {
   await Promise.all(boxes.map((box) => Sandbox.kill(box.sandboxId)));
 };
 
-// The sandbox as the game rules' Box. A command's output comes back whatever its exit code.
-export const ruleBox = (sandbox: Sandbox): Box => ({
+// The sandbox as a job's Box. A command's output comes back whatever its exit code.
+export const jobBox = (sandbox: Sandbox): Box => ({
   read: async (file) => await sandbox.files.read(file),
   readBytes: async (file) =>
     await sandbox.files.read(file, { format: "bytes" }),
   run: async (command) =>
     await sandbox.commands
-      .run(command, { cwd: WORKSPACE, timeoutMs: 120_000 })
+      .run(command, { cwd: WORKSPACE, timeoutMs: COMMAND_TIMEOUT_MS })
       .catch((error: unknown) => {
         if (error && typeof error === "object" && "exitCode" in error) {
           return error as { stdout: string; stderr: string; exitCode: number };
