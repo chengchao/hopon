@@ -16,7 +16,7 @@ Single-context: one root `GLOSSARY.md` plus `docs/adr/`, created lazily. See `do
 
 ### Worker Previews
 
-Debugging a Preview (`wrangler tail` doesn't see one): read `docs/agents/previews.md`.
+A Preview that fails to deploy, or one to debug (`wrangler tail` doesn't see one): read `docs/agents/previews.md`.
 
 ### Vendored source
 
