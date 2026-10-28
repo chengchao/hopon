@@ -1,4 +1,4 @@
-// The eval's models as pi-ai models: the candidates and the judge (#115). Claude goes to
+// The eval's models as pi-ai models: the candidates (#115). Claude goes to
 // `http://models.internal/anthropic`, and the fetch below hands those requests to modelFetch (#136) in-process. Kimi
 // K3 stays on the gateway's OpenAI-compatible route for re-runs. #116 picked Haiku 5.5 for both
 // agents. DeepSeek and Kimi K2.6 were tried and dropped (eval/results/2026-10-20.md).
@@ -98,8 +98,6 @@ export const CANDIDATES = {
 export type Candidate = keyof typeof CANDIDATES;
 export const isCandidate = (id: string): id is Candidate => id in CANDIDATES;
 
-export const JUDGE = () => claude("claude-opus-5-5");
-
 // modelFetch's keys (Claude) and the gateway's (Kimi), so a run fails before it starts rather than on its first request.
 const KEYS = [
   "CLOUDFLARE_API_KEY",
@@ -129,7 +127,7 @@ export const talkerModelRef = (model: Model<Api>) => ({
   provider: model.id === "moonshotai/kimi-k3" ? CF_COMPAT : model.provider,
 });
 
-// pi-durable's model registry (the Talker, the judge): the same routes.
+// pi-durable's model registry (the Talker): the same routes.
 export const createRegistry = (): MutableModels => {
   routeModels(evalHandler);
   const models = createModels();
@@ -150,7 +148,6 @@ export const createRegistry = (): MutableModels => {
       models: [
         CANDIDATES["claude-haiku-5-5"](),
         CANDIDATES["claude-sonnet-5-5"](),
-        JUDGE(),
       ],
     })
   );
