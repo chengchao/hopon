@@ -46,7 +46,7 @@ The Preview's Drafts go with it. In production the same refusal means a new clas
 Cannot apply --delete-class migration to class 'Coder' without also removing the binding that references it.
 ```
 
-A deploy can't both move a binding to a new class and delete the class the binding had. The binding is the Worker's own, under the same name; deleting Previews or container apps doesn't help. Ship it in two deploys: first the new class, with the old one left as an empty `export class Coder extends DurableObject {}`; then a migration that deletes the old one. Try a migration on a throwaway Worker before production: a failed production deploy leaves the old version running.
+A deploy can't both move a binding to a new class and delete the class the binding had. The binding is the Worker's own, under the same name; deleting Previews or container apps doesn't help. Ship it in two deploys: first the new class, with the old one left as an empty `export class Coder extends DurableObject {}`; then a migration that deletes the old one. Try a migration on a throwaway Worker before production: a failed production deploy leaves the old version running. A green Preview deploy says nothing about it, because each Preview starts from empty namespaces and never runs production's migrations.
 
 ## Driving a Preview as the Creator
 

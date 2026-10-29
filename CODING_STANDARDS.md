@@ -12,7 +12,7 @@ Judgement calls a reviewer checks in a diff. Anything a fixed pattern can catch 
 ## Worker (`apps/worker`)
 
 - **AI answers are untrusted.** Code that reads Workers AI output sends any shape it gets (`null`, a string, missing fields, nothing) down its failure path, not only the shapes the generated types promise, as `screen` does with Llama Guard's verdict. A `Schema` decode does that in one step.
-- **Expand, then contract.** A migration's `-- contract: #<n>` names a merged PR whose code no longer reads what the migration drops or renames (`migrations.test.js` makes a dropping migration carry one); the PR that adds the migration never also stops reading it.
+- **Expand, then contract.** A migration's `-- contract: #<n>` names a merged PR whose code no longer reads what the migration drops or renames (`migrations.test.js` makes a dropping migration carry one); the PR that adds the migration never also stops reading it. Durable Object classes work the same way: the PR that moves a binding to a new class leaves the old class exported and empty, and a later PR deletes it with a `// contract: #<n>` comment in `wrangler.jsonc`, which `migrations.test.js` checks.
 - **Not found, not forbidden.** A request for a record hidden from the viewer (someone else's draft, a comment you can't delete, a game across a Block) gets the same `404` and message as a missing one.
 
 ## Both

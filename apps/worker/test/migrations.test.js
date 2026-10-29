@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { getPlatformProxy, unstable_splitSqlQuery } from "wrangler";
+import {
+  getPlatformProxy,
+  unstable_readConfig,
+  unstable_splitSqlQuery,
+} from "wrangler";
 
 import { copyGames } from "../scripts/games-to-r2.mjs";
 import worker from "../src/api.ts";
@@ -101,6 +105,33 @@ test("a migration that drops a column names the PR that stopped reading it", asy
     }
   }
   assert.deepEqual(unmarked, []);
+});
+
+// The same for Durable Object classes. Cloudflare refuses a deploy that moves a binding to a new class and deletes the
+// old one (code 10061), which failed #190's production deploy three times. Previews start from empty namespaces, so their
+// green deploys never run production's migrations. The deletion is a migration of its own, a deploy after the PR that
+// moved the binding away, and names that PR in a `// contract: #<n>` comment on the line above.
+test("a migration that deletes a Durable Object class does only that, and names the PR that moved its binding", () => {
+  const path = new URL("../wrangler.jsonc", import.meta.url).pathname;
+  const lines = readFileSync(path, "utf-8").split("\n");
+  const { migrations } = unstable_readConfig(
+    { config: path },
+    { hideWarnings: true }
+  );
+  const wrong = migrations
+    .filter((m) => m.deleted_classes?.length)
+    .flatMap((m) => {
+      const at = lines.findIndex((l) => l.includes(`"tag": "${m.tag}"`));
+      return [
+        ...(Object.keys(m).length > 2
+          ? [`${m.tag} does more than delete`]
+          : []),
+        ...(/^\s*\/\/ contract: #\d+/u.test(lines[at - 1] ?? "")
+          ? []
+          : [`${m.tag} has no // contract: #<n> above it`]),
+      ];
+    });
+  assert.deepEqual(wrong, []);
 });
 
 test("the check reads the rebuild that would have copied 'body' into every report", () => {
