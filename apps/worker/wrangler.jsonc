@@ -77,6 +77,7 @@
     { "tag": "talker", "new_sqlite_classes": ["Talker"] },
     { "tag": "coder", "new_sqlite_classes": ["Coder"] },
     { "tag": "draft-coder", "new_sqlite_classes": ["DraftCoder"] },
+    // contract: #192
     { "tag": "drop-coder", "deleted_classes": ["Coder"] },
   ],
   "compatibility_flags": ["nodejs_compat"],
