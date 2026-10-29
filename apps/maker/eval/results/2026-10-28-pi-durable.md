@@ -52,7 +52,27 @@ The game-writing call thinks 7–24k tokens on the Talker's ~2,000-character spe
 - **The judge** runs through `claude -p` on the developer's subscription (`eval/judge.ts`). Re-judging 5 gateway-judged games gave the same pass or fail on all 5.
 - **No no-input replay in e2e.** The Preview doesn't report the Coder's last inputs, so the replay played 3 s with none, and a game that waits for a tap looked frozen. 10 of 67 builds failed only that, and every one was green on the random playtest. The e2e's final check is now the random script alone, so the gate run's 63% under the old rule is 76% under the new one.
 
+## The owner's blind score
+
+The owner scored the 7 builds the judge failed, without the judge's scores. Each cell is spec / playable / edit; a build passes at ≥ 4 on each.
+
+| Build            | Kind     | Judge     | Owner     | Owner's verdict |
+| ---------------- | -------- | --------- | --------- | --------------- |
+| clear-2 #1       | new game | 2 / 2     | 5 / 5     | **pass**        |
+| clear-3 #2       | edit     | 4 / 4 / 2 | 3 / 3 / 3 | fail            |
+| clear-4 #2       | new game | 3 / 2     | 3 / 1     | fail            |
+| clear-6 #2       | edit     | 4 / 4 / 3 | 5 / 4 / 5 | **pass**        |
+| non-english-3 #2 | edit     | 4 / 5 / 3 | 4 / 4 / 5 | **pass**        |
+| start-over-6 #1  | new game | 3 / 4     | 3 / 4     | fail            |
+| steer-6 #1       | new game | 3 / 4     | 4 / 4     | **pass**        |
+
+- **The owner passes 4 of the judge's 7 failures.** With the owner's verdicts, the judge pass is 55 / 58 = 95%, and builds that pass every check are 55 / 67 = 82%.
+- **Calibration.** 3 of 7 builds have the judge more than 1 point off on an item: clear-2 #1 on both items, and the two edits on "edit". That is within the report's limit of 4.
+- **The judge erred in two ways, both too strict:**
+  - **clear-2 #1:** it judged from the 10 s playtest's screenshots, in which no rock had appeared yet. The owner played it and found it complete.
+  - **The edits:** it marked down small details that the owner thought were done, such as a score counter it said was still showing, or a scarf drawn as a band.
+- **This only measures one kind of error.** The blind set is the judge's failures, so it shows the judge failing good games. It doesn't show the judge passing bad ones.
+
 ## Open
 
-- The owner blind-scores the 7 judge failures (`out/pi-durable-179-gate/blind/index.html`).
 - The thinking could be cut, by a shorter spec for the Coder or no thinking on the game-writing call. That would speed up both Coders and is a change of its own.
