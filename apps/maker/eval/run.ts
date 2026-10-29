@@ -5,18 +5,28 @@ import {
   rmSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
+import type { Spec } from "../src/job.ts";
 import { CANDIDATES } from "../src/models.ts";
 import { buildRuntime } from "../src/runtime.ts";
-import { CODER_JOBS, OUT, REVISIONS } from "./coder.ts";
+import { CODER_JOBS, OUT, passes, REVISIONS } from "./coder.ts";
 import type { CoderRecord } from "./coder.ts";
+import { fillFromGateway } from "./gateway.ts";
 import { runPreviewE2E, signIn } from "./preview.ts";
-import { coderStats, readRecords, report, talkerStats } from "./report.ts";
+import {
+  calibrate,
+  calibrationLine,
+  coderStats,
+  readRecords,
+  report,
+  talkerStats,
+} from "./report.ts";
 import type { TalkerRecord } from "./talker.ts";
 import { CHATS, runTalker } from "./talker.ts";
 
@@ -136,63 +146,134 @@ const contactSheet = async (records: CoderRecord[]) => {
   await browser.close();
 };
 
-const commands: Record<string, () => Promise<void> | void> = {
-  // Blind scoring for the owner: 20 judged Coder runs, spread over the models, without model names.
-  blind: () => {
-    const records = report(sweepDir, CALIBRATION).coderRuns.filter(
-      (record) =>
-        record.judge && !("error" in record.judge) && record.finalGreen
+// One card of the owner's blind page: a built game, its spec, and for an edit the game it changed.
+interface BlindCard {
+  dir: string;
+  key: string;
+  spec?: Spec;
+  edit: boolean;
+  original?: string;
+}
+
+// 20 judged, green Coder runs, spread over the models.
+const coderBlindCards = (): BlindCard[] => {
+  const records = report(sweepDir, CALIBRATION).coderRuns.filter(
+    (record) => record.judge && !("error" in record.judge) && record.finalGreen
+  );
+  const byModel = Object.groupBy(records, (record) => record.model);
+  const perModel = Math.ceil(BLIND_RUNS / Object.keys(byModel).length);
+  // Deterministic spread: every n-th run of each model.
+  const chosen = Object.values(byModel)
+    .flatMap((runs = []) =>
+      runs
+        .filter(
+          (_, index) =>
+            index % Math.max(1, Math.floor(runs.length / perModel)) === 0
+        )
+        .slice(0, perModel)
+    )
+    .slice(0, BLIND_RUNS)
+    .toSorted((a, b) => a.job.localeCompare(b.job));
+  return chosen.map((record) => {
+    const runDir = path.join(
+      sweepDir,
+      "coder",
+      record.model,
+      `${record.job}-${record.run}`
     );
-    const byModel = Object.groupBy(records, (record) => record.model);
-    const perModel = Math.ceil(BLIND_RUNS / Object.keys(byModel).length);
-    // Deterministic spread: every n-th run of each model.
-    const chosen = Object.values(byModel)
-      .flatMap((runs = []) =>
-        runs
-          .filter(
-            (_, index) =>
-              index % Math.max(1, Math.floor(runs.length / perModel)) === 0
-          )
-          .slice(0, perModel)
-      )
-      .slice(0, BLIND_RUNS)
-      .toSorted((a, b) => a.job.localeCompare(b.job));
+    const job = CODER_JOBS.find((candidate) => candidate.id === record.job);
+    const edit = record.kind === "edit";
+    return {
+      dir: runDir,
+      edit,
+      key: path.relative(path.join(sweepDir, "coder"), runDir),
+      original:
+        edit && job?.base
+          ? path.join(REVISIONS, job.base, "preview.html")
+          : undefined,
+      spec: job?.spec,
+    };
+  });
+};
+
+// Every build of an e2e sweep the judge failed (ADR 0003's gate); its spec is the Talker's, read from the chat.
+const e2eBlindCards = (root: string): BlindCard[] =>
+  readdirSync(root, { recursive: true, withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        entry.name === "result.json" &&
+        /^build-\d+$/u.test(path.basename(entry.parentPath))
+    )
+    .flatMap((entry) => {
+      const record = JSON.parse(
+        readFileSync(path.join(entry.parentPath, entry.name), "utf-8")
+      ) as CoderRecord;
+      if (
+        !record.judge ||
+        "error" in record.judge ||
+        passes(record.kind, true, record.judge)
+      ) {
+        return [];
+      }
+      const n = Number(path.basename(entry.parentPath).slice("build-".length));
+      const chat = JSON.parse(
+        readFileSync(path.join(entry.parentPath, "..", "result.json"), "utf-8")
+      ) as TalkerRecord;
+      const edit = record.kind === "edit";
+      return [
+        {
+          dir: entry.parentPath,
+          edit,
+          key: path.relative(root, entry.parentPath),
+          original: edit
+            ? path.join(
+                entry.parentPath,
+                "..",
+                `build-${n - 1}`,
+                "preview.html"
+              )
+            : undefined,
+          spec: chat.turns.flatMap((turn) => turn.builds)[n - 1],
+        },
+      ];
+    })
+    .toSorted((a, b) => a.key.localeCompare(b.key));
+
+const commands: Record<string, () => Promise<void> | void> = {
+  // Blind scoring for the owner, without model names or the judge's scores: 20 judged Coder runs, or for an e2e
+  // sweep every build the judge failed.
+  blind: () => {
+    const e2eDir = path.join(sweepDir, "e2e");
+    const chosen = existsSync(e2eDir)
+      ? e2eBlindCards(e2eDir)
+      : coderBlindCards();
     const dir = path.join(sweepDir, "blind");
     mkdirSync(dir, { recursive: true });
     const key: Record<string, string> = {};
-    const cards = chosen.map((record, index) => {
+    const cards = chosen.map((card, index) => {
       const id = `b${String(index + 1).padStart(2, "0")}`;
-      const runDir = path.join(
-        sweepDir,
-        "coder",
-        record.model,
-        `${record.job}-${record.run}`
-      );
-      key[id] = path.relative(path.join(sweepDir, "coder"), runDir);
+      key[id] = card.key;
       for (const file of ["start.png", "end.png", "preview.html"]) {
-        if (existsSync(path.join(runDir, file))) {
+        if (existsSync(path.join(card.dir, file))) {
           copyFileSync(
-            path.join(runDir, file),
+            path.join(card.dir, file),
             path.join(dir, `${id}-${file}`)
           );
         }
       }
-      const job = CODER_JOBS.find((candidate) => candidate.id === record.job);
-      const edit = record.kind === "edit";
-      if (edit && job?.base) {
-        writeFileSync(
-          path.join(dir, `${id}-original.html`),
-          readFileSync(path.join(REVISIONS, job.base, "preview.html"))
-        );
+      const { edit, spec } = card;
+      if (card.original && existsSync(card.original)) {
+        copyFileSync(card.original, path.join(dir, `${id}-original.html`));
       }
       const input = (item: string) =>
         `<label>${item} <input type="number" min="1" max="5" name="${id}.${item}"></label>`;
-      return `<section><h2>${id} · ${edit ? "edit" : "new game"}</h2><p><b>${job?.spec.title}</b>: ${job?.spec.brief}${job?.spec.music ? `<br>Music: ${job.spec.music}` : ""}</p><p><img src="${id}-start.png" width="180"> <img src="${id}-end.png" width="180"></p><p><a href="${id}-preview.html" target="_blank">Play it</a>${edit ? ` · <a href="${id}-original.html" target="_blank">The original</a>` : ""}</p><p>${input("spec")} ${input("playable")} ${edit ? input("edit") : ""}</p></section>`;
+      return `<section><h2>${id} · ${edit ? "edit" : "new game"}</h2><p><b>${spec?.title}</b>: ${spec?.brief}${spec?.music ? `<br>Music: ${spec.music}` : ""}</p><p><img src="${id}-start.png" width="180"> <img src="${id}-end.png" width="180"></p><p><a href="${id}-preview.html" target="_blank">Play it</a>${edit ? ` · <a href="${id}-original.html" target="_blank">The original</a>` : ""}</p><p>${input("spec")} ${input("playable")} ${edit ? input("edit") : ""}</p></section>`;
     });
     writeFileSync(path.join(dir, "key.json"), JSON.stringify(key, null, 2));
     writeFileSync(
       path.join(dir, "index.html"),
-      `<!doctype html><meta charset="utf-8"><title>Blind scores</title><style>body{font:16px system-ui;max-width:760px;margin:24px auto;padding:0 16px}section{border-top:1px solid #ccc;padding:8px 0}input{width:3em}</style><h1>Score 20 games, 1–5</h1><p><b>spec</b>: does it read as the spec? <b>playable</b>: clear goal, controls work by tap or swipe, doesn't end before you can act, everything readable. <b>edit</b>: did the change do what was asked and break nothing else? 5 fully, 4 small flaws, 3 partly, 2 barely, 1 not at all.</p>${cards.join("")}<p><button id="copy">Copy scores</button></p><pre id="out"></pre><script>document.getElementById("copy").onclick=()=>{const s={};for(const i of document.querySelectorAll("input")){if(!i.value)continue;const[id,item]=i.name.split(".");(s[id]??={})[item]=Number(i.value)}const t=JSON.stringify(s,null,1);document.getElementById("out").textContent=t;navigator.clipboard?.writeText(t)}</script>`
+      `<!doctype html><meta charset="utf-8"><title>Blind scores</title><style>body{font:16px system-ui;max-width:760px;margin:24px auto;padding:0 16px}section{border-top:1px solid #ccc;padding:8px 0}input{width:3em}</style><h1>Score ${cards.length} games, 1–5</h1><p><b>spec</b>: does it read as the spec? <b>playable</b>: clear goal, controls work by tap or swipe, doesn't end before you can act, everything readable. <b>edit</b>: did the change do what was asked and break nothing else? 5 fully, 4 small flaws, 3 partly, 2 barely, 1 not at all.</p>${cards.join("")}<p><button id="copy">Copy scores</button></p><pre id="out"></pre><script>document.getElementById("copy").onclick=()=>{const s={};for(const i of document.querySelectorAll("input")){if(!i.value)continue;const[id,item]=i.name.split(".");(s[id]??={})[item]=Number(i.value)}const t=JSON.stringify(s,null,1);document.getElementById("out").textContent=t;navigator.clipboard?.writeText(t)}</script>`
     );
     console.log(
       `open ${path.join(dir, "index.html")}; then: pnpm -F maker eval calibrate --sweep ${values.sweep} < scores.json`
@@ -214,6 +295,20 @@ const commands: Record<string, () => Promise<void> | void> = {
       run: key[id],
       ...items,
     }));
+    // An e2e sweep's scores stay beside it: calibration.json holds the Coder sweeps', which report.ts reads.
+    const e2eDir = path.join(sweepDir, "e2e");
+    if (existsSync(e2eDir)) {
+      const file = path.join(sweepDir, "blind", "scores.json");
+      writeFileSync(file, `${JSON.stringify(rows, null, 2)}\n`);
+      const calibration = calibrate(e2eDir, file);
+      for (const row of calibration?.rows ?? []) {
+        console.log(
+          `${row.run}${row.off ? " (off)" : ""}: ${row.items.map((item) => `${item.item} judge ${item.judge}, owner ${item.owner}`).join("; ")}`
+        );
+      }
+      console.log(calibration ? calibrationLine(calibration) : "no scores");
+      return;
+    }
     writeFileSync(CALIBRATION, `${JSON.stringify(rows, null, 2)}\n`);
     console.log(report(sweepDir, CALIBRATION).markdown);
   },
@@ -260,6 +355,9 @@ const commands: Record<string, () => Promise<void> | void> = {
     );
     await pool(tasks, Number(values.concurrency));
     const root = path.join(sweepDir, "e2e", pair);
+    await fillFromGateway(root).catch((error: unknown) => {
+      console.log(`gateway: no dollars or tokens (${String(error)})`);
+    });
     const builds = readRecords<CoderRecord>(root).filter(
       (record) => record.agent === "coder"
     );

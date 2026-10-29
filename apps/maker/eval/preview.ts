@@ -164,6 +164,7 @@ const finalChecks = async (dir: string, files: Record<string, string>) => {
 
 // One build as the Draft's socket showed it: the `build` call's spec, its step labels and its result.
 interface Build {
+  callId: string;
   spec: Spec;
   startedAt: number;
   endedAt?: number;
@@ -219,6 +220,7 @@ const messageEvent = (turn: Turn, event: AgentEvent, at: number) => {
 const toolEvent = (turn: Turn, event: AgentEvent, at: number) => {
   if (event.type === "tool_execution_start" && event.toolName === "build") {
     turn.builds.set(event.toolCallId, {
+      callId: event.toolCallId,
       labels: [],
       spec: event.args as unknown as Spec,
       startedAt: at,
@@ -469,12 +471,15 @@ export const runPreviewE2E = async ({
       final,
       finalGreen,
       firstGreen: UNKNOWN,
+      // The Worker tags the Coder's model calls with this; gateway.ts reads their dollars and tokens back.
+      gatewayJob: draftId ? `${draftId}-${build.callId}` : undefined,
       imagesSent: UNKNOWN,
       job: `${chat.id}-${index}`,
       judge: scores,
       kind,
       model: "preview",
       music: Boolean(build.spec.music),
+      outputTokens: UNKNOWN,
       pass: passes(kind, finalGreen, scores),
       playtests: build.labels.filter((label) => label === "Playtesting").length,
       reason,
