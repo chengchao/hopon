@@ -89,6 +89,9 @@ export interface CoderRecord {
   cost: number | null;
   finalGreen: boolean;
   firstGreen: boolean | null;
+  // e2e only: the Coder's calls in the gateway's logs, and their output tokens, mostly thinking (gateway.ts).
+  gatewayJob?: string;
+  outputTokens?: number | null;
   job: string;
   judge?: Judged;
   kind: CoderJob["kind"];

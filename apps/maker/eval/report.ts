@@ -59,6 +59,21 @@ const groupBy = <T>(items: T[], key: (item: T) => string) => {
 const reported = <T>(values: (T | null)[]) =>
   values.filter((value): value is T => value !== null);
 
+// Why a build failed, its first cause: the Coder's own ending, then the eval's final playtest, then the judge.
+const ENDINGS = ["deadline", "steps", "busy"] as const;
+const failure = (run: CoderRecord) => {
+  if (run.reason) {
+    return ENDINGS.find((word) => run.reason?.includes(word)) ?? "coder failed";
+  }
+  if (!run.finalGreen) {
+    return "playtest red";
+  }
+  if (!run.judge) {
+    return "not judged";
+  }
+  return "error" in run.judge ? "judge error" : "judge < 4";
+};
+
 export const coderStats = (runs: CoderRecord[]) => {
   // Music jobs get +30 s: measured against the same limits after taking it off.
   const latency = runs.map(
@@ -67,6 +82,14 @@ export const coderStats = (runs: CoderRecord[]) => {
   const firstGreen = reported<boolean>(runs.map((run) => run.firstGreen));
   const costs = reported<number>(runs.map((run) => run.cost));
   const stats = {
+    failures: Object.fromEntries(
+      Object.entries(
+        Object.groupBy(
+          runs.filter((run) => !run.pass),
+          failure
+        )
+      ).map(([why, failed = []]) => [why, failed.length])
+    ),
     firstGreen: firstGreen.filter(Boolean).length / firstGreen.length,
     // The judge's "looks" (1–5), over the judged runs: reported, not part of a pass.
     looks: mean(
@@ -77,6 +100,9 @@ export const coderStats = (runs: CoderRecord[]) => {
       )
     ),
     medianCost: median(costs),
+    medianOutputTokens: median(
+      reported<number>(runs.map((run) => run.outputTokens ?? null))
+    ),
     medianPlaytests: median(runs.map((run) => run.playtests)),
     medianSeconds: median(latency),
     medianSteps: median(runs.map((run) => run.steps)),
@@ -150,7 +176,7 @@ interface Calibration {
   edit?: number;
 }
 
-const calibrate = (coderDir: string, calibrationFile: string) => {
+export const calibrate = (coderDir: string, calibrationFile: string) => {
   if (!existsSync(calibrationFile)) {
     return;
   }
@@ -182,6 +208,13 @@ const calibrate = (coderDir: string, calibrationFile: string) => {
   const off = rows.filter((row) => row.off).length;
   return { off, ok: off <= CALIBRATION_MAX_OFF, rows };
 };
+
+export const calibrationLine = ({
+  off,
+  ok,
+  rows,
+}: NonNullable<ReturnType<typeof calibrate>>) =>
+  `${off} of ${rows.length} owner-scored runs have the judge more than ${CALIBRATION_OFF_BY} point off on an item: ${ok ? "within" : "OVER"} the limit of ${CALIBRATION_MAX_OFF}.`;
 
 const pct = (value: number) => `${Math.round(value * 100)}%`;
 const usd = (value: number) => `$${value.toFixed(4)}`;
@@ -246,7 +279,7 @@ export const report = (sweepDir: string, calibrationFile: string) => {
     "## Judge calibration",
     "",
     calibration
-      ? `${calibration.off} of ${calibration.rows.length} owner-scored runs have the judge more than ${CALIBRATION_OFF_BY} point off on an item: ${calibration.ok ? "within" : "OVER"} the limit of ${CALIBRATION_MAX_OFF}.`
+      ? calibrationLine(calibration)
       : "No owner scores yet (eval/calibration.json).",
   ];
   writeFileSync(
