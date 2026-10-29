@@ -252,14 +252,16 @@ const matchesServer = async (client, step) => {
 };
 const send = (client, text) =>
   api(`/api/drafts/${client.draft}/messages`, { text });
-// Every message sent since `since` answered: a run ended since then, none runs now, and nothing is queued.
+// Every message sent since `since` answered: a run ended since then, none runs now, nothing is queued, and the outcome
+// came. turn_done is a frame of its own after the batch that ends the run, so a check right after run_end can miss it.
 const settled = (client, since) =>
   until(
     "the turn's end",
     () =>
       client.saw("run_end", since) &&
       !client.view.running &&
-      client.view.inbox.length === 0,
+      client.view.inbox.length === 0 &&
+      (client.saw("turn_done", since) || client.saw("turn_failed", since)),
     120_000
   );
 const lastKind = (client) => [...client.view.entries.values()].at(-1)?.kind;
@@ -328,16 +330,29 @@ try {
   await settled(client, mark);
   await matchesServer(client, "2 away mid-turn + steer");
 
-  // 3. Evict: killed mid-turn, restarted, no requests: the turn finishes by itself.
+  // 3. Evict: killed mid-turn, restarted, no requests: the turn finishes by itself. Lifecycle's deadman alarm wakes the
+  // object 30 s after the kill, and the turn ends a model call or more later, so the check waits for the D1 row's date,
+  // which the Talker sets at each run's end and GET /api/drafts reads without reaching it.
   client.reconnect = false;
   mark = Date.now();
   await send(client, "And what does the cat chase?");
   await until("run_start", () => client.saw("run_start", mark));
+  const dated = async () => {
+    const { drafts: rows } = await api("/api/drafts");
+    return rows[0].updatedAt;
+  };
+  const before = await dated();
   kill();
   client.close();
   await start();
-  log("server back; no requests for 30 s");
-  await sleep(30_000);
+  log("server back; no requests to the Talker until the row is dated");
+  const deadline = Date.now() + 120_000;
+  // oxlint-disable-next-line no-await-in-loop -- polling D1
+  while ((await dated()) === before) {
+    assert.ok(Date.now() < deadline, "the turn finished with no requests");
+    // oxlint-disable-next-line no-await-in-loop -- polling D1
+    await sleep(1000);
+  }
   const after = new Client(id, { reconnect: false });
   await after.connect();
   after.close();
