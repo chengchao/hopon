@@ -70,13 +70,14 @@
     ],
   },
   // A Container application can't move to the durable_object policy in place, so the Coder is a new class, DraftCoder,
-  // and the old Container class goes: it held nothing durable (#175). It goes in two deploys, because Cloudflare refuses
-  // to delete a class in the deploy that moves its binding to another class: this one adds DraftCoder and leaves an
-  // empty Coder (src/index.ts); the next deletes Coder. Delete its container app (`wrangler containers delete`) first.
+  // and the old Container class goes: it held nothing durable (#175). It went in two deploys, because Cloudflare refuses
+  // to delete a class in the deploy that moves its binding to another class (code 10061): draft-coder added DraftCoder
+  // beside an empty Coder (#192), and drop-coder deletes Coder.
   "migrations": [
     { "tag": "talker", "new_sqlite_classes": ["Talker"] },
     { "tag": "coder", "new_sqlite_classes": ["Coder"] },
     { "tag": "draft-coder", "new_sqlite_classes": ["DraftCoder"] },
+    { "tag": "drop-coder", "deleted_classes": ["Coder"] },
   ],
   "compatibility_flags": ["nodejs_compat"],
   // A Worker Preview of the hopon Worker for each branch but main (.github/workflows/deploy.yml runs
