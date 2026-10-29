@@ -1,37 +1,85 @@
-// The eval's judge (#115): Opus 5.5 through the gateway at default thinking (adaptive, effort high: pi sends
-// "disabled" without a level, which Opus 5.5 rejects), scoring 1–5 with a one-line reason each.
-import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
+// The eval's judge (#115): Opus 5.5 at effort high through headless Claude Code on the developer's own subscription
+// (#179: the gateway's Unified Billing answered 402 with two calls in flight), scoring 1–5 with a one-line reason
+// each. Each call is a fresh session with no tools, settings, MCP servers or CLAUDE.md, so only the system prompt
+// and the content below reach it. `claude` must be signed in (`claude auth login`).
+import { execFile } from "node:child_process";
+import { tmpdir } from "node:os";
+import { promisify } from "node:util";
 
 import type { PlaytestResult, Spec } from "../src/job.ts";
-import { createRegistry, JUDGE } from "../src/models.ts";
-
-const models = createRegistry();
 
 export interface Score {
   score: number;
   reason: string;
 }
 
+type Content =
+  | { type: "text"; text: string }
+  | {
+      type: "image";
+      source: { type: "base64"; media_type: "image/png"; data: string };
+    };
+
 const SCALE = `Score each item 1–5: 5 = fully, 4 = yes with small flaws, 3 = partly, 2 = barely, 1 = not at all. Answer with only a JSON object, no prose around it.`;
 
-const ask = async (system: string, content: (TextContent | ImageContent)[]) => {
-  const message = await models.completeSimple(
-    JUDGE(),
-    {
-      messages: [{ content, role: "user", timestamp: Date.now() }],
-      systemPrompt: system,
-    },
-    { reasoning: "high" }
+// A parent Claude Code session's variables (or an API key) would route the call off the CLI's own login.
+const env = Object.fromEntries(
+  Object.entries(process.env).filter(
+    ([name]) => !/^(?:ANTHROPIC|CLAUDE)/u.test(name)
+  )
+);
+
+const ask = async (system: string, content: Content[]) => {
+  const run = promisify(execFile)(
+    "claude",
+    [
+      "-p",
+      "--model",
+      "claude-opus-5-5",
+      "--effort",
+      "high",
+      "--tools",
+      "",
+      "--setting-sources",
+      "",
+      "--strict-mcp-config",
+      "--system-prompt",
+      system,
+      "--no-session-persistence",
+      "--input-format",
+      "stream-json",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+    ],
+    { cwd: tmpdir(), env, maxBuffer: 64 * 1024 * 1024, timeout: 300_000 }
   );
-  if (message.stopReason === "error") {
-    throw new Error(message.errorMessage ?? "judge request failed");
+  run.child.stdin?.end(
+    JSON.stringify({ message: { content, role: "user" }, type: "user" })
+  );
+  // A failed call still ends its output with a result whose text says why; the exit error would repeat the prompt.
+  const stdout = await run.then(
+    (out) => out.stdout,
+    (error: Error & { stdout?: string }) => {
+      if (!error.stdout?.trim()) {
+        throw error;
+      }
+      return error.stdout;
+    }
+  );
+  const result = JSON.parse(stdout.trim().split("\n").at(-1) ?? "{}") as {
+    is_error?: boolean;
+    result?: string;
+    total_cost_usd?: number;
+  };
+  if (result.is_error || result.result === undefined) {
+    throw new Error(result.result ?? "judge request failed");
   }
-  const text = message.content
-    .flatMap((part) => (part.type === "text" ? [part.text] : []))
-    .join("");
+  const text = result.result;
   const json = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
   return {
-    cost: message.usage.cost.total,
+    // What the call would cost on the API; the subscription is what pays.
+    cost: result.total_cost_usd ?? 0,
     scores: JSON.parse(json) as Record<string, unknown>,
   };
 };
@@ -67,8 +115,15 @@ export const judgeCoder = async ({
   end?: string;
   signals: PlaytestResult;
 }) => {
-  const images: ImageContent[] = [start, end].flatMap((data) =>
-    data ? [{ data, mimeType: "image/png", type: "image" as const }] : []
+  const images: Content[] = [start, end].flatMap((data) =>
+    data
+      ? [
+          {
+            source: { data, media_type: "image/png", type: "base64" },
+            type: "image" as const,
+          },
+        ]
+      : []
   );
   const { cost, scores } = await ask(CODER_SYSTEM, [
     {

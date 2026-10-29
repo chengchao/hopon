@@ -3,6 +3,7 @@
 // supplies `build`, so the eval can stub the Coder. The prompt is the Talker's real one, from the API Worker.
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Type } from "@earendil-works/pi-ai";
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import {
   createRegistry as createToolRegistry,
   defineExtension,
@@ -15,9 +16,10 @@ import {
 import type { AgentEvent } from "@earendil-works/pi-durable";
 
 import { TALKER_PROMPT } from "../../worker/src/talker-prompt.ts";
-import type { Thinking } from "./coder.ts";
 import type { Spec } from "./job.ts";
 import { createRegistry, resolve, talkerModelRef } from "./models.ts";
+
+export type Thinking = ModelThinkingLevel;
 
 const BuildParameters = Type.Object({
   brief: Type.String(),
@@ -33,7 +35,7 @@ export interface TalkerOptions {
   modelId: string;
   // #116 picked high: its design specs build best (89–94% against ~80% at low), at ~2.6 s to first token.
   thinking?: Thinking;
-  // The Coder: the eval's stub, or the real call.
+  // The Coder: the eval's stub.
   build: (spec: Spec) => Promise<BuildResult>;
 }
 

@@ -1,6 +1,6 @@
 // How the Coder does a build job, whatever runs the agent: the job and its events, the prompt, the playtest, the
 // workspace a job starts from and the Revision it ends with. It reaches the box only through `Box`, so a Coder on any
-// box runs it unchanged (#173); today's adapts its E2B sandbox (jobBox in box.ts).
+// box runs it unchanged (#173); the Worker's adapts its Container (jobBox in apps/worker/src/coder-box.ts).
 import { Schema } from "effect";
 
 import { isLittlejsHtml, littlejsHtml, MUSIC } from "../image/page.ts";
@@ -133,6 +133,10 @@ const renderMusic = async (box: Box) => {
 export const stepLabel = (tool: string, args: Record<string, unknown>) => {
   if (tool === "playtest") {
     return "Playtesting";
+  }
+  // pi-durable's Coder loads skills with activate_skill; pi-coding-agent's reads their SKILL.md.
+  if (tool === "activate_skill") {
+    return "Reading the docs";
   }
   if (tool === "read") {
     return String(args.path).includes("SKILL.md")

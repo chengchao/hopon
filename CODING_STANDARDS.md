@@ -18,5 +18,5 @@ Judgement calls a reviewer checks in a diff. Anything a fixed pattern can catch 
 ## Both
 
 - **Glossary words.** User-facing copy and new names use the terms in `GLOSSARY.md`.
-- **Fakes fail like the platform.** A test fake for a platform object (a Durable Object, a Container, R2, an E2B box) reproduces the failures the code under test meets on Cloudflare, not only the happy path: a Durable Object that resets as it's destroyed, a container that stops on SIGTERM or answers a non-2xx text body. `worker.test.js`'s fake Talker passed every Delete test while every real Delete returned 500 (#187).
+- **Fakes fail like the platform.** A test fake for a platform object (a Durable Object, a Container, R2) reproduces the failures the code under test meets on Cloudflare, not only the happy path: a Durable Object that resets as it's destroyed, a container that stops on SIGTERM or answers a non-2xx text body. `worker.test.js`'s fake Talker passed every Delete test while every real Delete returned 500 (#187).
 - **Docs follow behaviour.** A diff that removes or changes what something does also updates the documents that describe it: skills under `.agents/skills/`, README steps, and the Status line of the ADR it builds.

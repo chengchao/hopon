@@ -20,7 +20,7 @@ import {
 } from "./storage.ts";
 import { BUSY, DAILY_BUILDS, LIMIT } from "./talker-prompt.ts";
 
-// The Coder's NDJSON (apps/maker/src/coder.ts CoderEvent, plus its ping).
+// The Coder's NDJSON (apps/maker/src/job.ts CoderEvent, plus its ping).
 type CoderEvent =
   | { type: "step"; label: string }
   | { type: "playtest"; ok: boolean; errors: string[] }

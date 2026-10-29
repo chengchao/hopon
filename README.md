@@ -41,13 +41,13 @@ apps/worker/   Cloudflare Worker API（D1 + Drizzle、Workers AI、Clerk JWT 校
    echo 'OPERATOR_PASSWORD=...' >> apps/worker/.dev.vars
    ```
 
-7. Maker 的 Coder 是一个 Cloudflare Container（`apps/maker/Dockerfile`），每个 Draft 一个实例。它的模型请求经 Worker 的 `modelFetch` 发出，要用 `CLOUDFLARE_API_KEY`（需 AI Gateway Run 和 Workers AI 权限）；它的 E2B box 要用 `E2B_API_KEY`，这是唯一进入容器的密钥。两者都列在 `secrets.required` 里，值与 `apps/maker/.env` 中的相同，写入 `apps/worker/.dev.vars`：
+7. Maker 的 Coder 是 Worker 里每个 Draft 一个的 Durable Object（`apps/worker/src/coder.ts`），它的 box 是它自己启动的 Cloudflare Container（`apps/maker/image/Dockerfile`），box 里没有网络，也没有任何密钥。Talker 和 Coder 的模型请求都在 Worker 里经 `modelFetch` 发出，要用 `CLOUDFLARE_API_KEY`（需 AI Gateway Run 和 Workers AI 权限）。它列在 `secrets.required` 里，值与 `apps/maker/.env` 中的相同，写入 `apps/worker/.dev.vars`：
 
    ```sh
-   grep -E '^(CLOUDFLARE_API_KEY|E2B_API_KEY)=' apps/maker/.env >> apps/worker/.dev.vars
+   grep -E '^CLOUDFLARE_API_KEY=' apps/maker/.env >> apps/worker/.dev.vars
    ```
 
-   `pnpm run api` 不启动容器。要本地跑 Coder，先打开 Docker Desktop，再运行 `pnpm -F worker dev:coder`（首次会构建镜像），然后在另一个终端用 `pnpm -F worker smoke:coder` 给一个新 Draft 发一个真实的构建任务（加 `--music` 带音乐）：它会逐条打印事件，最后删掉这个 Draft 的 box。用的是真实模型和 E2B，一次大约一分钟。
+   `pnpm run api`（`pnpm -F worker dev`）和测试都没有 box：容器要 Docker，`wrangler.jsonc` 的 `dev.enable_containers` 关着，所以在那里发起的构建会因没有 box 而失败。要本地跑 Coder，先打开 Docker Desktop，再运行 `pnpm -F worker dev:coder`（首次会构建镜像），然后在另一个终端用 `pnpm -F worker smoke:coder` 给一个新 Draft 发一个真实的构建任务（加 `--music` 带音乐）：它会逐条打印事件，最后删掉这个 Draft 的 box。用的是真实模型和 Docker 里的 box，一次大约一分钟。
 
 8. Draft 的试玩链接（`GET /api/drafts/:id/preview`）用 `PREVIEW_SECRET` 签名（HMAC-SHA256，一小时有效），同样列在 `secrets.required` 里。本地随便生成一个写入 `apps/worker/.dev.vars`；缺少时签发和打开试玩链接都会失败。Draft 的文件放在 R2 的 `FILES` 绑定（bucket `hopon`），本地由 wrangler 模拟：
 
@@ -82,14 +82,14 @@ pnpm run db:local
 
 已配置用户选择的 Chengchao60827@gmail.com 账号及专用 hopon D1 数据库（迁移到其他账号时才需要 `wrangler d1 create hopon`，并同时更新 `apps/worker/wrangler.jsonc` 的 `account_id` 和 `apps/worker/package.json` 里 `db:remote`、`deploy`、`deploy:preview` 的 `CLOUDFLARE_ACCOUNT_ID`；预览的 D1 换账号时也要重建，并更新 `previews.d1_databases` 和 `apps/worker/wrangler.preview-migrations.jsonc` 里的 `database_id`）。
 
-部署由 GitHub Actions 的 Deploy workflow（`.github/workflows/deploy.yml`）完成，用仓库密钥 `CLOUDFLARE_API_TOKEN`（Workers Scripts、D1、Containers、R2 的 Edit 权限）和 `E2B_API_KEY`。两个命令都要用 Docker 构建 Coder 的容器镜像，Cloudflare 的 Workers Builds 没有 Docker，所以不用它（它的生产部署曾在迁移 D1 之后才失败）：
+部署由 GitHub Actions 的 Deploy workflow（`.github/workflows/deploy.yml`）完成，用仓库密钥 `CLOUDFLARE_API_TOKEN`（Workers Scripts、D1、Containers、R2 的 Edit 权限）。两个命令都要用 Docker 构建 Coder 的 box 镜像，Cloudflare 的 Workers Builds 没有 Docker，所以不用它（它的生产部署曾在迁移 D1 之后才失败）：
 
 - **生产**：`hopon` Worker，推送到 `main`（合并 PR）时运行 `pnpm run deploy`：合并就是上线，进度在 Actions 的 Deploy 运行里。
-- **预览**：`hopon` Worker 的 [Worker Previews](https://developers.cloudflare.com/workers/previews/)（`wrangler.jsonc` 的 `previews`）。推送到 `main` 以外的分支（每个 PR 的分支）时运行 `pnpm run deploy:preview`：重建 E2B 模板 `hopon-maker-preview`，把迁移应用到 D1 `hopon-staging`（`wrangler.preview-migrations.jsonc`），再 `wrangler preview`。每个分支一个预览，URL 是 `<分支>-hopon.<子域>.workers.dev`，在 workflow 的日志里；有自己的 Talker 和 Coder（Durable Object 命名空间和容器应用都是新的），D1 `hopon-staging` 和 R2 `hopon-staging` 由所有预览共用。没有 staging：PR 的预览提前演练了 Durable Object 迁移、容器滚动、E2B 模板构建，和迁移在新建 D1 上的执行。预览演练不到的有两样：迁移遇到生产 D1 里已有的数据，和 `wrangler deploy` 这条命令本身。部署在迁移之后失败时，旧 Worker 接着服务迁移后的 D1，所以迁移只追加（见下）。在真机上测 PR：开发版应用的 `EXPO_PUBLIC_API_URL` 指向这个 URL，用 Clerk 的 Development 发布密钥。
+- **预览**：`hopon` Worker 的 [Worker Previews](https://developers.cloudflare.com/workers/previews/)（`wrangler.jsonc` 的 `previews`）。推送到 `main` 以外的分支（每个 PR 的分支）时运行 `pnpm run deploy:preview`：把迁移应用到 D1 `hopon-staging`（`wrangler.preview-migrations.jsonc`），再 `wrangler preview`。每个分支一个预览，URL 是 `<分支>-hopon.<子域>.workers.dev`，在 workflow 的日志里；有自己的 Talker 和 Coder（Durable Object 命名空间是新的；Coder 的 box 是同一个镜像，但 wrangler 不接受 `previews` 里的 `durable_object` 策略，所以是默认策略的容器应用 `hopon_<预览>_DraftCoder`，`standard-3`，最多 40 个实例），D1 `hopon-staging` 和 R2 `hopon-staging` 由所有预览共用。没有 staging：PR 的预览提前演练了 Durable Object 迁移，和迁移在新建 D1 上的执行。预览演练不到的有两样：迁移遇到生产 D1 里已有的数据，和 `wrangler deploy` 这条命令本身。部署在迁移之后失败时，旧 Worker 接着服务迁移后的 D1，所以迁移只追加（见下）。在真机上测 PR：开发版应用的 `EXPO_PUBLIC_API_URL` 指向这个 URL，用 Clerk 的 Development 发布密钥。
 
-两个命令都按同一顺序：先重建 E2B 模板（`pnpm -F maker template`；E2B 缓存每一步，只有文件变了的步骤会重做），再应用 D1 迁移，最后 `wrangler deploy`（预览是 `wrangler preview`）一次发布 Worker、Talker 和 Coder 的容器镜像。容器的 `rollout_active_grace_period` 是 300 秒，部署会等正在运行的构建结束。推送到 `main` 就部署，不等 GitHub 检查，所以 `main` 受分支保护：PR 须通过 Check 和 Commit messages 才能合并。`test/previews.test.js` 检查 `previews` 与顶层的绑定、变量和容器一致（预览不继承这些），并检查迁移配置和预览绑定的是同一个 D1。
+两个命令都按同一顺序：先 `pnpm -F maker build:runtime`（box 镜像要用它生成的文件），再应用 D1 迁移，最后 `wrangler deploy`（预览是 `wrangler preview`）一次发布 Worker、Talker 和 Coder，并用 Docker 构建、推送 Coder 的 box 镜像。推送到 `main` 就部署，不等 GitHub 检查，所以 `main` 受分支保护：PR 须通过 Check 和 Commit messages 才能合并。`test/previews.test.js` 检查 `previews` 与顶层的绑定和变量一致（预览不继承这些）、Coder 的 box 配置，并检查迁移配置和预览绑定的是同一个 D1。
 
-首次配置（预览的 D1 和 R2、`hopon` Worker 和预览基础配置的全部运行时密钥 `CLERK_JWT_KEY`、`CLERK_SECRET_KEY`、`OPERATOR_PASSWORD`、`OPERATOR_WEBHOOK_URL`、`CLOUDFLARE_API_KEY`、`E2B_API_KEY`、`PREVIEW_SECRET`，Deploy workflow 的仓库密钥 `CLOUDFLARE_API_TOKEN` 和 `E2B_API_KEY`，`main` 的分支保护，第一次上线）运行向导，可中断后用 `FROM=<n>` 从某一步重跑。预览用 Clerk 的 Development 实例，生产用 Production 实例：
+首次配置（预览的 D1 和 R2、`hopon` Worker 和预览基础配置的全部运行时密钥 `CLERK_JWT_KEY`、`CLERK_SECRET_KEY`、`OPERATOR_PASSWORD`、`OPERATOR_WEBHOOK_URL`、`CLOUDFLARE_API_KEY`、`PREVIEW_SECRET`，Deploy workflow 的仓库密钥 `CLOUDFLARE_API_TOKEN`，`main` 的分支保护，第一次上线）运行向导，可中断后用 `FROM=<n>` 从某一步重跑。预览用 Clerk 的 Development 实例，生产用 Production 实例：
 
 ```sh
 scripts/deploy-setup.sh
@@ -99,9 +99,9 @@ scripts/deploy-setup.sh
 
 预览的密钥：预览不继承 `hopon` 的 Worker 密钥，也不能写进 `wrangler.jsonc`（wrangler 4.152 不认 `previews.secrets`，缺密钥的预览照样部署）。每个新预览创建时复制一份预览基础配置里的密钥，向导用 `wrangler preview base-config secret put <NAME>` 设置。之后改基础配置只影响此后新建的预览，已有的预览用 `wrangler preview secret put <NAME> --name <预览>` 单独改。没有用 Secrets Store：它的绑定要在代码里 `await env.X.get()`，而且一个 store 密钥被生产和所有预览共用，换值时无法只换预览的。
 
-关闭的 PR 不会自动删除预览（每个 Worker 最多 500 个，满了删最久没部署的）。手动清理：`pnpm -F worker exec wrangler preview delete --name <预览> --skip-confirmation`，再用 `wrangler containers list` 找到名为 `hopon_<预览>_Coder` 的容器应用，`wrangler containers delete <ID>`（删除预览不会删它）。
+关闭的 PR 不会自动删除预览（每个 Worker 最多 500 个，满了删最久没部署的）。手动清理：`pnpm -F worker exec wrangler preview delete --name <预览> --skip-confirmation`，再用 `wrangler containers list` 找到名为 `hopon_<预览>_DraftCoder`（旧预览的是 `hopon_<预览>_Coder`）的容器应用，`wrangler containers delete <ID>`（删除预览不会删它）。
 
-从本机部署仍可用 `pnpm run deploy`（需要 Docker 构建容器镜像，以及 `apps/maker/.env` 里的 `E2B_API_KEY` 构建模板），但会绕过 `main` 的检查，只在 GitHub Actions 不可用时使用。
+从本机部署仍可用 `pnpm run deploy`（需要 Docker 构建 box 镜像），但会绕过 `main` 的检查，只在 GitHub Actions 不可用时使用。
 
 远程命令报 `[code: 7403]` 时先重跑一次：wrangler 的 OAuth 令牌过期后，刷新令牌的那一次请求会失败。仍然失败就运行 `pnpm -F worker exec wrangler whoami`，Token Permissions 里没有 `d1` 和 `workers` 时，令牌权限不足，用 `pnpm -F worker exec wrangler login` 重新登录。
 

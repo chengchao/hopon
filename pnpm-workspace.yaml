@@ -15,3 +15,6 @@ allowBuilds:
   fsevents: true
   lefthook: true
   workerd: true
+  # just-bash's optional compressors (agents/skills imports it); the Coder never runs a skill script.
+  "@mongodb-js/zstd": false
+  node-liblzma: false
