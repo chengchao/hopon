@@ -135,8 +135,9 @@ const playtest = async (cwd: string, arg: string) => {
   }
 };
 
-// The eval's final checks of a built game, in dir/box. The Preview doesn't report the Coder's last inputs, so the
-// replay plays the default 3 s with none; then the fixed random script, whose screenshots are kept and judged.
+// The eval's final check of a built game, in dir/box: the fixed random script, whose screenshots are kept and judged.
+// No replay: the Preview doesn't report the Coder's last inputs, and with none a game that waits for a tap looks
+// frozen (#179: 10 of 67 builds failed only that).
 const finalChecks = async (dir: string, files: Record<string, string>) => {
   const box = path.join(dir, "box");
   mkdirSync(box, { recursive: true });
@@ -150,7 +151,6 @@ const finalChecks = async (dir: string, files: Record<string, string>) => {
       writeFileSync(path.join(box, file), text);
     }
   }
-  const replay = await playtest(box, JSON.stringify({ inputs: [] }));
   const random = await playtest(box, "random");
   const [start, end] = ["start", "end"].map((shot) => {
     const png = path.join(box, `playtest-${shot}.png`);
@@ -159,7 +159,7 @@ const finalChecks = async (dir: string, files: Record<string, string>) => {
     }
     return existsSync(png) ? readFileSync(png).toString("base64") : undefined;
   });
-  return { end, final: { random, replay }, start };
+  return { end, final: { random }, start };
 };
 
 // One build as the Draft's socket showed it: the `build` call's spec, its step labels and its result.
@@ -448,7 +448,7 @@ export const runPreviewE2E = async ({
     }
     const checked = failed ? undefined : await finalChecks(buildDir, files);
     const final = checked?.final;
-    const finalGreen = final?.replay.ok === true && final.random.ok;
+    const finalGreen = final?.random.ok === true;
     // The judge reads the game, not music.js's base64.
     const { [MUSIC]: _music, ...judged } = files;
     const scores = checked
@@ -487,7 +487,7 @@ export const runPreviewE2E = async ({
       toolCalls: UNKNOWN,
       turns: UNKNOWN,
       usage: UNKNOWN,
-      warnings: warningsOf([final?.random, final?.replay]),
+      warnings: warningsOf([final?.random]),
     };
     writeFileSync(
       path.join(buildDir, "result.json"),
