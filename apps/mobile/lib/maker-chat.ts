@@ -93,7 +93,7 @@ export interface Chat {
   // Operations the Talker has taken (or dropped), in case the news beats the POST's answer.
   taken: string[];
   // How the last turn ended, when it didn't answer. Live only: a snapshot doesn't say.
-  ended?: "stopped" | "failed";
+  ended?: "stopped" | "failed" | "resting";
   // The Talker's build call while it runs (#148): its step labels so far, and when the app first saw it.
   build?: { callId: string; output: string; since: number };
 }
@@ -276,10 +276,12 @@ const applyFrame = (chat: Chat, frame: Frame, at: number): Chat => {
     return fromSnapshot(chat, frame.data, at);
   }
   if (frame.type === "turn_failed") {
-    // Stop is pi's abort; every other reason reads the same to the Creator (#119).
+    // Stop is pi's abort, and the Talker says "resting" when AI Gateway's credits ran out (ADR 0004); every other
+    // reason reads the same to the Creator (#119).
+    const ended = { aborted: "stopped", resting: "resting" } as const;
     return {
       ...chat,
-      ended: frame.reason === "aborted" ? "stopped" : "failed",
+      ended: ended[frame.reason as keyof typeof ended] ?? "failed",
     };
   }
   let next = chat;
@@ -408,11 +410,14 @@ export const chatView = (chat: Chat, now: number) => {
       text: "Stopped. Your game hasn't changed.",
       who: "app",
     });
-  } else if (chat.ended === "failed") {
+  } else if (chat.ended) {
     rows.push({
       key: "ended",
       retry: rows.findLast((row) => row.who === "creator")?.text,
-      text: "Something went wrong. Your game hasn't changed.",
+      text:
+        chat.ended === "resting"
+          ? "The Maker is resting. Try again later."
+          : "Something went wrong. Your game hasn't changed.",
       who: "app",
     });
   }

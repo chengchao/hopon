@@ -4,10 +4,12 @@ import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 
+import { drizzle } from "drizzle-orm/d1";
 import { getPlatformProxy, unstable_splitSqlQuery } from "wrangler";
 
 import worker from "../src/api.ts";
 import { GAME_CSP } from "../src/game.ts";
+import { charge, week } from "../src/storage.ts";
 
 // Throwaway RS256 key standing in for the Clerk instance; tokens below are really signed and verified.
 const keys = await crypto.subtle.generateKey(
@@ -142,6 +144,7 @@ const setup = async (t) => {
     CODER,
     DB,
     FILES: proxy.env.FILES,
+    MAKER_WEEKLY_TOKENS: "3000000",
     OPERATOR_PASSWORD,
     PREVIEW_SECRET,
     TALKER,
@@ -955,7 +958,7 @@ test("comments: newest first, 30 per page, no duplicates", async (t) => {
     400
   );
 });
-test("comments: atomic 100 per account per day, separate from the build quota", async (t) => {
+test("comments: atomic 100 per account per day, separate from the Allowance", async (t) => {
   const { call, env } = await setup(t);
   const {
     games: [game],
@@ -970,7 +973,7 @@ test("comments: atomic 100 per account per day, separate from the build quota", 
   assert.equal(attempts.filter((r) => r.status === 201).length, 100);
   assert.equal(attempts.filter((r) => r.status === 429).length, 1);
   assert.equal(await status(post("user_other")), 201);
-  // The Maker's builds count in the account's own bucket (src/talker-build.ts), which comments never touch.
+  // The Maker's Allowance is the account's own weekly bucket (src/storage.ts), which comments never touch.
   const { results } = await env.DB.prepare(
     "SELECT bucket FROM generation_limits ORDER BY bucket"
   ).all();
@@ -979,6 +982,95 @@ test("comments: atomic 100 per account per day, separate from the build quota", 
     ["comment:user_other", "comment:user_owner"]
   );
 });
+test("week: ISO weeks start Monday 00:00 UTC, and the last days of a year can be the next year's", () => {
+  assert.deepEqual(week(Date.parse("2026-10-29T12:00:00Z")), {
+    key: "2026-W44",
+    resetsAt: "2026-11-02T00:00:00.000Z",
+  });
+  assert.equal(week(Date.parse("2026-11-01T23:59:59Z")).key, "2026-W44");
+  assert.equal(week(Date.parse("2026-11-02T00:00:00Z")).key, "2026-W45");
+  assert.equal(week(Date.parse("2027-01-03T12:00:00Z")).key, "2026-W53");
+  assert.equal(week(Date.parse("2027-01-04T00:00:00Z")).key, "2027-W01");
+  assert.equal(week(Date.parse("2025-12-29T00:00:00Z")).key, "2026-W01");
+});
+
+test("allowance: a model call's cost lands in its Creator's week; at zero the Maker refuses chat and builds; a new week starts full", async (t) => {
+  const { call, env, forwarded } = await setup(t);
+  const db = drizzle(env.DB);
+  const left = async (user) => {
+    const { left: tokens } = await json(call("/api/allowance", { user }));
+    return tokens;
+  };
+  const { resetsAt } = week();
+  assert.deepEqual(await json(call("/api/allowance")), {
+    left: 3_000_000,
+    resetsAt,
+    weekly: 3_000_000,
+  });
+  const created = await json(
+    call("/api/drafts", { body: { text: "A dog game" }, method: "POST" })
+  );
+
+  // × 10,000,000, rounded up: $0.011 is 110,000 hopon tokens, not 110,001 from float noise; $0.00000001 is 1.
+  await charge(db, created.id, 0.011);
+  await charge(db, created.id, 1e-8);
+  assert.equal(await left(), 3_000_000 - 110_001);
+
+  // The last call may overshoot; the balance goes below zero, and both ways into the Maker refuse.
+  await charge(db, created.id, 0.3);
+  assert.equal(await left(), -110_001);
+  const messages = () => forwarded.filter((f) => f.action === "message");
+  const before = messages().length;
+  const refused = await Promise.all(
+    [
+      call(`/api/drafts/${created.id}/messages`, {
+        body: { text: "build it" },
+        method: "POST",
+      }),
+      call("/api/drafts", { body: { text: "Another game" }, method: "POST" }),
+    ].map(async (pending) => {
+      const response = await pending;
+      return { status: response.status, ...(await response.json()) };
+    })
+  );
+  assert.deepEqual(
+    refused.map(({ code, status: refusal }) => [refusal, code]),
+    [
+      [429, "allowance_used"],
+      [429, "allowance_used"],
+    ]
+  );
+  assert.equal(messages().length, before);
+
+  // Another Creator's balance is untouched, and the Maker answers them.
+  assert.equal(await left("user_other"), 3_000_000);
+  assert.equal(
+    await status(
+      call("/api/drafts", {
+        body: { text: "A cat game" },
+        method: "POST",
+        user: "user_other",
+      })
+    ),
+    201
+  );
+
+  // A new week: what this one spent is last week's, and the Allowance is full again.
+  await env.DB.prepare(
+    "UPDATE generation_limits SET bucket = 'user_owner:2026-W01' WHERE bucket LIKE 'user_owner:%'"
+  ).run();
+  assert.equal(await left(), 3_000_000);
+  assert.equal(
+    await status(
+      call(`/api/drafts/${created.id}/messages`, {
+        body: { text: "build it" },
+        method: "POST",
+      })
+    ),
+    202
+  );
+});
+
 test("comments: deleted by their author or the game's creator, hidden from everyone else", async (t) => {
   const { call, publish } = await setup(t);
   const gameId = await publish();

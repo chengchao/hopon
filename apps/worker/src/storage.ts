@@ -1,9 +1,10 @@
 // What the routes (api.ts) and the build tool (talker-build.ts) both keep: Drafts' and Games' files in R2, whose layout
-// lives only here, the Draft's box (its Coder's container), and the per-account daily quotas in D1.
-import { and, eq, sql } from "drizzle-orm";
+// lives only here, the Draft's box (its Coder's container), the per-account daily quotas and the Maker's weekly
+// Allowance (ADR 0004) in D1.
+import { eq, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 
-import { generationLimits } from "./schema.ts";
+import { drafts, generationLimits } from "./schema.ts";
 
 // R2: a Draft's Revision n at `drafts/<id>/<n>/` (only the current one, and the next for a moment at the end of a turn
 // that builds), a published Game at `games/<id>/`, index.html first.
@@ -64,15 +65,53 @@ export const spend = async (
   return !!row;
 };
 
-// Gives back a use spent on an attempt that never ran (a busy build).
-export const refund = async (db: DrizzleD1Database, key: string) => {
-  await db
-    .update(generationLimits)
-    .set({ count: sql`${generationLimits.count} - 1` })
-    .where(
-      and(
-        eq(generationLimits.bucket, today(key)),
-        sql`${generationLimits.count} > 0`
-      )
-    );
+const DAY_MS = 86_400_000;
+
+// The ISO week `at` falls in, "2026-W44", and when it ends: weeks start Monday 00:00 UTC. A week belongs to the year
+// its Thursday is in.
+export const week = (at = Date.now()) => {
+  const monday = Math.floor(at / DAY_MS - ((new Date(at).getUTCDay() + 6) % 7));
+  const thursday = new Date((monday + 3) * DAY_MS);
+  const year = thursday.getUTCFullYear();
+  const n =
+    Math.floor((thursday.getTime() - Date.UTC(year, 0, 1)) / DAY_MS / 7) + 1;
+  return {
+    key: `${year}-W${String(n).padStart(2, "0")}`,
+    resetsAt: new Date((monday + 7) * DAY_MS).toISOString(),
+  };
+};
+
+const allowanceBucket = (account: string) => `${account}:${week().key}`;
+
+// What's left of the account's weekly Allowance, `weekly` hopon tokens. Below zero when the last turn overshot.
+export const allowanceLeft = async (
+  db: DrizzleD1Database,
+  account: string,
+  weekly: number
+) => {
+  const row = await db
+    .select({ count: generationLimits.count })
+    .from(generationLimits)
+    .where(eq(generationLimits.bucket, allowanceBucket(account)))
+    .get();
+  return weekly - (row?.count ?? 0);
+};
+
+// Adds a model call's cost (pi's `usage.cost.total`, in dollars) to the Draft owner's week, as hopon tokens: × 10,000,000,
+// rounded up. The 1e-6 keeps float noise ($0.011 × 1e7 = 110000.00000000001) from rounding up a whole token.
+export const charge = async (
+  db: DrizzleD1Database,
+  draftId: string,
+  cost: number
+) => {
+  const tokens = Math.ceil(cost * 10_000_000 - 1e-6);
+  if (tokens <= 0) {
+    return;
+  }
+  const suffix = `:${week().key}`;
+  await db.run(
+    sql`INSERT INTO ${generationLimits} (bucket, count)
+      SELECT ${drafts}.owner || ${suffix}, ${tokens} FROM ${drafts} WHERE ${drafts}.id = ${draftId}
+      ON CONFLICT (bucket) DO UPDATE SET count = count + excluded.count`
+  );
 };

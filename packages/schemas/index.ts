@@ -52,6 +52,19 @@ export interface DraftSummary {
   updatedAt: string;
 }
 
+/**
+ * The signed-in Creator's weekly Allowance of hopon tokens (ADR 0004): `left` is below zero when the last turn overshot,
+ * and the week ends at `resetsAt`, Monday 00:00 UTC.
+ */
+export interface Allowance {
+  left: number;
+  weekly: number;
+  resetsAt: string;
+}
+
+/** The code on a message the Maker refuses because the Allowance is used up. */
+export const ALLOWANCE_USED = "allowance_used";
+
 /** A published game's id, title and description. */
 export interface GameSummary {
   id: number;

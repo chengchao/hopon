@@ -1,7 +1,7 @@
 // The Talker's one tool (#143): `build` sends the Draft's Coder one job (src/coder.ts) and turns its `done` into the
 // next Revision, `drafts/<id>/<n+1>/` in R2. pi runs it as a durable task with `replay: "safe"`: a Talker restarted
-// mid-build runs it again, and the same job id re-attaches to the running job. What a rerun must not redo (the quota,
-// the Revision it builds on, a Revision already written) is memoized in pi.
+// mid-build runs it again, and the same job id re-attaches to the running job. What a rerun must not redo (the
+// Allowance check, the Revision it builds on, a Revision already written) is memoized in pi.
 import { once } from "node:events";
 
 import { Type } from "@earendil-works/pi-ai";
@@ -12,13 +12,12 @@ import { drizzle } from "drizzle-orm/d1";
 
 import { drafts, now } from "./schema.ts";
 import {
+  allowanceLeft,
   currentRevision,
-  refund,
   removeFiles,
   revisionFiles,
-  spend,
 } from "./storage.ts";
-import { BUSY, DAILY_BUILDS, LIMIT } from "./talker-prompt.ts";
+import { BUSY, USED_UP } from "./talker-prompt.ts";
 
 // The Coder's NDJSON (apps/maker/src/job.ts CoderEvent, plus its ping).
 type CoderEvent =
@@ -195,21 +194,26 @@ export const buildTool = (
         return { output: [{ text: written, type: "text" as const }] };
       }
 
-      const owner = async () => {
+      // A build starts only while the Allowance is above zero (ADR 0004): the turn's first model call may have used the
+      // rest. One that starts finishes, and its cost may take the balance below zero.
+      const allowed = await memo("allowed", async () => {
         const draft = await db
           .select({ owner: drafts.owner })
           .from(drafts)
           .where(eq(drafts.id, draftId))
           .get();
-        return draft?.owner;
-      };
-      const spent = await memo("spent", async () => {
-        const account = await owner();
-        return !!account && (await spend(db, account, DAILY_BUILDS));
+        return (
+          !!draft &&
+          (await allowanceLeft(
+            db,
+            draft.owner,
+            Number(env.MAKER_WEEKLY_TOKENS)
+          )) > 0
+        );
       });
-      if (!spent) {
+      if (!allowed) {
         throw new Error(
-          `The daily limit is reached. Tell the Creator: "${LIMIT}"`
+          `The weekly Allowance is used up. Tell the Creator: "${USED_UP}"`
         );
       }
 
@@ -244,16 +248,6 @@ export const buildTool = (
           throw new Error("Stopped.");
         }
         if (event?.type !== "done") {
-          // Only builds count against the quota (story 30), and a busy Coder built nothing.
-          if (event?.type === "failed" && event.reason === "busy") {
-            await memo("refunded", async () => {
-              const account = await owner();
-              if (account) {
-                await refund(db, account);
-              }
-              return true;
-            });
-          }
           throw new Error(failure(event));
         }
         await writeRevision(env.FILES, { current, names, next }, event);

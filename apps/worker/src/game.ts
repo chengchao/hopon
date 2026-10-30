@@ -5,7 +5,7 @@ import { Schema } from "effect";
 // The status and message a client sees, plus a `code` when the app acts on the error, not just shows it.
 // Thrown from Hono code, yielded from Effect code; `app.onError` renders both.
 export class HttpError extends Schema.TaggedError<HttpError>()("HttpError", {
-  code: Schema.optional(Schema.Literal("handle_rejected")),
+  code: Schema.optional(Schema.Literals(["handle_rejected", "allowance_used"])),
   message: Schema.String,
   status: Schema.Number,
 }) {}

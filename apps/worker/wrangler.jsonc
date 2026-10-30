@@ -40,6 +40,8 @@
     // The Talker's abort timer on a build (#116, #122), 30 s more with music: 30 s past the Coder's own deadline, so the
     // Coder reports `failed` first. The Talker test shortens it.
     "MAKER_BUILD_ABORT_S": "150",
+    // Each Creator's weekly Allowance of hopon tokens (ADR 0004): about 25 builds with chat around them.
+    "MAKER_WEEKLY_TOKENS": "3000000",
     "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
     "CLOUDFLARE_GATEWAY_ID": "default",
   },
@@ -104,6 +106,7 @@
       "MAKER_CODER_MODEL": "claude-haiku-5-5",
       "MAKER_CODER_EFFORT": "low",
       "MAKER_BUILD_ABORT_S": "150",
+      "MAKER_WEEKLY_TOKENS": "3000000",
       "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
       "CLOUDFLARE_GATEWAY_ID": "default",
     },

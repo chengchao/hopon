@@ -64,6 +64,33 @@ const start = async () => {
     }
   }
 };
+// The local D1's rows for `sql`.
+const d1 = async (sql) => {
+  const execute = spawn(
+    "npx",
+    [
+      "wrangler",
+      "d1",
+      "execute",
+      "DB",
+      "--local",
+      "--persist-to",
+      state,
+      "--config",
+      CONFIG,
+      "--json",
+      "--command",
+      sql,
+    ],
+    { cwd: API, stdio: ["ignore", "pipe", "inherit"] }
+  );
+  const chunks = [];
+  execute.stdout.on("data", (data) => chunks.push(data));
+  const [code] = await once(execute, "exit");
+  assert.equal(code, 0);
+  const [{ results }] = JSON.parse(Buffer.concat(chunks).toString());
+  return results;
+};
 // SIGKILL, so nothing shuts down cleanly: the closest local stand-in for an eviction.
 const kill = () => process.kill(-server.pid, "SIGKILL");
 
@@ -133,6 +160,25 @@ test("a new game and a change to it end done with their files; a re-POST of a ru
       process.stdout.write(Buffer.concat(serverLog));
     }
   });
+  const migrate = spawn(
+    "npx",
+    [
+      "wrangler",
+      "d1",
+      "migrations",
+      "apply",
+      "DB",
+      "--local",
+      "--persist-to",
+      state,
+      "--config",
+      CONFIG,
+    ],
+    { cwd: API, stdio: "ignore" }
+  );
+  const [code] = await once(migrate, "exit");
+  assert.equal(code, 0);
+  await d1("INSERT INTO drafts (id, owner) VALUES ('draft-a', 'user_coder')");
   await start();
 
   // A new game: the steps and the green playtest as they happen, then the Revision's files.
@@ -161,6 +207,12 @@ test("a new game and a change to it end done with their files; a re-POST of a ru
   assert.equal(done.files["game.js"], "// built");
   assert.match(done.files["index.html"], /<script src="game\.js"><\/script>/u);
   assert.doesNotMatch(done.files["index.html"], /music\.js/u);
+  // Its 3 model calls are charged to the Draft's owner: 1 input and 1 output token each, $0.0000006 at Haiku 5.5's
+  // prices, is 6 hopon tokens.
+  const charged = await d1("SELECT bucket, count FROM generation_limits");
+  assert.equal(charged.length, 1);
+  assert.match(charged[0].bucket, /^user_coder:\d{4}-W\d{2}$/u);
+  assert.equal(charged[0].count, 18);
 
   // A change to it: the job carries the source, and only what changed comes back.
   const source = {
@@ -260,7 +312,7 @@ test(
       { reason: "over 12 steps", type: "failed" },
     ]);
 
-    // A box that can't start built nothing: `busy`, which the Talker refunds.
+    // A box that can't start built nothing and made no model call: `busy`.
     assert.deepEqual(busy, [{ reason: "busy", type: "failed" }]);
 
     // Cancel stops the running command and ends the job.

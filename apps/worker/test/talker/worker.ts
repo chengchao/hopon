@@ -1,7 +1,9 @@
 // The Worker for test/talker.test.js: the real API and Talker, with the Coder and the model faked.
 // - The model: every model call ends at globalThis.fetch, which answers Cloudflare's /ai/v1/messages here, as a
 //   scripted Anthropic stream. A message "build <scenario>" calls `build` with the scenario as the brief; anything
-//   else gets a text reply that repeats what the model was last sent, a tool's result included.
+//   else gets a text reply that repeats what the model was last sent, a tool's result included. Each call reads 1,000
+//   input tokens, 1,000 hopon tokens at Haiku 5.5's $0.10 a million, or n after "spend <n>"; "no credits" gets the
+//   gateway's 402.
 // - The Coder: a Durable Object that streams the scenario's NDJSON and records every request, read back through
 //   /__fake/coder/<draftId>/calls. A held job ("wait") ends `done` on /__fake/coder/<draftId>/release.
 import { DurableObject } from "cloudflare:workers";
@@ -40,7 +42,7 @@ const sse = (events: object[]) =>
     { headers: { "content-type": "text/event-stream" } }
   );
 
-const reply = (block: object, delta: object, stop: string) =>
+const reply = (block: object, delta: object, stop: string, input = 1000) =>
   sse([
     {
       message: {
@@ -50,7 +52,7 @@ const reply = (block: object, delta: object, stop: string) =>
         role: "assistant",
         stop_reason: null,
         type: "message",
-        usage: { input_tokens: 1, output_tokens: 1 },
+        usage: { input_tokens: input, output_tokens: 0 },
       },
       type: "message_start",
     },
@@ -60,7 +62,7 @@ const reply = (block: object, delta: object, stop: string) =>
     {
       delta: { stop_reason: stop, stop_sequence: null },
       type: "message_delta",
-      usage: { output_tokens: 1 },
+      usage: { output_tokens: 0 },
     },
     { type: "message_stop" },
   ]);
@@ -68,12 +70,22 @@ const reply = (block: object, delta: object, stop: string) =>
 const model = async (request: Request) => {
   const { messages } = await request.json<{ messages: Message[] }>();
   const said = texts(messages.at(-1)?.content);
+  if (said.includes("no credits")) {
+    return Response.json(
+      {
+        error: "Insufficient unified billing balance; available balance $0.00",
+      },
+      { status: 402 }
+    );
+  }
   const scenario = said.find((text) => text.startsWith("build "))?.slice(6);
   if (scenario === undefined) {
+    const spend = said.find((text) => text.startsWith("spend "))?.slice(6);
     return reply(
       { text: "", type: "text" },
       { text: `said: ${said.join(" | ")}`, type: "text_delta" },
-      "end_turn"
+      "end_turn",
+      spend === undefined ? undefined : Number(spend)
     );
   }
   return reply(

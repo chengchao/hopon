@@ -1,5 +1,5 @@
 // test/talker.test.js runs `wrangler dev` with this: the Worker's bindings, with test/talker/worker.ts's fake Coder in
-// place of the Container, and a 3 s abort timer for builds (33 s with music).
+// place of the Container, a 3 s abort timer for builds (33 s with music), and an Allowance of 100 model calls.
 {
   "name": "hopon-talker-test",
   "main": "worker.ts",
@@ -21,6 +21,7 @@
     "CLOUDFLARE_GATEWAY_ID": "default",
     "HOPON_OFFLINE": "1",
     "MAKER_BUILD_ABORT_S": "3",
+    "MAKER_WEEKLY_TOKENS": "100000",
   },
   "durable_objects": {
     "bindings": [

@@ -1,6 +1,7 @@
 import { verifyToken } from "@clerk/backend";
 import { zValidator } from "@hono/zod-validator";
 import {
+  ALLOWANCE_USED,
   MAX_DRAFTS,
   newComment,
   newMessage,
@@ -8,6 +9,7 @@ import {
   REPORT_REASONS,
 } from "@hopon/schemas";
 import type {
+  Allowance,
   BlockedAccounts,
   Comment,
   CommentPage,
@@ -55,6 +57,7 @@ import {
   saves,
 } from "./schema.ts";
 import {
+  allowanceLeft,
   currentRevision,
   draftFiles,
   gameFiles,
@@ -62,6 +65,7 @@ import {
   removeFiles,
   revisionFiles,
   spend,
+  week,
 } from "./storage.ts";
 
 // Set only by `pnpm api:offline` (`--var`), so it isn't in wrangler.jsonc or the generated `Env`. Secrets go in
@@ -528,7 +532,39 @@ app.get("/api/drafts", (c) =>
   )
 );
 
-// A new Draft, born on its first message: Screening, then the cap, then the Talker gets the message.
+app.get("/api/allowance", (c) =>
+  run(
+    c,
+    Effect.gen(function* () {
+      const owner = yield* signedIn("Sign in to see your hopon tokens.");
+      const weekly = Number(c.env.MAKER_WEEKLY_TOKENS);
+      const left = yield* query((db) => allowanceLeft(db, owner, weekly));
+      return c.json({
+        left,
+        resetsAt: week().resetsAt,
+        weekly,
+      } satisfies Allowance);
+    })
+  )
+);
+
+// At zero the whole Maker stops for the Creator until the week resets (ADR 0004): no message reaches a Talker, so no
+// model call starts. The app says when it resets, in the Creator's time.
+const withAllowance = Effect.fn("withAllowance")(function* (
+  env: HoponEnv,
+  owner: string
+) {
+  const weekly = Number(env.MAKER_WEEKLY_TOKENS);
+  if ((yield* query((db) => allowanceLeft(db, owner, weekly))) <= 0) {
+    return yield* fail(
+      429,
+      "You've used this week's hopon tokens.",
+      ALLOWANCE_USED
+    );
+  }
+});
+
+// A new Draft, born on its first message: the Allowance, Screening, then the cap, then the Talker gets the message.
 app.post(
   "/api/drafts",
   jsonBody(newMessage, "Write a message of up to 2000 characters."),
@@ -538,6 +574,7 @@ app.post(
       Effect.gen(function* () {
         const owner = yield* signedIn("Sign in to continue.");
         const { text } = c.req.valid("json");
+        yield* withAllowance(c.env, owner);
         yield* screen(c.env, owner, "message", text);
         // Agent needs a named object, so the id newUniqueId() makes is the Talker's name.
         const id = c.env.TALKER.newUniqueId().toString();
@@ -587,6 +624,7 @@ app.post(
         const id = c.req.param("id");
         const owner = yield* ownDraft(id);
         const { text } = c.req.valid("json");
+        yield* withAllowance(c.env, owner);
         yield* screen(c.env, owner, "message", text);
         const response = yield* talker(c.env, id, "message", { text });
         return c.json(yield* Effect.promise(() => response.json()), 202);
