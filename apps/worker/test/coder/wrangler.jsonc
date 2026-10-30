@@ -1,10 +1,19 @@
 // test/coder.test.js runs `wrangler dev` with this: the Coder alone, with test/coder/worker.ts's fake box in place of
-// the Container and its scripted model in place of the gateway. No Docker, no key, no model call.
+// the Container and its scripted model in place of the gateway. No Docker, no key, no model call. D1 holds the Draft
+// rows and the Allowance its model calls are charged to.
 {
   "name": "hopon-coder-test",
   "main": "worker.ts",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hopon",
+      "database_id": "local",
+      "migrations_dir": "../../migrations",
+    },
+  ],
   "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   "vars": {
     "MAKER_CODER_MODEL": "claude-haiku-5-5",

@@ -14,7 +14,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Context, Data, Effect, Layer, ManagedRuntime } from "effect";
 
-import { piModels } from "./pi-models.ts";
+import { metered, piModels } from "./pi-models.ts";
 import { drafts, now } from "./schema.ts";
 import { buildTool } from "./talker-build.ts";
 import { TALKER_PROMPT } from "./talker-prompt.ts";
@@ -59,6 +59,10 @@ type Frame =
   | { type: "turn_done"; id: SubmissionId }
   | { type: "turn_failed"; id: SubmissionId; reason: string };
 
+// AI Gateway refuses a model call with 402 once its prepaid credits run out (ADR 0004), or under load with some left
+// (apps/maker/eval/run.ts): the Maker is resting.
+const OUT_OF_CREDITS = /Insufficient unified billing/u;
+
 const TICK_MS = 15_000;
 const TICKET_MS = 60_000;
 // The app sends "ping" every 20 s (#126). A socket that died without closing stays in getWebSockets(), even across
@@ -74,6 +78,7 @@ export class Talker extends Agent<Env> {
     harness: ({ storage, context, onWake }) => {
       const registry = createRegistry();
       registry.install({
+        hooks: [metered(this.env, () => this.name)],
         name: "talker",
         sections: [
           { key: "preamble", render: () => TALKER_PROMPT, tag: false },
@@ -141,7 +146,14 @@ export class Talker extends Agent<Env> {
           if (status === "done") {
             send({ id, type: "turn_done" });
           } else if (status === "unanswered") {
-            send({ id, reason: event.record.reason, type: "turn_failed" });
+            const { detail, reason } = event.record;
+            send({
+              id,
+              reason: OUT_OF_CREDITS.test(JSON.stringify(detail))
+                ? "resting"
+                : reason,
+              type: "turn_failed",
+            });
           }
         }
         return Promise.resolve();

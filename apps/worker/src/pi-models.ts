@@ -5,8 +5,12 @@ import type { FetchFunction } from "@earendil-works/pi-ai";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { createModels, createProvider } from "@earendil-works/pi-ai/models";
 import { CLOUDFLARE_AI_GATEWAY_MODELS } from "@earendil-works/pi-ai/providers/cloudflare-ai-gateway.models";
+import { GenerationTask, hook } from "@earendil-works/pi-durable";
 import { modelFetch } from "@hopon/model-fetch";
 import type { ModelCall } from "@hopon/model-fetch";
+import { drizzle } from "drizzle-orm/d1";
+
+import { charge } from "./storage.ts";
 
 // pi's Anthropic client posts to this host; only modelFetch answers it.
 const MODELS_URL = "http://models.internal/anthropic";
@@ -52,3 +56,18 @@ export const piModels = (
   );
   return models;
 };
+
+// Every model call of the Talker and the Coder counts against the Draft owner's Allowance (ADR 0004), at pi's price
+// for the response. pi awaits it before going on, so a turn's cost has landed by the time the turn ends. A charge that
+// fails is logged, never the turn's failure. ponytail: a call Stop aborts mid-stream never reaches afterResponse, so it
+// costs nothing; charge from the stream's own result if that leak ever matters.
+export const metered = (env: Env, draftId: () => string) =>
+  hook(GenerationTask, {
+    afterResponse: async (message) => {
+      try {
+        await charge(drizzle(env.DB), draftId(), message.usage.cost.total);
+      } catch (error) {
+        console.error(`Draft ${draftId()}: not charged`, error);
+      }
+    },
+  });

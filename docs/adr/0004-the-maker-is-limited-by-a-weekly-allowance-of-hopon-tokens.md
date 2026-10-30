@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. To be built in [#34](https://github.com/chengchao/hopon/issues/34). Replaces today's limit of 10 builds per Creator per UTC day (`DAILY_BUILDS` in `apps/worker/src/talker-prompt.ts`), and the daily global dollar cap that #34 and ADR 0003 planned.
+Accepted. Built in [#34](https://github.com/chengchao/hopon/issues/34). Replaced the limit of 10 builds per Creator per UTC day (`DAILY_BUILDS` in `apps/worker/src/talker-prompt.ts`), and the daily global dollar cap that #34 and ADR 0003 planned.
 
 ## Context
 
