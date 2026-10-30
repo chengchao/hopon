@@ -46,6 +46,12 @@
         "projectId": "cfb076df-dd71-4351-bdc5-0de71dea7e09"
       }
     },
-    "owner": "chengchao60827"
+    "owner": "chengchao60827",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/cfb076df-dd71-4351-bdc5-0de71dea7e09"
+    }
   }
 }
