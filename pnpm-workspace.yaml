@@ -18,3 +18,9 @@ allowBuilds:
   # just-bash's optional compressors (agents/skills imports it); the Coder never runs a skill script.
   "@mongodb-js/zstd": false
   node-liblzma: false
+packageExtensions:
+  # Its babel preset names this plugin as a string without depending on it, so Babel finds it only when pnpm happens
+  # to hoist it; EAS build 9 didn't ("Cannot find module '@babel/plugin-transform-react-jsx'").
+  react-native-css-interop:
+    dependencies:
+      "@babel/plugin-transform-react-jsx": ^7.28.6
