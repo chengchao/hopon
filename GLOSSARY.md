@@ -35,3 +35,7 @@ Make a small game by talking to the Maker, then swipe a feed to discover and pla
 **Maker**: The agent behind the Make tab that a **Creator** talks to. It makes a **Draft** from the first message, plays it, fixes it, gives it sound, and changes it with each message after, until the **Creator** publishes it. _Avoid_: Assistant, bot, generator, AI
 
 **Revision**: One state of a **Draft**, made by each of the **Maker**'s turns that changes the game. A **Draft** is always its latest **Revision**; there is no going back to an earlier one. Publishing freezes the latest **Revision** as the **Game**. _Avoid_: Version, snapshot, checkpoint
+
+**hopon token**: The unit a **Creator**'s use of the **Maker** is counted in. Each **Maker** turn costs hopon tokens in proportion to what its model calls really cost, and the **Creator** sees them as "hopon tokens", never as money. _Avoid_: Credits, builds, dollars, usage
+
+**Allowance**: The **hopon tokens** a **Creator** gets each week, refilled in full every Monday at 00:00 UTC. When it runs out, the **Maker** stops for that **Creator** until it refills; playing, browsing and sharing **Games** don't use it. _Avoid_: Quota, limit, budget
