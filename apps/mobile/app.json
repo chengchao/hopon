@@ -2,6 +2,7 @@
   "expo": {
     "name": "hopon",
     "slug": "hopon",
+    "platforms": ["ios", "android"],
     "scheme": "hopon",
     "version": "1.0.0",
     "orientation": "portrait",
