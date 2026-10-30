@@ -58,9 +58,16 @@ export const piModels = (
 };
 
 // Every model call of the Talker and the Coder counts against the Draft owner's Allowance (ADR 0004), at pi's price
-// for the response. pi awaits it before going on, so a turn's cost has landed by the time the turn ends.
+// for the response. pi awaits it before going on, so a turn's cost has landed by the time the turn ends. A charge that
+// fails is logged, never the turn's failure. ponytail: a call Stop aborts mid-stream never reaches afterResponse, so it
+// costs nothing; charge from the stream's own result if that leak ever matters.
 export const metered = (env: Env, draftId: () => string) =>
   hook(GenerationTask, {
-    afterResponse: (message) =>
-      charge(drizzle(env.DB), draftId(), message.usage.cost.total),
+    afterResponse: async (message) => {
+      try {
+        await charge(drizzle(env.DB), draftId(), message.usage.cost.total);
+      } catch (error) {
+        console.error(`Draft ${draftId()}: not charged`, error);
+      }
+    },
   });

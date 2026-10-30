@@ -24,7 +24,10 @@ const resets = ({ resetsAt }: Allowance) =>
 export const allowanceLine = (allowance: Allowance) =>
   `${compact(allowance.left)} hopon tokens left · resets ${resets(allowance)}`;
 
-export const low = ({ left, weekly }: Allowance) => left < weekly * 0.2;
+// The warning shows once the balance drops below this share of the week's.
+const LOW_SHARE = 0.2;
+
+export const low = ({ left, weekly }: Allowance) => left < weekly * LOW_SHARE;
 
 export const usedUp = (allowance: Allowance) =>
   `You've used this week's hopon tokens. They reset ${resets(allowance)}.`;

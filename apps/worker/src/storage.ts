@@ -97,14 +97,18 @@ export const allowanceLeft = async (
   return weekly - (row?.count ?? 0);
 };
 
-// Adds a model call's cost (pi's `usage.cost.total`, in dollars) to the Draft owner's week, as hopon tokens: × 10,000,000,
-// rounded up. The 1e-6 keeps float noise ($0.011 × 1e7 = 110000.00000000001) from rounding up a whole token.
+// One hopon token is one Haiku 5.5 input token, $0.10 a million (ADR 0004).
+const HOPON_TOKENS_PER_DOLLAR = 10_000_000;
+
+// Adds a model call's cost (pi's `usage.cost.total`, in dollars) to the Draft owner's week, as hopon tokens, rounded
+// up. The 1e-6 keeps float noise ($0.011 × 1e7 = 110000.00000000001) from rounding up a whole token. A Draft deleted
+// mid-build has no owner left to charge.
 export const charge = async (
   db: DrizzleD1Database,
   draftId: string,
   cost: number
 ) => {
-  const tokens = Math.ceil(cost * 10_000_000 - 1e-6);
+  const tokens = Math.ceil(cost * HOPON_TOKENS_PER_DOLLAR - 1e-6);
   if (tokens <= 0) {
     return;
   }

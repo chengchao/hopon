@@ -278,11 +278,11 @@ const applyFrame = (chat: Chat, frame: Frame, at: number): Chat => {
   if (frame.type === "turn_failed") {
     // Stop is pi's abort, and the Talker says "resting" when AI Gateway's credits ran out (ADR 0004); every other
     // reason reads the same to the Creator (#119).
-    const ended = { aborted: "stopped", resting: "resting" } as const;
-    return {
-      ...chat,
-      ended: ended[frame.reason as keyof typeof ended] ?? "failed",
+    const ended: Record<string, Chat["ended"]> = {
+      aborted: "stopped",
+      resting: "resting",
     };
+    return { ...chat, ended: ended[frame.reason] ?? "failed" };
   }
   let next = chat;
   if (frame.type === "batch") {

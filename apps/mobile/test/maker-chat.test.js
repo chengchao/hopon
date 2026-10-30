@@ -518,12 +518,12 @@ test("a build that fails, is busy or finds the Allowance used up drops no card; 
         buildResult(
           7,
           "call-2",
-          `The weekly Allowance is used up. Tell the Creator: "You've used this week's hopon tokens. They come back on Monday."`,
+          `The weekly Allowance is used up. Tell the Creator: "You've used this week's hopon tokens. They come back when the week resets."`,
           true
         ),
         maker(
           8,
-          "You've used this week's hopon tokens. They come back on Monday."
+          "You've used this week's hopon tokens. They come back when the week resets."
         ),
       ],
     })
@@ -534,7 +534,7 @@ test("a build that fails, is busy or finds the Allowance used up drops no card; 
     "maker: The Maker is busy. Try again in a minute.",
     "creator: Again",
     "maker: On it!",
-    "maker: You've used this week's hopon tokens. They come back on Monday.",
+    "maker: You've used this week's hopon tokens. They come back when the week resets.",
   ]);
 });
 

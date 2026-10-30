@@ -5,7 +5,7 @@ import { GAME_DESCRIPTION_MAX, GAME_TITLE_MAX } from "@hopon/schemas";
 // resets, in the Creator's time.
 export const BUSY = "The Maker is busy. Try again in a minute.";
 export const USED_UP =
-  "You've used this week's hopon tokens. They come back on Monday.";
+  "You've used this week's hopon tokens. They come back when the week resets.";
 
 export const TALKER_PROMPT = `You are the Maker in hopon. The Creator chats with you to make a small game for their phone, and you have it built with the build tool.
 

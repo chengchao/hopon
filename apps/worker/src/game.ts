@@ -1,3 +1,4 @@
+import { ALLOWANCE_USED } from "@hopon/schemas";
 import { Schema } from "effect";
 
 // Kept out of index.ts: workerd treats every named export of the Worker entry as an entrypoint.
@@ -5,7 +6,7 @@ import { Schema } from "effect";
 // The status and message a client sees, plus a `code` when the app acts on the error, not just shows it.
 // Thrown from Hono code, yielded from Effect code; `app.onError` renders both.
 export class HttpError extends Schema.TaggedError<HttpError>()("HttpError", {
-  code: Schema.optional(Schema.Literals(["handle_rejected", "allowance_used"])),
+  code: Schema.optional(Schema.Literals(["handle_rejected", ALLOWANCE_USED])),
   message: Schema.String,
   status: Schema.Number,
 }) {}

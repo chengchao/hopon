@@ -550,7 +550,7 @@ app.get("/api/allowance", (c) =>
 
 // At zero the whole Maker stops for the Creator until the week resets (ADR 0004): no message reaches a Talker, so no
 // model call starts. The app says when it resets, in the Creator's time.
-const withAllowance = Effect.fn("withAllowance")(function* (
+const refuseAtZero = Effect.fn("refuseAtZero")(function* (
   env: HoponEnv,
   owner: string
 ) {
@@ -574,7 +574,7 @@ app.post(
       Effect.gen(function* () {
         const owner = yield* signedIn("Sign in to continue.");
         const { text } = c.req.valid("json");
-        yield* withAllowance(c.env, owner);
+        yield* refuseAtZero(c.env, owner);
         yield* screen(c.env, owner, "message", text);
         // Agent needs a named object, so the id newUniqueId() makes is the Talker's name.
         const id = c.env.TALKER.newUniqueId().toString();
@@ -624,7 +624,7 @@ app.post(
         const id = c.req.param("id");
         const owner = yield* ownDraft(id);
         const { text } = c.req.valid("json");
-        yield* withAllowance(c.env, owner);
+        yield* refuseAtZero(c.env, owner);
         yield* screen(c.env, owner, "message", text);
         const response = yield* talker(c.env, id, "message", { text });
         return c.json(yield* Effect.promise(() => response.json()), 202);

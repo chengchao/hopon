@@ -415,7 +415,7 @@ test("allowance: each model call is charged to its Creator's week; a build start
   assert.deepEqual(await coderCalls(draft), []);
   assert.match(
     await lastReply(draft),
-    /You've used this week's hopon tokens\. They come back on Monday\./u
+    /You've used this week's hopon tokens\. They come back when the week resets\./u
   );
   assert.equal(await left(), -1000);
 

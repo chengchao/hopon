@@ -59,8 +59,8 @@ const examples = [
   },
 ];
 
-// The week whose low-Allowance warning this phone has shown, by its resetsAt.
-const WARNED = "allowance-warned";
+// The week whose low-Allowance warning this phone has shown the account, by its resetsAt.
+const warned = (account: string) => `allowance-warned-${account}`;
 
 // The counter shows only this close to PROMPT_MAX.
 const COUNTER_FROM = PROMPT_MAX - 200;
@@ -285,24 +285,27 @@ const Create = () => {
     return list.drafts;
   };
 
-  // The Allowance line, read on opening and after each turn; one that can't be read stays as it was. Below 20% it
-  // warns once a week.
+  // The Allowance line, read on opening, after each turn and when a message is refused for it; one that can't be read
+  // stays as it was. Below 20% it warns once a week; used up, it says when the week resets, in the Creator's time.
   const fetchAllowance = async () => {
     try {
       const next = await api<Allowance>("/api/allowance", {
         token: await getToken(),
       });
       setAllowance(next);
+      if (next.left <= 0) {
+        setError(usedUp(next));
+      }
+      const key = warned(user?.id ?? "");
       if (
         low(next) &&
-        (await SecureStore.getItemAsync(WARNED)) !== next.resetsAt
+        (await SecureStore.getItemAsync(key)) !== next.resetsAt
       ) {
-        await SecureStore.setItemAsync(WARNED, next.resetsAt);
+        await SecureStore.setItemAsync(key, next.resetsAt);
         Alert.alert("Running low on hopon tokens", allowanceLine(next));
       }
-      return next;
     } catch {
-      return null;
+      // Read again after the next turn.
     }
   };
 
@@ -402,12 +405,8 @@ const Create = () => {
         setText((typed) => typed || message);
         setError((sendError as Error).message);
       }
-      // Used up: when the week resets, in the Creator's time.
       if (sendError instanceof ApiError && sendError.code === ALLOWANCE_USED) {
-        const next = await fetchAllowance();
-        if (next && openId.current === at) {
-          setError(usedUp(next));
-        }
+        await fetchAllowance();
       }
     }
   };
