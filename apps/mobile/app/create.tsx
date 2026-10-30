@@ -1,7 +1,8 @@
 import { useAuth, useUser } from "@clerk/expo";
-import { newMessage, PROMPT_MAX } from "@hopon/schemas";
-import type { DraftSummary } from "@hopon/schemas";
+import { ALLOWANCE_USED, newMessage, PROMPT_MAX } from "@hopon/schemas";
+import type { Allowance, DraftSummary } from "@hopon/schemas";
 import { Redirect, router } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import {
   ArrowUp,
   ChevronDown,
@@ -12,6 +13,7 @@ import {
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Keyboard,
   KeyboardAvoidingView,
   Pressable,
@@ -28,7 +30,8 @@ import { PublishSheet } from "@/components/publish-sheet";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Textarea } from "@/components/ui/textarea";
-import { api } from "@/lib/api";
+import { allowanceLine, low, usedUp } from "@/lib/allowance";
+import { api, ApiError } from "@/lib/api";
 import { draftTitle } from "@/lib/draft-list";
 import { chatView, makerChat, NEW_CHAT, publishable } from "@/lib/maker-chat";
 import type { Frame, Row } from "@/lib/maker-chat";
@@ -55,6 +58,9 @@ const examples = [
       "An ocean animal memory game. Flip cards and find every matching pair to win.",
   },
 ];
+
+// The week whose low-Allowance warning this phone has shown the account, by its resetsAt.
+const warned = (account: string) => `allowance-warned-${account}`;
 
 // The counter shows only this close to PROMPT_MAX.
 const COUNTER_FROM = PROMPT_MAX - 200;
@@ -226,6 +232,13 @@ const LinkBar = ({ link, onRetry }: { link: Link; onRetry: () => void }) => {
   );
 };
 
+const AllowanceLine = ({ allowance }: { allowance?: Allowance }) =>
+  allowance ? (
+    <Text className="self-center text-xs text-muted-foreground">
+      {allowanceLine(allowance)}
+    </Text>
+  ) : null;
+
 const Create = () => {
   const insets = useSafeAreaInsets();
   const { isLoaded, isSignedIn, getToken } = useAuth();
@@ -237,6 +250,7 @@ const Create = () => {
   const [chat, dispatch] = useReducer(makerChat, NEW_CHAT);
   const [text, setText] = useState("");
   const [error, setError] = useState("");
+  const [allowance, setAllowance] = useState<Allowance>();
   const [listing, setListing] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -271,12 +285,37 @@ const Create = () => {
     return list.drafts;
   };
 
+  // The Allowance line, read on opening, after each turn and when a message is refused for it; one that can't be read
+  // stays as it was. Below 20% it warns once a week; used up, it says when the week resets, in the Creator's time.
+  const fetchAllowance = async () => {
+    try {
+      const next = await api<Allowance>("/api/allowance", {
+        token: await getToken(),
+      });
+      setAllowance(next);
+      if (next.left <= 0) {
+        setError(usedUp(next));
+      }
+      const key = warned(user?.id ?? "");
+      if (
+        low(next) &&
+        (await SecureStore.getItemAsync(key)) !== next.resetsAt
+      ) {
+        await SecureStore.setItemAsync(key, next.resetsAt);
+        Alert.alert("Running low on hopon tokens", allowanceLine(next));
+      }
+    } catch {
+      // Read again after the next turn.
+    }
+  };
+
   // + opens the most recent Draft (#119). Once per screen: Clerk's getToken changes on every render.
   useEffect(() => {
     if (!isSignedIn || opened.current) {
       return;
     }
     opened.current = true;
+    fetchAllowance();
     const open = async () => {
       try {
         const drafts = await fetchDrafts();
@@ -293,6 +332,9 @@ const Create = () => {
     dispatch({ at: Date.now(), frame, type: "frame" });
     if (frame.type === "turn_done") {
       setTurns((n) => n + 1);
+    }
+    if (frame.type === "turn_done" || frame.type === "turn_failed") {
+      fetchAllowance();
     }
     // The Talker names the game at the end of a turn that builds it.
     if (frame.type === "turn_done" && draft) {
@@ -362,6 +404,9 @@ const Create = () => {
       if (openId.current === at) {
         setText((typed) => typed || message);
         setError((sendError as Error).message);
+      }
+      if (sendError instanceof ApiError && sendError.code === ALLOWANCE_USED) {
+        await fetchAllowance();
       }
     }
   };
@@ -526,6 +571,7 @@ const Create = () => {
             </Button>
           )}
         </View>
+        <AllowanceLine allowance={allowance} />
         {text.length > COUNTER_FROM && (
           <Text className="self-end text-xs text-muted-foreground">
             {text.length} / {PROMPT_MAX}

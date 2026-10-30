@@ -42,7 +42,7 @@ import {
 } from "../../maker/src/job.ts";
 import type { CoderEvent, Job, PlaytestResult } from "../../maker/src/job.ts";
 import { Box, boxEnv, containerBox, jobBox, readyFirst } from "./coder-box.ts";
-import { piModels } from "./pi-models.ts";
+import { metered, piModels } from "./pi-models.ts";
 
 const JOB_PATH = /^\/jobs\/(?<jobId>[^/]+)(?<cancel>\/cancel)?$/u;
 const PING_MS = 10_000;
@@ -297,7 +297,11 @@ export class DraftCoder extends DurableObject<Env> {
     harness: async ({ storage, context, onWake }) => {
       this.registry.install(CodingTools);
       this.registry.install({
-        hooks: [this.limits, this.ending],
+        hooks: [
+          this.limits,
+          this.ending,
+          metered(this.env, () => this.draftId),
+        ],
         name: "coder",
         sections: [
           { key: "preamble", render: () => SYSTEM_PROMPT, tag: false },
@@ -386,7 +390,7 @@ export class DraftCoder extends DurableObject<Env> {
       )
     );
     if (!up) {
-      // A box that can't start built nothing: `busy`, which the Talker refunds (#122).
+      // A box that can't start built nothing and made no model call: `busy` (#122).
       send({ reason: "busy", type: "failed" });
       return;
     }

@@ -209,7 +209,7 @@ const revisionFile = async (draft, file) => {
   ];
 };
 
-test("build: a message makes and changes the game as Revisions in R2; failures, Stop, the timer, a restart and the quota", async (t) => {
+test("build: a message makes and changes the game as Revisions in R2; failures, Stop, the timer and a restart", async (t) => {
   const migrate = wrangler(
     ["d1", "migrations", "apply", "DB", "--local", "--persist-to", state],
     { stdio: "ignore" }
@@ -346,19 +346,6 @@ test("build: a message makes and changes the game as Revisions in R2; failures, 
   const [restarted] = await revisionFile(draft, "game.ts");
   assert.equal(restarted, 4);
 
-  // 7 builds so far (failed, stopped and timed-out ones count, the busy one doesn't): the 8th, 9th and 10th run, the
-  // 11th is refused without the Coder.
-  await socket.turn("build done");
-  await socket.turn("build done");
-  await socket.turn("build done");
-  calls = await coderCalls(draft);
-  await socket.turn("build done");
-  assert.deepEqual(await coderCalls(draft), calls);
-  assert.match(
-    await lastReply(draft),
-    /You've made 10 games today; come back tomorrow\./u
-  );
-
   // Between turns, Publish turns the last Revision into a Game with the Maker's title and description, and the Draft
   // goes.
   const published = await call(`/api/drafts/${draft}/publish`, {});
@@ -380,7 +367,98 @@ test("build: a message makes and changes the game as Revisions in R2; failures, 
     }
   );
   const game = await fetch(`${ORIGIN}/games/${gameId}/game.ts`);
-  assert.equal(await game.text(), "// revision 7");
+  assert.equal(await game.text(), "// revision 4");
   assert.deepEqual(await json("/api/drafts"), { drafts: [] });
   socket.close();
+});
+
+// The Allowance (ADR 0004) is 100,000 hopon tokens here (test/talker/wrangler.jsonc), and each fake model call reads
+// 1,000 input tokens unless told to spend more, so the Talker's calls are 1,000 hopon tokens each.
+test("allowance: each model call is charged to its Creator's week; a build starts only above zero, and one that starts finishes below it; then the Maker refuses until the week resets", async (t) => {
+  await start();
+  t.after(kill);
+  t.after(() => {
+    if (!t.passed) {
+      process.stdout.write(Buffer.concat(serverLog));
+    }
+  });
+  const left = async () => {
+    const { left: tokens } = await json("/api/allowance");
+    return tokens;
+  };
+  const refused = async (route, text) => {
+    const response = await call(route, { text });
+    assert.equal(response.status, 429);
+    const { code } = await response.json();
+    assert.equal(code, "allowance_used");
+  };
+
+  // One chat turn, one model call: 1,000 input tokens at $0.10 a million is $0.0001, × 10,000,000.
+  const before = await left();
+  const { id: draft } = await json("/api/drafts", { text: "hello" });
+  const socket = await connect(draft);
+  await socket.until("the first turn's end", over);
+  assert.equal(await left(), before - 1000);
+
+  // Out of AI Gateway credits, the Maker is resting, and the refused call costs nothing.
+  const resting = socket.after("the resting turn's end", ended);
+  await send(draft, "no credits");
+  const { reason } = await resting();
+  assert.equal(reason, "resting");
+  assert.equal(await left(), before - 1000);
+
+  // 1,000 left: the build's turn takes it to zero before build runs, so the build is refused without the Coder, and
+  // the reply after it overshoots.
+  await socket.turn(`spend ${before - 2000}`);
+  assert.equal(await left(), 1000);
+  assert.equal(await socket.turn("build done"), "turn_done");
+  assert.deepEqual(await coderCalls(draft), []);
+  assert.match(
+    await lastReply(draft),
+    /You've used this week's hopon tokens\. They come back when the week resets\./u
+  );
+  assert.equal(await left(), -1000);
+
+  // At or below zero, chat and builds are refused before any model call: the transcript doesn't change.
+  const entries = await transcript(draft);
+  await refused(`/api/drafts/${draft}/messages`, "hello again");
+  await refused(`/api/drafts/${draft}/messages`, "build done");
+  await refused("/api/drafts", "build done");
+  assert.deepEqual(await transcript(draft), entries);
+  assert.deepEqual(await coderCalls(draft), []);
+  socket.close();
+
+  // A new week: this one's bucket becomes last week's, and the Allowance is full again.
+  kill();
+  const moved = wrangler(
+    [
+      "d1",
+      "execute",
+      "DB",
+      "--local",
+      "--persist-to",
+      state,
+      "--command",
+      "UPDATE generation_limits SET bucket = 'user_maker:2026-W01' WHERE bucket LIKE 'user_maker:%'",
+    ],
+    { stdio: "ignore" }
+  );
+  const [code] = await once(moved, "exit");
+  assert.equal(code, 0);
+  await start();
+  assert.equal(await left(), 100_000);
+
+  // 1,500 left: the build's first call leaves 500, so it starts, and it finishes though its reply overshoots.
+  const again = await connect(draft);
+  await again.turn("spend 98500");
+  assert.equal(await left(), 1500);
+  const step = again.after("the step label", stepLabel);
+  const building = again.turn("build wait");
+  await step();
+  await call(`/__fake/coder/${draft}/release`, {});
+  assert.equal(await building, "turn_done");
+  const [n] = await revisionFile(draft, "game.ts");
+  assert.equal(n, 1);
+  assert.equal(await left(), -500);
+  again.close();
 });

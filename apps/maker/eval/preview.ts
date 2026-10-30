@@ -261,7 +261,7 @@ const submissionEvent = (turn: Turn, event: AgentEvent) => {
   }
 };
 
-// The build's report, or why it failed: the Coder's reason, or the build tool's own (busy, the daily limit, Stop).
+// The build's report, or why it failed: the Coder's reason, or the build tool's own (busy, the Allowance used up, Stop).
 const outcome = (build: Build) => {
   const text = textOf(build.result?.content ?? []);
   const failed = !build.result || build.result.isError;

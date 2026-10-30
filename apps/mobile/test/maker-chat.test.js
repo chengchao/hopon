@@ -238,6 +238,18 @@ test("turn_failed says the game hasn't changed, and Try again re-sends the last 
   );
 });
 
+test("out of AI Gateway credits, the Maker is resting, and Try again re-sends the message", () => {
+  const failed = view(
+    snapshot({ entries: [user(1, "A cat game")] }),
+    frame({ id: 1, reason: "resting", type: "turn_failed" })
+  );
+  assert.deepEqual(
+    lines(failed).at(-1),
+    "app: The Maker is resting. Try again later."
+  );
+  assert.equal(failed.rows.at(-1).retry, "A cat game");
+});
+
 test("Stop ends the turn with Stopped, and drops the messages queued behind it", () => {
   const v = view(
     snapshot({ entries: [user(1, "A cat game")], run: {} }),
@@ -488,7 +500,7 @@ test("a build that makes a Revision drops a game card; only the latest plays, ol
   );
 });
 
-test("a build that fails, is busy or hits the daily limit drops no card; the Maker's reply says so", () => {
+test("a build that fails, is busy or finds the Allowance used up drops no card; the Maker's reply says so", () => {
   const v = view(
     snapshot({
       entries: [
@@ -506,10 +518,13 @@ test("a build that fails, is busy or hits the daily limit drops no card; the Mak
         buildResult(
           7,
           "call-2",
-          `The daily limit is reached. Tell the Creator: "You've made 10 games today; come back tomorrow."`,
+          `The weekly Allowance is used up. Tell the Creator: "You've used this week's hopon tokens. They come back when the week resets."`,
           true
         ),
-        maker(8, "You've made 10 games today; come back tomorrow."),
+        maker(
+          8,
+          "You've used this week's hopon tokens. They come back when the week resets."
+        ),
       ],
     })
   );
@@ -519,7 +534,7 @@ test("a build that fails, is busy or hits the daily limit drops no card; the Mak
     "maker: The Maker is busy. Try again in a minute.",
     "creator: Again",
     "maker: On it!",
-    "maker: You've made 10 games today; come back tomorrow.",
+    "maker: You've used this week's hopon tokens. They come back when the week resets.",
   ]);
 });
 
