@@ -50,6 +50,7 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
+    "@babel/plugin-transform-react-jsx": "^7.29.7",
     "@types/react": "^19.2.18",
     "babel-preset-expo": "~57.0.13"
   }
