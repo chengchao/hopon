@@ -145,6 +145,7 @@ const setup = async (t) => {
     DB,
     FILES: proxy.env.FILES,
     MAKER_WEEKLY_TOKENS: "3000000",
+    MIN_IOS_BUILD: "11",
     OPERATOR_PASSWORD,
     PREVIEW_SECRET,
     TALKER,
@@ -515,6 +516,13 @@ test("Clerk auth and request validation", async (t) => {
   assert.equal(await status(call("/api/games?before=NaN")), 400);
   assert.equal(await status(call("/api/drafts", options)), 201);
 });
+test("version: the minimum iOS build, signed in or not", async (t) => {
+  const { call } = await setup(t);
+  assert.deepEqual(await json(call("/api/version", { user: null })), {
+    minIosBuild: 11,
+  });
+});
+
 test("cursor pages have no duplicates", async (t) => {
   const { call, env, owner } = await setup(t);
   const insert = env.DB.prepare(

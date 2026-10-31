@@ -62,6 +62,11 @@ export interface Allowance {
   resetsAt: string;
 }
 
+/** The oldest iOS build number (CFBundleVersion) the API still serves; an older build asks to be updated. */
+export interface AppVersion {
+  minIosBuild: number;
+}
+
 /** The code on a message the Maker refuses because the Allowance is used up. */
 export const ALLOWANCE_USED = "allowance_used";
 
