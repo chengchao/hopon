@@ -42,6 +42,9 @@
     "MAKER_BUILD_ABORT_S": "150",
     // Each Creator's weekly Allowance of hopon tokens (ADR 0004): about 25 builds with chat around them.
     "MAKER_WEEKLY_TOKENS": "3000000",
+    // The oldest iOS build (CFBundleVersion) this Worker still serves: older builds that check show "Please update"
+    // (GET /api/version). Raise it when the API drops something a build relies on.
+    "MIN_IOS_BUILD": "11",
     "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
     "CLOUDFLARE_GATEWAY_ID": "default",
   },
@@ -107,6 +110,7 @@
       "MAKER_CODER_EFFORT": "low",
       "MAKER_BUILD_ABORT_S": "150",
       "MAKER_WEEKLY_TOKENS": "3000000",
+      "MIN_IOS_BUILD": "11",
       "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
       "CLOUDFLARE_GATEWAY_ID": "default",
     },
