@@ -9,7 +9,7 @@ import { getPlatformProxy, unstable_splitSqlQuery } from "wrangler";
 
 import worker from "../src/api.ts";
 import { GAME_CSP } from "../src/game.ts";
-import { charge, week } from "../src/storage.ts";
+import { charge, pruneLimits, week } from "../src/storage.ts";
 
 // Throwaway RS256 key standing in for the Clerk instance; tokens below are really signed and verified.
 const keys = await crypto.subtle.generateKey(
@@ -992,6 +992,33 @@ test("week: ISO weeks start Monday 00:00 UTC, and the last days of a year can be
   assert.equal(week(Date.parse("2027-01-03T12:00:00Z")).key, "2026-W53");
   assert.equal(week(Date.parse("2027-01-04T00:00:00Z")).key, "2027-W01");
   assert.equal(week(Date.parse("2025-12-29T00:00:00Z")).key, "2026-W01");
+});
+
+test("pruneLimits: past days' comment quotas and past weeks' Allowances go; today's and this week's stay", async (t) => {
+  const { env } = await setup(t);
+  const buckets = [
+    "comment:user_a:2026-10-29",
+    "comment:user_a:2026-10-30",
+    "user_a:2026-W43",
+    "user_a:2026-W44",
+    // The old daily build count's, from before ADR 0004.
+    "user_b:2026-10-01",
+  ];
+  await env.DB.batch(
+    buckets.map((bucket) =>
+      env.DB.prepare(
+        "INSERT INTO generation_limits (bucket, count) VALUES (?, 1)"
+      ).bind(bucket)
+    )
+  );
+  await pruneLimits(drizzle(env.DB), Date.parse("2026-10-30T00:00:00Z"));
+  const { results } = await env.DB.prepare(
+    "SELECT bucket FROM generation_limits ORDER BY bucket"
+  ).all();
+  assert.deepEqual(
+    results.map((r) => r.bucket),
+    ["comment:user_a:2026-10-30", "user_a:2026-W44"]
+  );
 });
 
 test("allowance: a model call's cost lands in its Creator's week; at zero the Maker refuses chat and builds; a new week starts full", async (t) => {

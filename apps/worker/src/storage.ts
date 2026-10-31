@@ -1,7 +1,7 @@
 // What the routes (api.ts) and the build tool (talker-build.ts) both keep: Drafts' and Games' files in R2, whose layout
 // lives only here, the Draft's box (its Coder's container), the per-account daily quotas and the Maker's weekly
 // Allowance (ADR 0004) in D1.
-import { eq, sql } from "drizzle-orm";
+import { and, eq, notLike, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 
 import { drafts, generationLimits } from "./schema.ts";
@@ -96,6 +96,21 @@ export const allowanceLeft = async (
     .get();
   return weekly - (row?.count ?? 0);
 };
+
+// Deletes every bucket but today's and this week's, which are all spend() and the Allowance read: run daily by the
+// Worker's cron (src/index.ts), or generation_limits grows by a row per account each day (#39).
+export const pruneLimits = (db: DrizzleD1Database, at = Date.now()) =>
+  db
+    .delete(generationLimits)
+    .where(
+      and(
+        notLike(
+          generationLimits.bucket,
+          `%:${new Date(at).toISOString().slice(0, 10)}`
+        ),
+        notLike(generationLimits.bucket, `%:${week(at).key}`)
+      )
+    );
 
 // One hopon token is one Haiku 5.5 input token, $0.10 a million (ADR 0004).
 const HOPON_TOKENS_PER_DOLLAR = 10_000_000;
