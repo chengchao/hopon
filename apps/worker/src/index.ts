@@ -26,7 +26,7 @@ export default {
       : app.fetch(request, env, ctx);
   },
   // The daily cron (wrangler.jsonc's triggers).
-  scheduled: async (_controller, env) => {
-    await pruneLimits(drizzle(env.DB));
+  scheduled: async (controller, env) => {
+    await pruneLimits(drizzle(env.DB), controller.scheduledTime);
   },
 } satisfies ExportedHandler<Env & { CODER_DEV?: string }>;
