@@ -1,7 +1,7 @@
 // What the routes (api.ts) and the build tool (talker-build.ts) both keep: Drafts' and Games' files in R2, whose layout
 // lives only here, the Draft's box (its Coder's container), the per-account daily quotas and the Maker's weekly
 // Allowance (ADR 0004) in D1.
-import { eq, sql } from "drizzle-orm";
+import { and, eq, notLike, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 
 import { drafts, generationLimits } from "./schema.ts";
@@ -43,8 +43,8 @@ export const killBox = async (env: Env, id: string) => {
   }
 };
 
-const today = (key: string) =>
-  `${key}:${new Date().toISOString().slice(0, 10)}`;
+// The UTC day `at` falls in, "2026-10-30".
+const day = (at = Date.now()) => new Date(at).toISOString().slice(0, 10);
 
 // Atomically counts one use against a per-account UTC-day bucket; false once `max` is reached. Failed attempts still count.
 export const spend = async (
@@ -54,7 +54,7 @@ export const spend = async (
 ) => {
   const row = await db
     .insert(generationLimits)
-    .values({ bucket: today(key), count: 1 })
+    .values({ bucket: `${key}:${day()}`, count: 1 })
     .onConflictDoUpdate({
       set: { count: sql`${generationLimits.count} + 1` },
       setWhere: sql`${generationLimits.count} < ${max}`,
@@ -95,6 +95,19 @@ export const allowanceLeft = async (
     .where(eq(generationLimits.bucket, allowanceBucket(account)))
     .get();
   return weekly - (row?.count ?? 0);
+};
+
+// Deletes every bucket but today's and this week's, which are all spend() and the Allowance read: run daily by the
+// Worker's cron (src/index.ts), or generation_limits grows by a row per account each day (#39).
+export const pruneLimits = async (db: DrizzleD1Database, at = Date.now()) => {
+  await db
+    .delete(generationLimits)
+    .where(
+      and(
+        notLike(generationLimits.bucket, `%:${day(at)}`),
+        notLike(generationLimits.bucket, `%:${week(at).key}`)
+      )
+    );
 };
 
 // One hopon token is one Haiku 5.5 input token, $0.10 a million (ADR 0004).

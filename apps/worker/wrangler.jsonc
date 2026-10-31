@@ -83,6 +83,8 @@
     { "tag": "drop-coder", "deleted_classes": ["Coder"] },
   ],
   "compatibility_flags": ["nodejs_compat"],
+  // Prunes past days' and weeks' generation_limits rows (src/storage.ts's pruneLimits).
+  "triggers": { "crons": ["0 0 * * *"] },
   // A Worker Preview of the hopon Worker for each branch but main (.github/workflows/deploy.yml runs
   // `pnpm run deploy:preview`). A Preview inherits nothing, so the bindings and vars are repeated, and
   // test/previews.test.js keeps them in step. Each Preview gets its own Talker and Coder namespaces and its own container
