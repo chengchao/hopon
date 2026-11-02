@@ -1,6 +1,10 @@
-// The Worker's entry point: the API, plus the classes Cloudflare binds by export name (the Talker and the Coder).
+// The Worker's entry point: the API and its daily cron, plus the classes Cloudflare binds by export name (the Talker and
+// the Coder).
 // api.ts stays importable in Node, where the tests run it; these need `cloudflare:workers` and pi's packages.
+import { drizzle } from "drizzle-orm/d1";
+
 import app from "./api.ts";
+import { pruneLimits } from "./storage.ts";
 
 export { DraftCoder } from "./coder.ts";
 export { Talker } from "./talker.ts";
@@ -20,5 +24,9 @@ export default {
           new Request(`http://coder${route.path}`, request)
         )
       : app.fetch(request, env, ctx);
+  },
+  // The daily cron (wrangler.jsonc's triggers).
+  scheduled: async (controller, env) => {
+    await pruneLimits(drizzle(env.DB), controller.scheduledTime);
   },
 } satisfies ExportedHandler<Env & { CODER_DEV?: string }>;
