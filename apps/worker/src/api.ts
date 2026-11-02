@@ -10,6 +10,7 @@ import {
 } from "@hopon/schemas";
 import type {
   Allowance,
+  AppVersion,
   BlockedAccounts,
   Comment,
   CommentPage,
@@ -430,6 +431,11 @@ for (const [route, code] of [
     })
   );
 }
+
+// Public: the app asks on launch whether its build is too old for this API (`AppVersion`).
+app.get("/api/version", (c) =>
+  c.json({ minIosBuild: Number(c.env.MIN_IOS_BUILD) } satisfies AppVersion)
+);
 
 app.get("/api/games", (c) =>
   run(
