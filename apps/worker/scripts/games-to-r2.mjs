@@ -52,9 +52,15 @@ const seeded = async () => {
   return memory;
 };
 
+// `--persist-to <dir>` targets the state of a `wrangler dev --persist-to <dir>` instead of the default one, as
+// .agents/skills/verify-hopon's isolated runs do.
 if (import.meta.main) {
+  const at = process.argv.indexOf("--persist-to");
   const target = await proxy({
-    path: new URL("../.wrangler/state/v3", import.meta.url).pathname,
+    path:
+      at === -1
+        ? new URL("../.wrangler/state/v3", import.meta.url).pathname
+        : `${process.argv[at + 1]}/v3`,
   });
   const { results } = await target.env.DB.prepare(
     "SELECT name FROM pragma_table_info('games') WHERE name = 'html'"
