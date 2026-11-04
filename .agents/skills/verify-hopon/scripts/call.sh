@@ -26,7 +26,8 @@ while [ $# -gt 0 ]; do
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
 done
-n=$(printf '%02d' $(($(find "$RUN/evidence" -maxdepth 1 -type f | wc -l) + 1)))
+last=$(find "$RUN/evidence" -maxdepth 1 -type f -exec basename {} \; | sed -n 's/^0*\([0-9][0-9]*\)-.*/\1/p' | sort -n | tail -1)
+n=$(printf '%02d' $((${last:-0} + 1)))
 out=$RUN/evidence/$n-$label.http
 response=$(curl "${args[@]}" "$ORIGIN$path")
 {

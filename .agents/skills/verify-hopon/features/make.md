@@ -24,19 +24,24 @@ Make is where a Creator chats with the Maker to build a game. The first message 
 Preconditions:
 
 - Baseline run, doctor healthy.
-- For preview and publish, a seeded Revision (see Gotchas).
+- For preview and publish, `$S/seed-revision.sh` gives the Draft Revision 1 and a title (see Gotchas).
 
-- **Start.** Alice sends her first idea. Run `$S/call.sh "$RUN" draft POST /api/drafts --as user_alice:alice --json '{"text":"A game with a cat"}'`. 201, `{"id":"<64 hex>","message":"<uuid>"}`.
-- **List.** Run `$S/call.sh "$RUN" drafts GET /api/drafts --as user_alice:alice`. One Draft with that id, `title:null`. Bob's list is empty.
-- **Allowance.** Run `$S/call.sh "$RUN" allowance GET /api/allowance --as user_alice:alice`. 200 with this week's remaining tokens. Compare it with `MAKER_WEEKLY_TOKENS` in `wrangler.jsonc`.
-- **No game yet.** Run `$S/call.sh "$RUN" preview-none GET /api/drafts/<id>/preview --as user_alice:alice`. 404 "This Draft has no game yet."
-- **Preview.** With a seeded Revision `1` (Gotchas), run `$S/call.sh "$RUN" preview GET /api/drafts/<id>/preview --as user_alice:alice`. A `url` of the form `/drafts/<id>/1/<exp>.<sig>/index.html`. Fetching its path with `call.sh` (no `--as`) is a 200 with the page, and changing one character of the signature makes it a 404.
-- **Publish.** With a seeded title and Revision, run `$S/call.sh "$RUN" publish POST /api/drafts/<id>/publish --as user_alice:alice`. Success, and `GET /api/games` lists the new game first, with `author:"alice"`, `mine:true` for Alice and its page served. Without a Handle (`--as user_alice`) it's a 400 "Pick your name before publishing."
-- **Delete.** Run `$S/call.sh "$RUN" draft-delete DELETE /api/drafts/<id> --as user_alice:alice`, then `GET /api/drafts`. Empty.
+- **Start.** Alice sends her first idea. Run `$S/call.sh "$RUN" draft POST /api/drafts --as user_alice:alice --json '{"text":"A game with a cat"}'`. 201, `{"id":"<64 hex>","message":"<uuid>"}`. Keep the id: `id=$(… | node -pe 'JSON.parse(require("fs").readFileSync(0)).id')`.
+- **List.** Run `$S/call.sh "$RUN" drafts GET /api/drafts --as user_alice:alice`. One Draft with that id, `title:null, description:null`. `--as user_bob:bob` gets `{"drafts":[]}`.
+- **Allowance.** Run `$S/call.sh "$RUN" allowance GET /api/allowance --as user_alice:alice`. `{"left":3000000,"resetsAt":"<next Monday 00:00Z>","weekly":3000000}`, where `weekly` is `MAKER_WEEKLY_TOKENS` in `wrangler.jsonc`. Offline, nothing spends it.
+- **No game yet.** Run `$S/call.sh "$RUN" preview-none GET /api/drafts/$id/preview --as user_alice:alice`. 404 "This Draft has no game yet." Publish (`POST /api/drafts/$id/publish`) is a 409 with the same message.
+- **Seed the Revision.** Run `$S/seed-revision.sh "$RUN" "$id" "Cat Run"`. It prints `Draft <id> has Revision 1 and title 'Cat Run'`, and it's safe to rerun.
+- **Preview.** Run `$S/call.sh "$RUN" preview GET /api/drafts/$id/preview --as user_alice:alice`. `{"url":"$ORIGIN/drafts/<id>/1/<exp>.<sig>/index.html"}`, with `exp` an hour ahead. Fetch the URL's path signed out (`$S/call.sh "$RUN" preview-page GET "<path>"`). 200, the page's HTML.
+- **Bad link.** Change the signature's first character, or set `exp` to a past time such as `1000000000`, and fetch it again. 403 "This link has expired." for both.
+- **Publish needs a Handle.** Run `$S/call.sh "$RUN" publish-nohandle POST /api/drafts/$id/publish --as user_alice`. 400 "Pick your name before publishing."
+- **Publish.** Run `$S/call.sh "$RUN" publish POST /api/drafts/$id/publish --as user_alice:alice`. 201 `{"id":<game id>}`. `GET /api/games --as user_alice:alice` then lists it first, with `title:"Cat Run", author:"alice", mine:true`. `GET /games/<game id>/index.html` is a 200, and `GET /api/drafts` is `{"drafts":[]}`, because publishing deletes the Draft.
+- **Delete one.** Start another Draft, then run `$S/call.sh "$RUN" draft-delete DELETE /api/drafts/$id2 --as user_alice:alice`. 204. Deleting it again is a 404 "Draft not found."
+- **Cap.** A Creator holds at most 20 Drafts (`MAX_DRAFTS` in `packages/schemas/index.ts`). With 20, the next `POST /api/drafts` is a 409 "Delete a Draft to start a new one." `DELETE /api/drafts` (no id) deletes them all with a 204, and `$S/sql.sh "$RUN" drafts-left "SELECT owner, count(*) n FROM drafts GROUP BY owner"` returns `[]`.
 
 ## Gotchas
 
 - The Maker's replies and builds are out of reach. The Talker's model calls need `CLOUDFLARE_API_KEY`, which this run forces empty, and builds need the Coder's Docker box (`pnpm -F worker dev:coder`). `POST /api/drafts` still returns 201, because the Talker takes the message, but no reply ever streams. Report the chat as unverified. A real build is `pnpm -F worker smoke:coder` against `dev:coder`, which makes real model calls.
-- Preview and publish need a Revision the Coder never made here. Seed it as `run-ios`'s "Other accounts' content" describes: `UPDATE drafts SET title='Cat Run' WHERE id='<id>'` with `sql.sh`, plus an Original's page put at R2 `drafts/<id>/1/index.html` with `pnpm -F worker exec wrangler r2 object put hopon/drafts/<id>/1/index.html --local --persist-to "$STATE/wrangler" --file <page>`. Fetch the page first with `call.sh … GET /games/2/index.html`. Say in the report that the Revision was seeded.
-- A Creator holds at most a few Drafts at once (`MAX_DRAFTS`); one more is a 409 "Delete a Draft to start a new one."
+- Preview and publish need a Revision, which the Coder never makes here. `seed-revision.sh` copies Odd Duck's page to R2 `drafts/<id>/1/index.html` and sets the Draft's title, the two things publish checks. Say in the report that the Revision was seeded. The published game plays Odd Duck, not the idea the Draft was started with.
+- Publish deletes the Draft, so run the Delete steps on a different Draft.
+- A preview link's failure is always a 403 "This link has expired.", whether the signature is wrong or the time has passed. A 404 means the signature was good but the file is missing.
 - Offline, Screening of the message and the publish text is skipped.

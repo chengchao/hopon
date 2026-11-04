@@ -7,10 +7,12 @@ set -euo pipefail
 run=${1:?run dir} label=${2:?label} query=${3:?SQL}
 # shellcheck disable=SC1091
 source "$run/run.env"
-n=$(printf '%02d' $(($(find "$RUN/evidence" -maxdepth 1 -type f | wc -l) + 1)))
+last=$(find "$RUN/evidence" -maxdepth 1 -type f -exec basename {} \; | sed -n 's/^0*\([0-9][0-9]*\)-.*/\1/p' | sort -n | tail -1)
+n=$(printf '%02d' $((${last:-0} + 1)))
 out=$RUN/evidence/$n-$label.sql.txt
-rows=$(cd "$WORKER" && pnpm exec wrangler d1 execute DB --local --persist-to "$STATE/wrangler" --json --command "$query" 2>/dev/null |
-  node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.stringify(JSON.parse(s).flatMap(r=>r.results),null,1)))')
+raw=$(cd "$WORKER" && node_modules/.bin/wrangler d1 execute DB --local --persist-to "$STATE/wrangler" --json --command "$query" 2>&1) ||
+  { echo "$raw" >&2; exit 1; }
+rows=$(printf '%s' "$raw" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const v=JSON.parse(s);if(!Array.isArray(v)){console.error(s);process.exit(1)}console.log(JSON.stringify(v.flatMap(r=>r.results),null,1))})')
 { echo "> $query"; echo "> at $(date -u +%FT%TZ)"; echo; echo "$rows"; } >"$out"
 echo "($out)" >&2
 echo "$rows"

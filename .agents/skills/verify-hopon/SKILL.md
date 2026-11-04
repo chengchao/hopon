@@ -112,6 +112,7 @@ All are in `scripts/`, executable, and documented in their first lines:
 | `call.sh <run> <label> …` | One recorded HTTP request. |
 | `sql.sh <run> <label> "<SQL>"` | One recorded D1 query against this run's state. |
 | `token.mjs <run> <user> [handle]` | Prints a session JWT the run accepts. |
+| `seed-revision.sh <run> <draft-id> [title]` | Gives a Draft Revision 1 (Odd Duck's page) and a title, so preview and publish can run without the Coder. |
 | `cleanup.sh <run>\|--all` | Stops the run and drops its state, keeping its evidence. |
 
 ## Isolation
