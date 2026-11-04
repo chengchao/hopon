@@ -246,7 +246,7 @@ test("a new game and a change to it end done with their files; a re-POST of a ru
 });
 
 test(
-  "music ends done with music.js; the deadline, the 13th step and cancel end failed; no box ends busy",
+  "music ends done with music.js; the deadline, the 21st step and cancel end failed; no box ends busy",
   { timeout: 60_000 },
   async (t) => {
     t.after(kill);
@@ -303,13 +303,13 @@ test(
       { reason: "past the 150 s deadline", type: "failed" },
     ]);
 
-    // Twelve steps run; the 13th is blocked and ends the job.
+    // Twenty steps run; the 21st is blocked and ends the job.
     assert.deepEqual(steps, [
-      ...Array.from({ length: 12 }, () => ({
+      ...Array.from({ length: 20 }, () => ({
         label: "Writing the game",
         type: "step",
       })),
-      { reason: "over 12 steps", type: "failed" },
+      { reason: "over 20 steps", type: "failed" },
     ]);
 
     // A box that can't start built nothing and made no model call: `busy`.

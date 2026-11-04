@@ -4,6 +4,7 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import { MAX_STEPS } from "../src/job.ts";
 import type { CoderRecord } from "./coder.ts";
 import type { TalkerRecord } from "./talker.ts";
 
@@ -15,7 +16,6 @@ const MUSIC_EXTRA_S = 30;
 // design specs that build best (94% against ~80% at low effort in the end-to-end runs).
 const TALKER_FIRST_TOKEN_S = 3;
 const TALKER_REPLY_S = 10;
-const MAX_STEPS = 12;
 const MAX_SECONDS = 300;
 const CALIBRATION_OFF_BY = 1;
 const CALIBRATION_MAX_OFF = 4;
