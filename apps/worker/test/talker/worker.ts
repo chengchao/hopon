@@ -78,7 +78,21 @@ const model = async (request: Request) => {
       { status: 402 }
     );
   }
-  const scenario = said.find((text) => text.startsWith("build "))?.slice(6);
+  // "build twice" asks for a second build once the first has answered, as a model could in one turn.
+  const asked = messages.findLastIndex(
+    ({ content, role }) =>
+      role === "user" &&
+      (typeof content === "string" ||
+        content.every((block) => block.type !== "tool_result"))
+  );
+  const twice = texts(messages[asked]?.content).includes("build twice");
+  const builds = messages
+    .slice(asked)
+    .filter(({ role }) => role === "assistant").length;
+  const scenario =
+    twice && builds < 2
+      ? "done"
+      : said.find((text) => text.startsWith("build "))?.slice(6);
   if (scenario === undefined) {
     const spend = said.find((text) => text.startsWith("spend "))?.slice(6);
     return reply(
