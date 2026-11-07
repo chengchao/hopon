@@ -147,6 +147,10 @@ const boxLog = async (draft) => {
   const response = await coder(draft, "/fake/log");
   return response.json();
 };
+const playtests = async (draft) => {
+  const commands = await boxLog(draft);
+  return commands.filter((c) => c.includes("/opt/hopon/playtest.js")).length;
+};
 const restores = async (draft) => {
   const commands = await boxLog(draft);
   return commands.filter((c) => c.includes("find /workspace -mindepth 1"))
@@ -244,6 +248,37 @@ test("a new game and a change to it end done with their files; a re-POST of a ru
   assert.deepEqual(b.at(-1), a.at(-1));
   assert.equal(await restores("draft-a"), before + 1);
 });
+
+test(
+  "a change after the last green playtest is played before it ships",
+  { timeout: 60_000 },
+  async (t) => {
+    t.after(kill);
+    t.after(() => {
+      if (!t.passed) {
+        process.stdout.write(Buffer.concat(serverLog));
+      }
+    });
+    await start();
+    const edited = await build("edit-late", "job-1", job(0, {}, "editLate"));
+    const done = edited.at(-1);
+    assert.equal(done.type, "done");
+    assert.match(done.files["game.ts"], /speed = 3/u);
+    assert.equal(done.files["game.js"], "// built 3");
+    assert.equal(await playtests("edit-late"), 2);
+
+    const broken = await build("break-late", "job-1", job(0, {}, "breakLate"));
+    assert.deepEqual(broken.at(-1), {
+      reason: "last playtest not green",
+      type: "failed",
+    });
+
+    // A job that stops right after its green playtest isn't played again.
+    const clean = await build("clean", "job-1", job(0, {}, "new"));
+    assert.equal(clean.at(-1).type, "done");
+    assert.equal(await playtests("clean"), 1);
+  }
+);
 
 test(
   "music ends done with music.js; the deadline, the 21st step and cancel end failed; no box ends busy",
