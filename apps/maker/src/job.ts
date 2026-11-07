@@ -238,6 +238,7 @@ export const finishJob = async (
     summary,
     deadlineAt,
     deadlineMs,
+    replay,
   }: {
     job: Job;
     stopped: string | undefined;
@@ -245,9 +246,16 @@ export const finishJob = async (
     summary: string;
     deadlineAt: number;
     deadlineMs: number;
+    // The last playtest's argument, when the workspace may have changed since it ran.
+    replay?: string;
   }
 ) => {
-  let reason = failure(stopped, playtests);
+  // A Revision holds what was played. A box that restarted forgot its playtests, and the run must have played again.
+  const played =
+    replay !== undefined && !stopped && playtests.length > 0
+      ? [...playtests, await boxPlaytest(box, replay)]
+      : playtests;
+  let reason = failure(stopped, played);
   if (!reason && job.spec.music) {
     reason = (await renderMusic(box)) ?? reason;
   }
