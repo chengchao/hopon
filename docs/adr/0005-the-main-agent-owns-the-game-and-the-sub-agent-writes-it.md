@@ -30,8 +30,8 @@ These facts shape the design:
 
 Two defects turned up on `main`. Neither depends on this decision.
 
-- **One build per turn isn't enforced.** `talker-build.ts` keys its guard on `live.run.taskId`, which changes every tool round. Three sequential `build` calls read 9, 14 and 18 while `live.run.inputs` stayed `[8]` (measured the same way), so only two calls in one model message are refused.
-- **A game can ship with stale code.** Only `playtest` emits `game.js` (`image/helpers.js`), and `failure` in `job.ts` looks only at the last playtest, so an `edit` after a green playtest writes a new `game.ts` and the old `game.js` into the Revision (read from the code, not reproduced).
+- **One build per turn isn't enforced.** `talker-build.ts` keys its guard on `live.run.taskId`, which changes every tool round. Three sequential `build` calls read 9, 14 and 18 while `live.run.inputs` stayed `[8]` (measured the same way, then reproduced on PiHarness in `talker.test.js`), so only two calls in one model message are refused.
+- **A game can ship with stale code.** Only `playtest` emits `game.js` (`image/helpers.js`), and `failure` in `job.ts` looks only at the last playtest, so an `edit` after a green playtest writes a new `game.ts` and the old `game.js` into the Revision (reproduced in `coder.test.js` with a fake box).
 
 ## Decision
 
@@ -185,7 +185,7 @@ If the main agent's check shows no gain for its cost, the recommendation is to s
 Each step ends in a check. Step 2 merges to `main` alone. Steps 3 to 7 stay on an integration branch until the gate passes, as #171 did.
 
 1. This ADR. Check: the owner's review.
-2. Fix the two defects on `main`, each test failing first. The stale `game.js` fix is `finishJob` emitting before it reads files back.
+2. Fix the two defects on `main`, each test failing first. The stale `game.js` fix is `finishJob` playing the workspace again when it changed after the last playtest, because emitting alone would ship code nothing played.
 3. `Maker`, with behavior unchanged apart from the names: one class, the Container on it, the sub agent as a child conversation, both container configs, `killBox`, the fake sandbox in the tests. Check: the worker tests, `smoke:coder`, and on a Preview a kill mid-build and a turn after the object hibernates with the Container still running.
 4. The control arm: the brief's criteria, the sub agent's report, the harness check, Opus and the Allowance. Check: tests, one real Opus call on a Preview, then the sweep.
 5. The pending build, its commit and `maker-wire.ts`, with one `build` per turn. Check: tests with a kill before and after each commit, Stop, a timeout, and recorded frames through the real `maker-chat.ts` reducer.
