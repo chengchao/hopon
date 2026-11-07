@@ -16,13 +16,14 @@ The owner wants one agent to own the game: it plans, reviews, verifies and deleg
 - The main agent runs on Claude Opus 5.5.
 - The Allowance rises to pay for that.
 - No new custom tools or tool parameters. What an agent should do belongs in a skill or a prompt.
-- The Creator never sees a game the main agent hasn't finished checking.
+- A game reaches the Creator only when the main agent's turn ends normally. A turn that fails, times out or stops changes nothing, even if that loses a green build.
+- The main agent is told to check every build, and the gate measures whether it does. Code doesn't force it.
 - Existing chats don't need to survive this change.
 
 These facts shape the design:
 
 - **Both objects already run the same stack.** The Talker and `DraftCoder` each run pi-durable through PiHarness, one object per Draft, in one Worker. Between them sit a job route, an NDJSON stream, a ping, a cancel route and a copy of the job's state.
-- **pi-durable has task-owned child conversations.** A child has its own model, tools, prompt and hooks. A probe ran a main and a sub agent in one Harness, with pi-durable 1.4.0's faux provider and SQLite on Node, not PiHarness on workerd. The sub agent's requests held its own model, tools and prompt and never the Creator's words. The main agent's snapshot held none of the sub agent's output. Stop ended the child at once. Closing and reopening mid-build resumed the same child, with no repeated model call.
+- **pi-durable has task-owned child conversations.** A child has its own model, tools, prompt and hooks. A probe ran a main and a sub agent in one Harness, with pi-durable 1.4.0's faux provider and SQLite on Node, not PiHarness on workerd. The sub agent's requests held its own model, tools and prompt and never the Creator's words. The main agent's snapshot held none of the sub agent's output. Stop ended the child at once. Closing and reopening mid-build resumed the same child, with no repeated model call. Two adversarial prototypes then held all of this on workerd and PiHarness, with a fake model, and one ran a real Container on an `Agent` class under local `wrangler dev`.
 - **The transcript goes to the app.** `talker.ts` sends pi's snapshot as it stands on every connect. Two screenshots as ordinary tool output took a one-review turn from 5.7 KB to 47.3 KB (measured with the faux provider and `MemoryStorage`).
 - **The main conversation outlives a build.** It lasts for the Draft, so what it reads stays in later requests unless something removes it.
 - **`build` is the app's signal.** `maker-chat.ts` shows the status row for a running `build` and draws a "tap to play" card for each non-error `build` result. It ignores every other tool.
@@ -50,7 +51,7 @@ Two defects turned up on `main`. Neither depends on this decision.
 
 The two agents differ in what they do and what they can see, and pi's per-conversation configuration carries all of that. Each is one pi extension with its own prompt and hooks, so a hook runs only for its own agent.
 
-`build` creates the child, submits the job's prompt, waits for it and passes its step labels to the status row. Stop aborts the child through pi. The job route, the NDJSON stream, the ping and the cancel route all go, and so does `session.reset()`.
+`build` creates the child, submits the job's prompt, waits for it and passes its step labels to the status row. Stop aborts the child through pi. `build` sets `executionMode: "sequential"`, because pi otherwise runs a message's tool calls in parallel, and two builds or a `build` and a `bash` would collide in the one sandbox. The job prompt says "change the game" whenever a pending build or a Revision exists, since `revision === 0` no longer means a new game. The job route, the NDJSON stream, the ping and the cancel route all go, and so does `session.reset()`.
 
 `MAKER_TALKER_MODEL` and `MAKER_CODER_MODEL` become `MAKER_MAIN_MODEL` and `MAKER_SUB_MODEL`. The tool name `build` stays, because the app reads it.
 
@@ -58,7 +59,7 @@ The two agents differ in what they do and what they can see, and pi's per-conver
 
 Both agents get the sandbox through the Harness's `env`, so they see the same files. The code stays apart from the agents as a module and Effect service, `AgentSandbox`, renamed from `coder-box.ts` and `Box`. The contract test's fake still replaces its Layer.
 
-The sandbox restores itself from R2: the pending build if there is one, otherwise the current Revision. A running job's source is the same files.
+The sandbox restores itself from R2 after a restart, a failed build or a discarded one: the pending build if there is one, otherwise the current Revision. So the main agent always reads and plays the game that will ship or the game the Creator has. A running job's source is the same files.
 
 A sandbox that restarts during a job loses what the sub agent wrote, and the harness could then pass the old game. `AgentSandbox` keeps a start count. The harness compares it with the count at the job's start and, if it changed, tells the sub agent to write its changes again.
 
@@ -86,13 +87,17 @@ That report is the author's claim. It tells the main agent where to look, and it
 
 ### The harness checks every build
 
-When the sub agent stops, its `onYield` hook typechecks, emits `game.js`, renders any music and plays the workspace as it stands, using the sub agent's last inputs or else the fixed random script. A type error, console error, frozen clock, identical screenshots or failed music render goes back to the sub agent through `continue`, at most 3 times per build. The main agent doesn't wake. A build still red after that fails.
+When the sub agent stops, its `onYield` hook renders any music and reads the source back. Then it ends every process left in the sandbox, clears the workspace and the home directory, and writes the source back, so nothing a model left behind can touch the result. In that clean sandbox it typechecks, emits `game.js` and plays the game twice: with the sub agent's last inputs, and with the fixed random script, because a model's inputs can miss a crash.
 
-This step runs whatever a model decides, and no model can pass it by claiming success. It keeps #122's rule that a game that doesn't run never becomes a Revision, and it closes the stale `game.js` defect. It answers only "does the game run", and the two agents answer whether it is the right game.
+These commands run from `argv` with full paths such as `/usr/local/bin/node`, with no shell. Today's `bash -lc` runs `~/.bash_profile`, and a prototype on the real image passed a game that throws by planting a fake `node` there. Each command takes the turn's abort signal, so Stop and the timer don't wait for it.
+
+A type error, console error, frozen clock, identical screenshots or failed music render goes back to the sub agent through `continue`, at most 3 times per build. The main agent doesn't wake. A build still red after that fails.
+
+This step runs whatever a model decides, and no model can pass it by claiming success. The pending build holds exactly the bytes it played. It keeps #122's rule that a game that doesn't run never becomes a Revision, and it closes the stale `game.js` defect. It answers only "does the game run", and the two agents answer whether it is the right game.
 
 ### The main agent verifies with a skill
 
-`verify-game` lives with the other skills in `agent-home/.agents/skills/`, in a manifest only the main agent sees. The main agent loads it after a successful `build`. It says to:
+`verify-game` lives with the other skills in `agent-home/.agents/skills/`, in a manifest only the main agent sees. `skills()` always names its extension `agents.skills` and a second install replaces the first, so each agent's is renamed. The main agent loads it after a successful `build`. It says to:
 
 1. Read the sub agent's report, but don't rely on it. Read `game.ts` against the design and the criteria, and find the coordinates of the controls.
 2. Run `node /opt/hopon/playtest.js '{"inputs":[...],"ms":...}'` with inputs written for those controls. Runs at different lengths show different moments.
@@ -100,11 +105,11 @@ This step runs whatever a model decides, and no model can pass it by claiming su
 4. If the game meets the design, reply to the Creator. If it doesn't, call `build` with what is wrong, what it should do, new criteria, and "Keep everything else."
 5. Write nothing to the Creator during the check, and change code only through `build`.
 
-A skill can be skipped, so the gate counts how often the main agent actually loads it and plays the game. If that falls short, the `build` result can carry a reminder.
+A skill can be skipped. The `build` result says to load it and play the game before replying, and the gate counts how often the main agent does. A turn that skips the check still commits, and that game has passed the sub agent's check and the harness's. So this rule means the main agent is told to check and is measured on it. Code can't tell whether a model looked at what it ran, so no code stands behind it.
 
 The main agent's `read` and `bash` work on every turn, because reading the code first makes a change brief more exact. The prompt says to use them in chat only when the Creator's request needs them.
 
-The main agent can't ship its own edits, even though `bash` can write and the sandbox can't stop it, since `exec`'s `user` restricts nothing under the `durable_object` policy. Each job rewrites the workspace from its source, and a Revision holds only what a job's ending read back.
+The main agent can't ship its own edits, even though `bash` can write and the sandbox can't stop it, since `exec`'s `user` restricts nothing under the `durable_object` policy. Each job and each harness check starts by ending every process and rewriting the workspace, and a Revision holds only what the check played.
 
 ### A build takes effect when the turn ends
 
@@ -115,34 +120,38 @@ How the turn ends decides what happens to the pending build:
 | Ending | What happens |
 | --- | --- |
 | The main agent gives its final reply | The pending build becomes the next Revision, in the main agent's `onYield`, before the reply is saved |
-| The Creator presses Stop | The pending build is deleted, so "Your game hasn't changed" is true |
-| The turn's time runs out, or a model call fails | The pending build becomes the next Revision, so a green game isn't lost. The app's message must not say the game is unchanged |
+| The Creator presses Stop, the turn's time runs out, the tool limit is hit, or a model call fails | The pending build is deleted, so "Your game hasn't changed" is true, in old apps too |
 
-The commit is safe to repeat, keyed on the `build` call's id. A pending build left by a crash settles the same way when the object restarts, and `busy` answers true while one exists, so Publish waits.
+Once a commit starts, Stop and the timer wait for it, so the turn ends normally and the app's message stays true. The commit is safe to repeat, keyed on the `build` call's id. A pending build left by a crash is deleted when the object restarts unless its commit had started, and `busy` answers true while one exists, so Publish waits.
+
+A commit that fails ends the turn as failed and deletes the pending build, since pi swallows an `onYield` error and would otherwise report success with no Revision. A reply already streamed stays on screen in that rare case.
+
+Deleting a Draft removes `pending/<draftId>/` too. `Maker`'s delete action destroys the Container before it destroys itself, and `killBox` goes, because calling the object again after `destroy()` made Delete and Publish return 500 on a real Container.
 
 The main agent has no way to reject a green build outright. If it runs out of builds while unhappy, the last green build still becomes a Revision and it says so plainly. That is no worse than today, where every green build ships.
 
 ### What reaches the app
 
-`maker-wire.ts`, a pure function on every snapshot and batch, removes `read` and `bash` output, images and thinking. It also holds back each `build` result until its call id is in the list of committed builds, so a card appears only for a real Revision. A pending result from a stopped turn never draws one.
+`maker-wire.ts`, a pure function on every snapshot and batch, removes `read` and `bash` calls and output, review text, images, thinking and the `build` brief. It also holds back each `build` result until its call id is in the list of committed builds, so a card appears only for a real Revision. A pending result from a stopped turn never draws one.
 
 The status row keeps running during the check, which takes one small change in `maker-chat.ts`, sent by EAS Update. An app without the update shows no status row during the check and still works.
 
 ### What reaches the model
 
-A `beforeRequest` hook removes `read` and `bash` output and images from earlier builds in each request. pi uses the hook's messages for that request and doesn't save them. It also marks a `build` result that Stop discarded, so the main agent doesn't believe the game changed.
+A `beforeRequest` hook removes `read` and `bash` output and images from earlier builds in each request. pi uses the hook's messages for that request and doesn't save them. It also marks a `build` result that was discarded, so the main agent doesn't believe the game changed, and it tells a new chat the Draft's current title and description, so a later `build` doesn't rename the game.
 
 ### The budgets
 
 | Budget | Value | Enforced by |
 | --- | --- | --- |
-| A turn with a build | 300 s from the first `build`, music included | An abort timer on `Maker`, armed for the whole turn and re-armed on restart |
-| A sub agent job | Ends at 270 s from the first `build` | A timer on `Maker` |
+| Any turn | 300 s from its start, music included | An abort timer on `Maker`, armed at `run_start` and re-armed on restart |
+| A sub agent job | Ends 30 s before the turn does | A timer on `Maker` |
 | Starting another `build` | At least 60 s left | `build` |
 | Builds per turn | 3, keyed on `live.run.inputs[0]` | `build` |
 | Sub agent steps | 20 per job | The sub agent's `beforeTool` |
 | Harness repairs | 3 per build | The sub agent's `onYield` |
-| Main agent tool calls | 20 per turn | The main agent's `beforeTool` |
+| Main agent tool calls | 20 per turn; the 21st ends the turn | The main agent's `beforeTool` |
+| One `bash` call | The time left, at most 120 s | The main agent's `beforeTool` |
 | Allowance | 40,000,000 hopon tokens a week, checked at the turn's start and at each `build` | `build` and the API |
 
 The main agent's tool limit also bounds sandbox time, which ADR 0004 doesn't charge for, and how far a turn can overshoot the Allowance.
@@ -186,10 +195,10 @@ Each step ends in a check. Step 2 merges to `main` alone. Steps 3 to 7 stay on a
 
 1. This ADR. Check: the owner's review.
 2. Fix the two defects on `main`, each test failing first. The stale `game.js` fix is `finishJob` playing the workspace again when it changed after the last playtest, because emitting alone would ship code nothing played.
-3. `Maker`, with behavior unchanged apart from the names: one class, the Container on it, the sub agent as a child conversation, both container configs, `killBox`, the fake sandbox in the tests. Check: the worker tests, `smoke:coder`, and on a Preview a kill mid-build and a turn after the object hibernates with the Container still running.
-4. The control arm: the brief's criteria, the sub agent's report, the harness check, Opus and the Allowance. Check: tests, one real Opus call on a Preview, then the sweep.
-5. The pending build, its commit and `maker-wire.ts`, with one `build` per turn. Check: tests with a kill before and after each commit, Stop, a timeout, and recorded frames through the real `maker-chat.ts` reducer.
-6. `read` and `bash`, `verify-game`, up to 3 builds, the `beforeRequest` hook and the main agent's tool limit. Check: tests, and one real review on a Preview.
+3. `Maker`, with behavior unchanged apart from the names: one class, the Container on it, the sub agent as a child conversation, both container configs, the delete path, the fake sandbox in the tests. Check: the worker tests, `smoke:coder`, Delete and Publish on a real Container, and on a Preview a kill mid-build and a turn after the object hibernates with the Container still running.
+4. The control arm: the brief's criteria, the sub agent's report, the harness check, Opus and the Allowance. Check: tests including a planted `~/.bash_profile`, a background process and a game that crashes only under random taps; one real Opus call on a Preview; then the sweep.
+5. The pending build, its commit and `maker-wire.ts`, with one `build` per turn. Check: tests with a kill before and after each commit, Stop during a commit, a failed commit, a timeout, Delete with a pending build, and recorded frames through the real `maker-chat.ts` reducer.
+6. `read` and `bash`, `verify-game`, up to 3 builds, the `beforeRequest` hook and the main agent's limits. Check: tests including two `build` calls in one message and a `build` with a `bash`, the snapshot bar, and one real review on a Preview.
 7. The treatment sweep, then the owner's blind score and decision.
 8. The switch to production, in two deploys, because Cloudflare refuses to delete a class in the deploy that moves its binding (code 10061): the first adds `Maker`, the second deletes `Talker` and `DraftCoder`. The owner confirms the second, since it can't be undone.
 
@@ -203,18 +212,21 @@ Each step ends in a check. Step 2 merges to `main` alone. Steps 3 to 7 stay on a
 - **The harness produces evidence and the main agent rules on it, seeing no code.** It spends fewer tokens, but two stills and some numbers can't tell the main agent whether the design was built. It assumed a tight clock that the owner has removed.
 - **The Revision and card appear as soon as `build` succeeds.** No held state and an earlier first play, but the Creator can play a game the main agent hasn't checked.
 - **Hide the card but write the Revision.** The preview route and Play's reload pill would still show the unchecked game.
+- **Commit the pending build when the turn fails or times out.** A green game isn't lost, but the Creator gets a game the main agent never finished checking, next to a message saying nothing changed.
+- **Remind the main agent, then discard, if it replies without playing the game.** Stronger on paper, but its "done" has already streamed, a discard then contradicts it, and code can only see that `playtest.js` ran, not that the model read the result. The next step if the gate's 90% fails.
 - **Keep existing chats with `renamed_classes`.** The owner doesn't need them, and a new class avoids moving a Container application in place, which ADR 0003's migration found Cloudflare refuses.
 
 ## Consequences
 
 - Every Draft's chat is lost when `Talker` is deleted. Revisions in R2 and rows in D1 stay, so a Draft keeps its game and starts a new chat, and the main agent can read the game's code.
+- A failure late in a turn throws away a green build, and the Creator has to try again and pay for it again.
 - Creators wait longer on builds the main agent sends back, up to 5 minutes, and see nothing playable until the turn ends. The first play comes later on every build.
 - `Maker` holds the sockets, both agents and the Container in one object. A crash in a build also drops the Creator's socket, which the app already reconnects. Whether a Container on an `Agent` object hibernates as the Talker does today is unknown, and step 3 tests it before anything else builds on it.
 - A game is checked three ways: the sub agent against its criteria, the harness for whether it runs, and the main agent against the design. The first and third overlap on purpose, because an author's report isn't independent. The gate shows whether that overlap earns its cost.
 - Costs rise about 13 times per build by the estimate above, and only the check's share depends on the gate. The prepaid AI Gateway credits stay the backstop (ADR 0004).
 - The sub agent still never reads the Creator's words, but that rule no longer keeps those words away from a shell. The sandbox's isolation does.
 - Model-written code and pixels now reach the main agent and can carry instructions. Only the Creator can steer them, and that Creator already talks to the main agent.
-- The main agent's verification rests on a model following a skill, and the engine and criteria rest on it following its prompt. The harness's check can't be skipped.
+- The main agent's check rests on a model following a skill, and the engine and criteria rest on it following its prompt. A turn can skip the check, and the gate is what catches that. The harness's check can't be skipped.
 - The main agent holds more context, which may lower chat quality, and its chats already pass only 69%.
 - A build in flight at the switch is lost. Traffic is small enough to accept that (a guess).
 - ADR 0003 and the eval's results keep the old names as history.
@@ -223,7 +235,7 @@ Each step ends in a check. Step 2 merges to `main` alone. Steps 3 to 7 stay on a
 
 - A Container on `Maker` costs more or hibernates worse than two objects did.
 - The blind score shows the main agent's rejections are mostly wrong, or its chats fall.
-- The main agent skips `verify-game` often enough that a skill isn't enough.
+- The main agent plays the game in under 90% of builds, which calls for the reminder under "Considered".
 - The sweep's cost per build differs much from this ADR's guess, which changes the Allowance.
 - A cheaper model reviews as well, since Opus is the largest part of a build's cost.
 - The harness can record a video of play, because the main agent could then judge how a game plays.
