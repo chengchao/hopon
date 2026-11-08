@@ -469,11 +469,12 @@ export const boxEnv = (box: BoxOps, id: string): ExecutionEnv => {
 };
 
 // The game rules' Box: commands in the workspace under the command timeout, their output whatever the exit code.
-export const jobBox = (box: BoxOps): JobBox => ({
+// An abort of `signal` stops the command and everything it started.
+export const jobBox = (box: BoxOps, signal?: AbortSignal): JobBox => ({
   read: (file) => readText(box.files, file),
   readBytes: (file) => readBytes(box.files, file),
   run: async (command) => {
-    const result = await box.exec(timed(["bash", "-lc", command]));
+    const result = await box.exec(timed(["bash", "-lc", command]), { signal });
     return { ...result, stdout: decode(result.stdout) };
   },
   write: (file, text) => write(box.files, file, text),

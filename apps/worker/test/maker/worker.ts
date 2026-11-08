@@ -1,6 +1,6 @@
 // The Worker for test/maker.test.js: the real API and Maker (src/maker.ts), with the model and the sandbox faked.
 // - The model: every model call ends at globalThis.fetch, which answers Cloudflare's /ai/v1/messages here, as a
-//   scripted Anthropic stream. The gateway tag says which agent calls.
+//   scripted Anthropic stream, from the agent whose conversation sent it (the job prompt in its first message says so).
 //   - The main agent: a message "build <script>" calls `build` with the script's name as the brief (with music when the
 //     name says so); "build twice" builds `new`, then asks for a second build in the same turn. Anything else gets a
 //     text reply that repeats what the model was last sent, a tool's result included. Each call reads 1,000 input
@@ -14,8 +14,10 @@
 // - The deadline: the "late" scripts' is 1 s, so their case is quick; the reason still names the job's real deadline.
 // /__maker/<draftId>/fake/<what> (MAKER_DEV's route) reaches the Draft's Maker: `log` returns the box's commands, and
 // its start, destroy and inactivity timeout; `release` lets a held step answer; `nobox` stops the box and makes its
-// next start fail; `lose` makes the box stop with the server, as a box on another host would; `calls` counts the sub agent's model
-// calls; `destroyed` says whether the Draft's box was destroyed.
+// next start fail; `lose` makes the box stop with the server, as a box on another host would; `stopbox` stops it once;
+// `slowreads/<ms>` and `slowplay/<ms>` slow its reads and its next playtest; `calls` counts the sub agent's model calls;
+// `mistagged` counts calls whose gateway tag names the wrong agent; `destroyed` says whether the Draft's box was
+// destroyed, and `startsafterdestroy` how often it started after that.
 import { Effect, Layer } from "effect";
 
 import { AgentSandbox, NoBox } from "../../src/agent-sandbox.ts";
@@ -58,6 +60,8 @@ const SCRIPTS: Record<string, readonly Step[] | ((turn: number) => Step)> = {
     play,
     { text: "Made it faster." },
   ],
+  // The object resets after the job's state is written and before its prompt is submitted.
+  crashset: [write, play, { text: "Built it after a reset." }],
   // Changes the game after a green playtest and stops: the ending must play what it ships.
   editLate: [write, play, edit("speed = 3"), { text: "Made it faster." }],
   // Runs a command until it's stopped.
@@ -163,6 +167,10 @@ const gate = (draftId: string) => {
 const subCalls = new Map<string, number>();
 // The Drafts whose box was destroyed, outside the Maker's storage, which a Delete removes.
 const destroyed = new Set<string>();
+// Box starts after a Draft's box was destroyed, and main agent calls tagged as the sub agent's (or the reverse).
+const startsAfterDestroy = new Map<string, number>();
+const mistagged = new Map<string, number>();
+const crashed = new Set<string>();
 
 const MAIN = { input: 1000, output: 0 };
 const SUB = { input: 1, output: 1 };
@@ -242,14 +250,18 @@ const sub = async (request: Request, draftId: string, messages: Message[]) => {
   return say(step.text, SUB);
 };
 
+// Calls go to the agent whose conversation sent them, which the job prompt in the first message shows, and a gateway
+// tag that says otherwise is counted.
 const model = async (request: Request) => {
   const { agent, draftId } = JSON.parse(
     request.headers.get("cf-aig-metadata") ?? "{}"
   ) as { agent: string; draftId: string };
   const { messages } = await request.json<{ messages: Message[] }>();
-  return agent === "coder"
-    ? await sub(request, draftId, messages)
-    : main(messages);
+  const isSub = /Brief: \w+/u.test(JSON.stringify(messages[0]));
+  if (isSub !== (agent === "coder")) {
+    mistagged.set(draftId, (mistagged.get(draftId) ?? 0) + 1);
+  }
+  return isSub ? await sub(request, draftId, messages) : main(messages);
 };
 
 const upstream = globalThis.fetch;
@@ -369,6 +381,21 @@ export class Maker extends RealMaker {
         live();
         const command = argv.join(" ");
         log(command);
+        // A slow playtest, once: it runs `fakebox:slowplay` ms, or until it's aborted.
+        const slow = kv.get<number>("fakebox:slowplay");
+        if (slow && command.includes("/opt/hopon/playtest.js")) {
+          kv.delete("fakebox:slowplay");
+          const ended = Promise.withResolvers<Exec>();
+          const timer = setTimeout(
+            () => ended.resolve(fakeExec(command)),
+            slow
+          );
+          options?.signal?.addEventListener("abort", () => {
+            clearTimeout(timer);
+            ended.resolve({ exitCode: 143, stderr: "", stdout: encode("") });
+          });
+          return ended.promise;
+        }
         if (command.includes("sleep 600")) {
           // Ends only when aborted.
           const ended = Promise.withResolvers<Exec>();
@@ -399,8 +426,14 @@ export class Maker extends RealMaker {
             }))
           );
         },
-        readFile: (path) =>
-          Promise.resolve(new Response(get(path, "readFile"))),
+        // A slow box answers reads after `fakebox:slowreads` ms.
+        readFile: async (path) => {
+          const slow = kv.get<number>("fakebox:slowreads");
+          if (slow) {
+            await scheduler.wait(slow);
+          }
+          return new Response(get(path, "readFile"));
+        },
         remove: (path) => {
           live();
           for (const p of paths()) {
@@ -430,6 +463,12 @@ export class Maker extends RealMaker {
           return Effect.fail(new NoBox());
         }
         log("start");
+        if (destroyed.has(this.name)) {
+          startsAfterDestroy.set(
+            this.name,
+            (startsAfterDestroy.get(this.name) ?? 0) + 1
+          );
+        }
         wipe();
         setRunning(true);
         return Effect.void;
@@ -437,11 +476,33 @@ export class Maker extends RealMaker {
     });
   }
 
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // The "crashset" job: the object resets after the job's state is written and before pi takes its prompt.
+    const harness = this.harness as unknown as {
+      enqueue: (...args: unknown[]) => Promise<unknown>;
+    };
+    const enqueue = harness.enqueue.bind(harness);
+    harness.enqueue = async (...args: unknown[]) => {
+      if (
+        JSON.stringify(args[1]).includes("Brief: crashset") &&
+        !crashed.has(this.name)
+      ) {
+        crashed.add(this.name);
+        await this.ctx.storage.sync();
+        console.info(`Maker ${this.name}: reset before the submit`);
+        this.ctx.abort("reset before the submit");
+      }
+      return await enqueue(...args);
+    };
+  }
+
   // The restart test waits for this line: a job pi finished with nobody connected.
   override async finish(...args: Parameters<RealMaker["finish"]>) {
+    const brief = this.job?.job.spec.brief;
     const event = await super.finish(...args);
     console.info(
-      `Maker ${this.name}: job ${args[0].job.spec.brief} ${event.type}`,
+      `Maker ${this.name}: job ${brief} ${event.type}`,
       event.type === "failed" ? event.reason : ""
     );
     return event;
@@ -449,14 +510,11 @@ export class Maker extends RealMaker {
 
   override armDeadline(...args: Parameters<RealMaker["armDeadline"]>) {
     const [state] = args;
-    const { job } = this;
-    if (job && state.job.spec.brief.startsWith("late") && !job.stopped) {
+    if (state.job.spec.brief.startsWith("late")) {
       const deadlineAt = Math.min(state.deadlineAt, Date.now() + 1000);
-      this.job = { ...job, deadlineAt };
-      super.armDeadline({ ...state, deadlineAt });
-      return;
+      return super.armDeadline({ ...state, deadlineAt });
     }
-    super.armDeadline(state);
+    return super.armDeadline(state);
   }
 
   override onRequest(request: Request) {
@@ -467,6 +525,27 @@ export class Maker extends RealMaker {
     }
     if (pathname === "/fake/destroyed") {
       return Promise.resolve(Response.json(destroyed.has(this.name)));
+    }
+    if (pathname === "/fake/startsafterdestroy") {
+      return Promise.resolve(
+        Response.json(startsAfterDestroy.get(this.name) ?? 0)
+      );
+    }
+    if (pathname === "/fake/mistagged") {
+      return Promise.resolve(Response.json(mistagged.get(this.name) ?? 0));
+    }
+    // The box's reads or its next playtest take this many ms: /fake/slowreads/<ms>, /fake/slowplay/<ms>.
+    const slow = /^\/fake\/(?<what>slowreads|slowplay)\/(?<ms>\d+)$/u.exec(
+      pathname
+    )?.groups;
+    if (slow?.what && slow.ms) {
+      kv.put(`fakebox:${slow.what}`, Number(slow.ms));
+      return Promise.resolve(new Response(null, { status: 204 }));
+    }
+    // The box stops, as an idle or crashed one does; the next start works.
+    if (pathname === "/fake/stopbox") {
+      kv.put("fakebox:running", false);
+      return Promise.resolve(new Response(null, { status: 204 }));
     }
     if (pathname === "/fake/calls") {
       return Promise.resolve(Response.json(subCalls.get(this.name) ?? 0));

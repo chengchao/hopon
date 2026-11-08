@@ -454,6 +454,9 @@ test(
     assert.deepEqual(await json("/api/drafts"), { drafts: [] });
     socket.close();
 
+    // Every model call was tagged with the agent that made it.
+    assert.equal(await fakeJson(draft, "mistagged"), 0);
+
     // A second build in one turn is refused, even in a later tool round, and the next turn can build.
     const { id: twice } = await json("/api/drafts", { text: "build twice" });
     socket = await connect(twice);
@@ -504,6 +507,98 @@ test(
     const preview = await call(`/api/drafts/${draft}/preview`);
     assert.equal(preview.status, 404);
     socket.close();
+  }
+);
+
+test(
+  "races: Stop, the timer, Delete and restarts each end only their own job",
+  { timeout: 240_000 },
+  async (t) => {
+    await migrate();
+    await serve(t);
+    const { id: draft } = await json("/api/drafts", { text: "build new" });
+    let socket = await connect(draft);
+    await socket.until("the first turn's end", over);
+
+    // Stop while the stopped job's ending is slow, then build at once: the new job runs as if alone, and fails at its
+    // own deadline.
+    let step = socket.after("the step label", stepLabel);
+    let stopped = socket.turn("build wait");
+    await step();
+    await fake(draft, "slowreads/300");
+    await call(`/api/drafts/${draft}/stop`, {});
+    assert.equal(await stopped, "turn_failed");
+    assert.equal(await socket.turn("build change"), "turn_done");
+    assert.equal(await lastReply(draft), "said: Made it faster.");
+    assert.equal(await revisionOf(draft), 2);
+    step = socket.after("the step label", stepLabel);
+    stopped = socket.turn("build wait");
+    await step();
+    await call(`/api/drafts/${draft}/stop`, {});
+    assert.equal(await stopped, "turn_failed");
+    assert.equal(await socket.turn("build late"), "turn_done");
+    assert.match(
+      await lastReply(draft),
+      /The build failed: past the 120 s deadline/u
+    );
+    await fake(draft, "slowreads/0");
+
+    // Stop during a playtest that would run 20 s: the playtest is aborted, and the turn ends at once.
+    await fake(draft, "slowplay/20000");
+    step = socket.after("the step label", stepLabel);
+    stopped = socket.turn("build new");
+    await step();
+    await sleep(300);
+    const at = Date.now();
+    await call(`/api/drafts/${draft}/stop`, {});
+    assert.equal(await stopped, "turn_failed");
+    assert.ok(Date.now() - at < 3000, `Stop took ${Date.now() - at} ms`);
+
+    // The box stops after the green playtest: the job's playtests went with it, so the job fails and nothing changes.
+    step = socket.after("the step label", stepLabel);
+    const held = socket.turn("build wait");
+    await step();
+    await sleep(300);
+    await fake(draft, "stopbox");
+    await fake(draft, "release");
+    assert.equal(await held, "turn_done");
+    assert.match(await lastReply(draft), /The build failed: never playtested/u);
+    assert.equal(await revisionOf(draft), 2);
+
+    // A reset after the job's state is written and before its prompt is submitted: the rerun submits it.
+    socket.close();
+    const from = Buffer.concat(serverLog).length;
+    await send(draft, "build crashset");
+    await logged(from, "reset before the submit");
+    await sleep(1000);
+    socket = await connect(draft);
+    await logged(from, `Maker ${draft}: job crashset done`);
+    await socket.until("the turn's end after the reset", over);
+    assert.equal(await revisionOf(draft), 3);
+
+    // Every model call was tagged with the agent that made it.
+    assert.equal(await fakeJson(draft, "mistagged"), 0);
+
+    // Delete during a slow playtest: it answers at once, and the box never starts again.
+    await fake(draft, "slowplay/20000");
+    step = socket.after("the step label", stepLabel);
+    const deleting = socket.turn("build new");
+    await step();
+    await sleep(300);
+    const before = Date.now();
+    const deleted = await fetch(`${ORIGIN}/api/drafts/${draft}`, {
+      headers: { Authorization: `Bearer ${await token("user_maker")}` },
+      method: "DELETE",
+    });
+    assert.equal(deleted.status, 204);
+    assert.ok(
+      Date.now() - before < 3000,
+      `Delete took ${Date.now() - before} ms`
+    );
+    deleting.catch(() => {});
+    socket.close();
+    await sleep(3000);
+    assert.equal(await fakeJson(draft, "startsafterdestroy"), 0);
   }
 );
 

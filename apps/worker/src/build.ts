@@ -188,7 +188,8 @@ export const buildTool = (
       const names = await listRevision(env.FILES, current);
       const source = await readSource(env.FILES, current, names);
       const jobId = `${draftId}-${api.callId}`;
-      // The sub agent's conversation, owned by this call: a rerun finds it, and it goes when the call ends.
+      // The sub agent's conversation, owned by this call, so a rerun finds it. pi 1.4 can't delete a conversation, so
+      // each build's stays in the Draft's storage until Delete.
       const conversation = await api.commit(async (tx) => {
         const {
           items: [owned],
