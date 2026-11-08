@@ -89,11 +89,16 @@ interface JobState {
   deadlineAt: number;
   steps: number;
   playtests: PlaytestResult[];
+  // The last playtest's argument, and whether a tool may have changed the workspace since.
+  played?: string;
+  changed?: boolean;
   // Why it was stopped: the deadline, the step limit or a cancel.
   stopped?: string;
 }
 
 type Line = CoderEvent | { type: "ping" };
+
+const CHANGES_WORKSPACE = new Set(["bash", "edit", "write"]);
 
 const text = (content: readonly { type: string; text?: string }[]) =>
   content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
@@ -210,6 +215,7 @@ export class DraftCoder extends DurableObject<Env> {
       deadlineMs: deadlineFor(state.job),
       job: state.job,
       playtests: state.playtests,
+      replay: state.changed ? state.played : undefined,
       stopped: state.stopped,
       summary: summary.trim(),
     });
@@ -222,13 +228,16 @@ export class DraftCoder extends DurableObject<Env> {
       "Typecheck and play the game in headless Chromium (360×640): loads it, taps the centre to start, runs your inputs, and returns the result with screenshots of the start and the end.",
     execute: async ({ inputs }) => {
       const box = jobBox(this.box);
-      const result = await boxPlaytest(
-        box,
-        JSON.stringify({ inputs: inputs ?? [] })
-      );
+      const played = JSON.stringify({ inputs: inputs ?? [] });
+      const result = await boxPlaytest(box, played);
       const { job } = this;
       if (job) {
-        this.job = { ...job, playtests: [...job.playtests, result] };
+        this.job = {
+          ...job,
+          changed: false,
+          played,
+          playtests: [...job.playtests, result],
+        };
       }
       this.emit({
         errors: [...result.typeErrors, ...result.errors],
@@ -265,7 +274,11 @@ export class DraftCoder extends DurableObject<Env> {
         return;
       }
       const steps = job.steps + 1;
-      this.job = { ...job, steps };
+      this.job = {
+        ...job,
+        changed: job.changed || CHANGES_WORKSPACE.has(call.name),
+        steps,
+      };
       if (steps > MAX_STEPS) {
         this.stop(`over ${MAX_STEPS} steps`);
         return { block: `Over the ${MAX_STEPS}-step limit.` };

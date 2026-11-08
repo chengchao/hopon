@@ -370,6 +370,20 @@ test("build: a message makes and changes the game as Revisions in R2; failures, 
   assert.equal(await game.text(), "// revision 4");
   assert.deepEqual(await json("/api/drafts"), { drafts: [] });
   socket.close();
+
+  // A second build in one turn is refused, even in a later tool round, and the next turn can build.
+  const { id: twice } = await json("/api/drafts", { text: "build twice" });
+  socket = await connect(twice);
+  await socket.until("the two-build turn's end", over);
+  calls = await coderCalls(twice);
+  assert.equal(calls.length, 1);
+  const [afterTwo] = await revisionFile(twice, "game.ts");
+  assert.equal(afterTwo, 1);
+  assert.match(await lastReply(twice), /Only one build per message/u);
+  assert.equal(await socket.turn("build done"), "turn_done");
+  const [nextTurn] = await revisionFile(twice, "game.ts");
+  assert.equal(nextTurn, 2);
+  socket.close();
 });
 
 // The Allowance (ADR 0004) is 100,000 hopon tokens here (test/talker/wrangler.jsonc), and each fake model call reads
