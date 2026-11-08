@@ -29,7 +29,7 @@ import { judgeCoder } from "./judge.ts";
 import { judgeChat, turnRecord } from "./talker.ts";
 import type { Chat } from "./talker.ts";
 
-// A Revision's files (talker-build.ts writes them to R2), and the ones a job carries.
+// A Revision's files (the Worker's build.ts writes them to R2), and the ones a job carries.
 const REVISION_FILES = ["index.html", "game.ts", "game.js", "music.mjs", MUSIC];
 const SOURCE_FILES = ["game.ts", "index.html", "music.mjs"];
 const PLAYTEST = path.join(import.meta.dirname, "..", "image", "playtest.js");

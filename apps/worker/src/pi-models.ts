@@ -1,6 +1,6 @@
-// How the Talker and the Coder reach their model (#136): pi-ai's Anthropic API, whose `fetch` hands each request to
-// modelFetch in-process, which adds the key, routes the model and tags the call for the gateway's logs. The key pi
-// wants is never sent.
+// How the main and sub agents reach their models (#136, ADR 0005): pi-ai's Anthropic API, whose `fetch` hands each
+// request to modelFetch in-process, which adds the key, routes the model and tags the call for the gateway's logs. The
+// key pi wants is never sent.
 import type { FetchFunction } from "@earendil-works/pi-ai";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { createModels, createProvider } from "@earendil-works/pi-ai/models";
@@ -19,7 +19,7 @@ const MODELS_URL = "http://models.internal/anthropic";
 // rejects (apps/maker/src/models.ts). `metadata` is read per request, so a call is tagged with the job it serves.
 export const piModels = (
   env: Env,
-  model: keyof typeof CLOUDFLARE_AI_GATEWAY_MODELS,
+  ids: readonly (keyof typeof CLOUDFLARE_AI_GATEWAY_MODELS)[],
   metadata: () => ModelCall["metadata"]
 ) => {
   const api = anthropicMessagesApi();
@@ -45,22 +45,20 @@ export const piModels = (
         },
       },
       id: "anthropic",
-      models: [
-        {
-          ...CLOUDFLARE_AI_GATEWAY_MODELS[model],
-          baseUrl: MODELS_URL,
-          provider: "anthropic",
-        },
-      ],
+      models: [...new Set(ids)].map((id) => ({
+        ...CLOUDFLARE_AI_GATEWAY_MODELS[id],
+        baseUrl: MODELS_URL,
+        provider: "anthropic",
+      })),
     })
   );
   return models;
 };
 
-// Every model call of the Talker and the Coder counts against the Draft owner's Allowance (ADR 0004), at pi's price
-// for the response. pi awaits it before going on, so a turn's cost has landed by the time the turn ends. A charge that
-// fails is logged, never the turn's failure. ponytail: a call Stop aborts mid-stream never reaches afterResponse, so it
-// costs nothing; charge from the stream's own result if that leak ever matters.
+// Every model call of both agents counts against the Draft owner's Allowance (ADR 0004), at pi's price for the response.
+// pi awaits it before going on, so a turn's cost has landed by the time the turn ends. A charge that fails is logged,
+// never the turn's failure. ponytail: a call Stop aborts mid-stream never reaches afterResponse, so it costs nothing;
+// charge from the stream's own result if that leak ever matters.
 export const metered = (env: Env, draftId: () => string) =>
   hook(GenerationTask, {
     afterResponse: async (message) => {

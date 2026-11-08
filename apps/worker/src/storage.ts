@@ -1,6 +1,5 @@
-// What the routes (api.ts) and the build tool (talker-build.ts) both keep: Drafts' and Games' files in R2, whose layout
-// lives only here, the Draft's box (its Coder's container), the per-account daily quotas and the Maker's weekly
-// Allowance (ADR 0004) in D1.
+// What the routes (api.ts) and the build tool (build.ts) both keep: Drafts' and Games' files in R2, whose layout lives
+// only here, the per-account daily quotas and the Maker's weekly Allowance (ADR 0004) in D1.
 import { and, eq, notLike, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 
@@ -31,16 +30,6 @@ export const currentRevision = async (files: R2Bucket, id: string) => {
     0,
     ...delimitedPrefixes.map((prefix) => Number(prefix.split("/")[2]))
   );
-};
-
-// Kills the Draft's box, if it has one, when the Draft is deleted. An idle box stops on its own (src/coder-box.ts).
-export const killBox = async (env: Env, id: string) => {
-  const response = await env.CODER.getByName(id).fetch("http://coder/box", {
-    method: "DELETE",
-  });
-  if (!response.ok) {
-    throw new Error(`Coder DELETE /box: ${response.status}`);
-  }
 };
 
 // The UTC day `at` falls in, "2026-10-30".

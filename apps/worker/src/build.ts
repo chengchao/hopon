@@ -1,15 +1,19 @@
-// The Talker's one tool (#143): `build` sends the Draft's Coder one job (src/coder.ts) and turns its `done` into the
-// next Revision, `drafts/<id>/<n+1>/` in R2. pi runs it as a durable task with `replay: "safe"`: a Talker restarted
-// mid-build runs it again, and the same job id re-attaches to the running job. What a rerun must not redo (the
-// Allowance check, the Revision it builds on, a Revision already written) is memoized in pi.
+// The main agent's one tool (#143, ADR 0005): `build` gives the sub agent one job, in a child conversation the call
+// owns, and turns its `done` into the next Revision, `drafts/<id>/<n+1>/` in R2. pi runs it as a durable task with
+// `replay: "safe"`: a Maker restarted mid-build runs it again, finds the same child and the same job, and waits for it.
+// What a rerun must not redo (the Allowance check, the Revision it builds on, a Revision already written) is memoized
+// in pi.
 import { once } from "node:events";
 
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool, LiveDoc } from "@earendil-works/pi-durable";
+import { configure, defineTool, LiveDoc } from "@earendil-works/pi-durable";
+import type { AgentChange, ConversationId } from "@earendil-works/pi-durable";
 import { GAME_DESCRIPTION_MAX, GAME_TITLE_MAX } from "@hopon/schemas";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 
+import type { CoderEvent, Job } from "../../maker/src/job.ts";
+import { BUSY, USED_UP } from "./main-prompt.ts";
 import { drafts, now } from "./schema.ts";
 import {
   allowanceLeft,
@@ -17,26 +21,25 @@ import {
   removeFiles,
   revisionFiles,
 } from "./storage.ts";
-import { BUSY, USED_UP } from "./talker-prompt.ts";
 
-// The Coder's NDJSON (apps/maker/src/job.ts CoderEvent, plus its ping).
-type CoderEvent =
-  | { type: "step"; label: string }
-  | { type: "playtest"; ok: boolean; errors: string[] }
-  | {
-      type: "done";
-      summary: string;
-      files: Record<string, string>;
-      deleted: string[];
-    }
-  | { type: "failed"; reason: string }
-  | { type: "ping" };
 type Done = Extract<CoderEvent, { type: "done" }>;
-type Final = Done | Extract<CoderEvent, { type: "failed" }>;
+export type Final = Done | Extract<CoderEvent, { type: "failed" }>;
 
-// A build with music gets this much more than MAKER_BUILD_ABORT_S, as the Coder's deadline does.
+// What `build` needs of the Maker: the sub agent's configuration, and its jobs.
+export interface SubAgent {
+  readonly agent: () => AgentChange;
+  // The job's `done` or `failed`, with each step's label passed on as it comes. A job already running or finished is
+  // waited for or answered, not started again. The turn's abort stops it.
+  readonly run: (
+    job: { jobId: string; job: Job; conversation: ConversationId },
+    step: (label: string) => void,
+    signal: AbortSignal
+  ) => Promise<Final>;
+}
+
+// A build with music gets this much more than MAKER_BUILD_ABORT_S, as the sub agent's deadline does.
 const MUSIC_EXTRA_S = 30;
-// A Revision's files the Coder makes rather than edits (from game.ts and music.mjs), so the job never carries them.
+// A Revision's files the sub agent makes rather than edits (from game.ts and music.mjs), so the job never carries them.
 const BUILT = new Set(["game.js", "music.js"]);
 
 // The title and description are what Publish shows in the feed, within games' limits (schema.ts).
@@ -94,40 +97,6 @@ const writeRevision = async (
   ]);
 };
 
-// The job's answer, its `done` or `failed`, with each `step` label passed on as it comes. Undefined if the stream ends
-// without one.
-const answer = async (
-  response: Response,
-  step: (label: string) => void
-): Promise<Final | undefined> => {
-  // The Container's own errors are text, such as "Failed to start container: …"; say what it said.
-  if (!response.ok) {
-    const text = await response.text();
-    return {
-      reason: `the coder answered ${response.status}: ${text.slice(0, 300)}`,
-      type: "failed",
-    };
-  }
-  if (!response.body) {
-    return;
-  }
-  let buffer = "";
-  for await (const chunk of response.body.pipeThrough(
-    new TextDecoderStream()
-  )) {
-    const lines = `${buffer}${chunk}`.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines.filter(Boolean)) {
-      const event = JSON.parse(line) as CoderEvent;
-      if (event.type === "step") {
-        step(event.label);
-      } else if (event.type === "done" || event.type === "failed") {
-        return event;
-      }
-    }
-  }
-};
-
 const aborted = async (signal: AbortSignal) => {
   if (!signal.aborted) {
     await once(signal, "abort");
@@ -136,12 +105,10 @@ const aborted = async (signal: AbortSignal) => {
 };
 
 // What the model reads for a build that didn't end `done`.
-const failure = (event: Final | null | undefined) => {
-  if (event?.type === "failed" && event.reason === "busy") {
-    return `The coder is busy. Tell the Creator: "${BUSY}"`;
-  }
-  return `The build failed: ${event?.type === "failed" ? event.reason : "the coder stopped answering"}`;
-};
+const failure = ({ reason }: Extract<Final, { type: "failed" }>) =>
+  reason === "busy"
+    ? `The coder is busy. Tell the Creator: "${BUSY}"`
+    : `The build failed: ${reason}`;
 
 // One build per turn (#122), and the abort timer counts from the turn's build, so a rerun after a restart keeps it.
 // Keyed by the input that began pi's run, which a turn's steers join; the run's taskId changes every tool round.
@@ -156,7 +123,8 @@ export const buildTool = (
   draftId: string,
   storage: DurableObjectStorage,
   // Ends the turn as Stop does, so it ends `turn_failed`.
-  endTurn: () => void
+  endTurn: () => void,
+  sub: SubAgent
 ) =>
   defineTool({
     description:
@@ -219,21 +187,33 @@ export const buildTool = (
 
       const names = await listRevision(env.FILES, current);
       const source = await readSource(env.FILES, current, names);
-      const coder = env.CODER.getByName(draftId);
       const jobId = `${draftId}-${api.callId}`;
+      // The sub agent's conversation, owned by this call: a rerun finds it, and it goes when the call ends.
+      const conversation = await api.commit(async (tx) => {
+        const {
+          items: [owned],
+        } = await tx.scanConversations({ ownerTaskId: api.taskId }, 1);
+        if (owned) {
+          return owned.id;
+        }
+        const created = await tx.createConversation({
+          ownership: { kind: "task", taskId: api.taskId },
+        });
+        await configure(tx, created.id, sub.agent());
+        return created.id;
+      }, context);
       const signal = context.abortSignal ?? new AbortController().signal;
       const abortMs =
         (Number(env.MAKER_BUILD_ABORT_S) + (spec.music ? MUSIC_EXTRA_S : 0)) *
         1000;
       const timer = setTimeout(endTurn, startedAt + abortMs - Date.now());
-      const job = async () => {
-        const response = await coder.fetch(`http://coder/jobs/${jobId}`, {
-          body: JSON.stringify({ draftId, revision: n, source, spec }),
-          method: "POST",
-        });
-        return answer(response, (label) => api.output(`${label}\n`));
-      };
-      let event: Final | null | undefined;
+      const job = () =>
+        sub.run(
+          { conversation, job: { draftId, revision: n, source, spec }, jobId },
+          (label) => api.output(`${label}\n`),
+          signal
+        );
+      let event: Final | null;
       try {
         event = await Promise.race([job(), aborted(signal)]);
       } finally {
@@ -241,13 +221,10 @@ export const buildTool = (
       }
 
       try {
-        if (signal.aborted) {
-          await coder.fetch(`http://coder/jobs/${jobId}/cancel`, {
-            method: "POST",
-          });
+        if (signal.aborted || !event) {
           throw new Error("Stopped.");
         }
-        if (event?.type !== "done") {
+        if (event.type !== "done") {
           throw new Error(failure(event));
         }
         await writeRevision(env.FILES, { current, names, next }, event);

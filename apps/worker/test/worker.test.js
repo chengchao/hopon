@@ -78,10 +78,11 @@ const setup = async (t) => {
   const ai = {
     screen: () => Promise.resolve({ response: { categories: [], safe: true } }),
   };
-  // Each Draft's Talker, faked: it records what the Worker forwards (src/talker.ts is checked under wrangler, in
-  // test/talker.test.js). A ticket is good once, for its own Draft only. A test sets `talker.busy` for a running turn.
+  // Each Draft's Maker, faked: it records what the Worker forwards (src/maker.ts is checked under wrangler, in
+  // test/maker.test.js). A ticket is good once, for its own Draft only. A test sets `maker.busy` for a running turn, and
+  // `maker.failDelete` for a Delete whose box won't go.
   const forwarded = [];
-  const talker = { busy: false };
+  const maker = { busy: false, failDelete: false };
   const answer = (draft, request, init) => {
     if (request instanceof Request) {
       forwarded.push({ action: "upgrade", draft });
@@ -106,32 +107,22 @@ const setup = async (t) => {
       return Response.json({ id: "op" }, { status: 202 });
     }
     if (action === "busy") {
-      return Response.json({ busy: talker.busy });
+      return Response.json({ busy: maker.busy });
     }
-    // As on Cloudflare: destroy() resets the Talker before its 204 gets back.
+    if (action === "delete" && maker.failDelete) {
+      return new Response(null, { status: 500 });
+    }
+    // As on Cloudflare: destroy() resets the Maker before its 204 gets back.
     if (action === "delete") {
       throw Object.assign(new Error("destroyed"), { durableObjectReset: true });
     }
     return new Response(null, { status: 204 });
   };
-  const TALKER = {
+  const MAKER = {
     getByName: (draft) => ({
       fetch: (request, init) => Promise.try(answer, draft, request, init),
     }),
     newUniqueId: () => ({ toString: () => randomBytes(32).toString("hex") }),
-  };
-  // Each Draft's Coder, faked: only `DELETE /box` is the Worker's to call. A test sets `coder.status` to make it fail.
-  const coder = { status: 204 };
-  const CODER = {
-    getByName: (draft) => ({
-      fetch: (url, init) => {
-        forwarded.push({
-          action: `${init.method} ${new URL(url).pathname}`,
-          draft,
-        });
-        return Promise.resolve(new Response(null, { status: coder.status }));
-      },
-    }),
   };
   const env = {
     AI: {
@@ -141,14 +132,13 @@ const setup = async (t) => {
       },
     },
     CLERK_JWT_KEY,
-    CODER,
     DB,
     FILES: proxy.env.FILES,
+    MAKER,
     MAKER_WEEKLY_TOKENS: "3000000",
     MIN_IOS_BUILD: "11",
     OPERATOR_PASSWORD,
     PREVIEW_SECRET,
-    TALKER,
   };
   const count = async (table) => {
     const { n } = await DB.prepare(
@@ -226,7 +216,7 @@ const setup = async (t) => {
       env,
       ctx
     );
-  // A Draft of `user`'s with one Revision, `1/`, as the Talker leaves it after a build: its files in R2, and the
+  // A Draft of `user`'s with one Revision, `1/`, as the Maker leaves it after a build: its files in R2, and the
   // Maker's title and description on its row.
   const draft = async ({
     description = made.description,
@@ -271,16 +261,15 @@ const setup = async (t) => {
   return {
     ai,
     call,
-    coder,
     count,
     draft,
     env,
     forwarded,
+    maker,
     operate,
     owner,
     publish,
     settled,
-    talker,
   };
 };
 // The ids /api/drafts lists for `user` (the owner by default).
@@ -328,7 +317,6 @@ test("publish: every file of the current Revision becomes the Game's, the row ke
   assert.deepEqual(forwarded, [
     { action: "busy", draft: id },
     { action: "delete", draft: id },
-    { action: "DELETE /box", draft: id },
   ]);
   // The Draft is gone: its row, its files, and every route.
   assert.deepEqual(await draftIds(call), []);
@@ -408,7 +396,7 @@ test("publish: every file of the current Revision becomes the Game's, the row ke
 });
 
 test("publish: refused before the first Revision or while a turn runs; the Draft stays as it is", async (t) => {
-  const { call, count, draft, env, forwarded, talker } = await setup(t);
+  const { call, count, draft, env, forwarded, maker } = await setup(t);
   const { id: empty } = await json(
     call("/api/drafts", { body: { text: "A dog game" }, method: "POST" })
   );
@@ -418,7 +406,7 @@ test("publish: refused before the first Revision or while a turn runs; the Draft
   const none = await publish(empty);
   assert.equal(none.status, 409);
   assert.deepEqual(await none.json(), { error: "This Draft has no game yet." });
-  talker.busy = true;
+  maker.busy = true;
   const busy = await publish(id);
   assert.equal(busy.status, 409);
   assert.deepEqual(await busy.json(), {
@@ -434,18 +422,18 @@ test("publish: refused before the first Revision or while a turn runs; the Draft
     `drafts/${id}/1/index.html`,
   ]);
   assert.equal(await count("games"), ORIGINALS);
-  talker.busy = false;
+  maker.busy = false;
   assert.equal(await status(publish(id)), 201);
 });
 
 test("publish: a failed Delete leaves the Draft listed, and a retry finishes it with the same Game", async (t) => {
-  const { call, coder, count, draft, env } = await setup(t);
+  const { call, count, draft, env, maker } = await setup(t);
   const id = await draft();
-  coder.status = 502;
+  maker.failDelete = true;
   const publish = () => call(`/api/drafts/${id}/publish`, { method: "POST" });
   assert.equal(await status(publish()), 500);
   assert.deepEqual(await draftIds(call), [id]);
-  coder.status = 204;
+  maker.failDelete = false;
   const { id: gameId } = await json(publish());
   assert.deepEqual(await draftIds(call), []);
   assert.equal(await count("games"), ORIGINALS + 1);
@@ -2619,7 +2607,7 @@ test("drafts: born on a screened first message, listed newest first for their ow
     method: "POST",
   });
   assert.equal(first.status, 201);
-  // With the message's operation id, which the Talker's submission events name, as the messages route answers.
+  // With the message's operation id, which the Maker's submission events name, as the messages route answers.
   const { id: a, message } = await first.json();
   assert.match(a, /^[0-9a-f]{64}$/u);
   assert.equal(message, "op");
@@ -2638,7 +2626,7 @@ test("drafts: born on a screened first message, listed newest first for their ow
     ]
   );
   assert.match(list.drafts[0].updatedAt, /^\d{4}-\d\d-\d\dT[\d:.]+Z$/u);
-  // The Talker dates the row at the end of each turn, which moves it to the top.
+  // The Maker dates the row at the end of each turn, which moves it to the top.
   await env.DB.prepare(
     "UPDATE drafts SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 second') WHERE id = ?"
   )
@@ -2698,7 +2686,7 @@ test("drafts: a 21st is refused until one goes", async (t) => {
   );
 });
 
-test("drafts: a screened-out message is refused and never reaches the Talker", async (t) => {
+test("drafts: a screened-out message is refused and never reaches the Maker", async (t) => {
   const { ai, call, count, forwarded } = await setup(t);
   ai.screen = flagOnly("A game about hurting people");
   const first = await call("/api/drafts", {
@@ -2779,14 +2767,14 @@ test("drafts: another account gets 404 on every Draft route; the socket needs a 
     forwarded.filter((f) => f.action === "upgrade"),
     [{ action: "upgrade", draft: id }]
   );
-  // A made-up id never reaches, and so never creates, a Talker.
+  // A made-up id never reaches, and so never creates, a Maker.
   assert.equal(
     forwarded.some((f) => f.draft === missing),
     false
   );
 });
 
-// A Draft with one Revision in R2, as the Talker leaves it at the end of a turn that builds (#117).
+// A Draft with one Revision in R2, as the Maker leaves it at the end of a turn that builds (#117).
 const withRevision = async ({ call, env }, n = 3) => {
   const { id } = await json(
     call("/api/drafts", { body: { text: "A cat game" }, method: "POST" })
@@ -2904,7 +2892,7 @@ test("preview: only the Draft's owner can mint a link, and only once it has a ga
   assert.deepEqual(await none.json(), { error: "This Draft has no game yet." });
 });
 
-test("delete: a Draft goes with its row, its files, its Talker and its box; anyone else's is a 404", async (t) => {
+test("delete: a Draft goes with its row, its files and its Maker, box included; anyone else's is a 404", async (t) => {
   const context = await setup(t);
   const { call, count, env, forwarded } = context;
   const id = await withRevision(context);
@@ -2936,10 +2924,7 @@ test("delete: a Draft goes with its row, its files, its Talker and its box; anyo
     await status(call(`/api/drafts/${id}`, { method: "DELETE" })),
     204
   );
-  assert.deepEqual(forwarded, [
-    { action: "delete", draft: id },
-    { action: "DELETE /box", draft: id },
-  ]);
+  assert.deepEqual(forwarded, [{ action: "delete", draft: id }]);
   assert.deepEqual(await draftIds(call), [kept]);
   const { objects } = await env.FILES.list({ prefix: "drafts/" });
   assert.deepEqual(
@@ -2964,15 +2949,15 @@ test("delete: a Draft goes with its row, its files, its Talker and its box; anyo
 
 test("delete: a failure on the way keeps the Draft listed, so a retry finishes the job", async (t) => {
   const context = await setup(t);
-  const { call, coder, env } = context;
+  const { call, env, maker } = context;
   const id = await withRevision(context);
-  coder.status = 502;
+  maker.failDelete = true;
   assert.equal(
     await status(call(`/api/drafts/${id}`, { method: "DELETE" })),
     500
   );
   assert.deepEqual(await draftIds(call), [id]);
-  coder.status = 204;
+  maker.failDelete = false;
   assert.equal(
     await status(call(`/api/drafts/${id}`, { method: "DELETE" })),
     204
@@ -3001,7 +2986,7 @@ test("delete: DELETE /api/drafts takes every Draft of the caller and none of any
   assert.equal(await status(call("/api/drafts", { method: "DELETE" })), 204);
   assert.deepEqual(
     forwarded.map((f) => `${f.action} ${f.draft}`).toSorted(),
-    mine.flatMap((id) => [`delete ${id}`, `DELETE /box ${id}`]).toSorted()
+    mine.map((id) => `delete ${id}`).toSorted()
   );
   assert.deepEqual(await json(call("/api/drafts")), { drafts: [] });
   assert.deepEqual(await draftIds(call, "user_other"), [theirs]);

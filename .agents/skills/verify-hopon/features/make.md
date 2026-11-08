@@ -40,8 +40,8 @@ Preconditions:
 
 ## Gotchas
 
-- The Maker's replies and builds are out of reach. The Talker's model calls need `CLOUDFLARE_API_KEY`, which this run forces empty, and builds need the Coder's Docker box (`pnpm -F worker dev:coder`). `POST /api/drafts` still returns 201, because the Talker takes the message, but no reply ever streams. Report the chat as unverified. A real build is `pnpm -F worker smoke:coder` against `dev:coder`, which makes real model calls.
-- Preview and publish need a Revision, which the Coder never makes here. `seed-revision.sh` copies Odd Duck's page to R2 `drafts/<id>/1/index.html` and sets the Draft's title, the two things publish checks. Say in the report that the Revision was seeded. The published game plays Odd Duck, not the idea the Draft was started with.
+- The Maker's replies and builds are out of reach. The Maker's model calls need `CLOUDFLARE_API_KEY`, which this run forces empty, and builds need its Docker box (`pnpm -F worker dev:maker`). `POST /api/drafts` still returns 201, because the Maker takes the message, but no reply ever streams. Report the chat as unverified. A real build is `pnpm -F worker smoke:maker` against `dev:maker`, which makes real model calls.
+- Preview and publish need a Revision, which the Maker never makes here. `seed-revision.sh` copies Odd Duck's page to R2 `drafts/<id>/1/index.html` and sets the Draft's title, the two things publish checks. Say in the report that the Revision was seeded. The published game plays Odd Duck, not the idea the Draft was started with.
 - Publish deletes the Draft, so run the Delete steps on a different Draft.
 - A preview link's failure is always a 403 "This link has expired.", whether the signature is wrong or the time has passed. A 404 means the signature was good but the file is missing.
 - Offline, Screening of the message and the publish text is skipped.

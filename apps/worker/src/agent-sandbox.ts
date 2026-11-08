@@ -1,7 +1,7 @@
-// The Coder's box (#175): a Cloudflare Container the Coder starts and drives itself through `ctx.container`, under the
-// `durable_object` policy, with no internet and no secrets. All the Coder does in it goes through the `Box` service, so
-// the contract test swaps its Layer for a fake (test/coder/worker.ts). pi's tools reach it through boxEnv, an
-// ExecutionEnv, and the game rules (apps/maker/src/job.ts) through jobBox.
+// The AgentSandbox (#175, ADR 0005): a Cloudflare Container the Maker starts and drives itself through `ctx.container`,
+// under the `durable_object` policy, with no internet and no secrets. All the Maker does in it goes through the
+// `AgentSandbox` service, so the Maker test swaps its Layer for a fake (test/maker/worker.ts). pi's tools reach it
+// through boxEnv, an ExecutionEnv, and the game rules (apps/maker/src/job.ts) through jobBox.
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -32,7 +32,7 @@ const BOX_ENV = {
 };
 // The size the spike measured (docs/research/coder-on-workerd.md).
 const INSTANCE = { diskMb: 6000, memoryMib: 6144, vcpu: 2 };
-// A box stops this long after the Coder's last activity; the next job cold-starts one.
+// A box stops this long after the Maker's last activity; the next job cold-starts one.
 const BOX_IDLE_MS = 300_000;
 // A cold box answers exec() in 0.2–0.5 s, a first boot on a new host in up to 21 s.
 const READY_MS = 60_000;
@@ -81,7 +81,7 @@ export interface BoxOps {
 // Plain `wrangler dev` and the tests' getPlatformProxy run without containers.
 export class NoBox extends Data.TaggedError("NoBox") {
   override readonly message =
-    "no box here: run `pnpm -F worker dev:coder`, with Docker";
+    "no box here: run `pnpm -F worker dev:maker`, with Docker";
 }
 
 // The platform refused to start the box, or it didn't answer in READY_MS.
@@ -89,19 +89,19 @@ export class BoxStartFailed extends Data.TaggedError("BoxStartFailed")<{
   readonly cause: unknown;
 }> {}
 
-// The box at the Coder's edge.
-export class Box extends Context.Service<
-  Box,
+// The box at the Maker's edge.
+export class AgentSandbox extends Context.Service<
+  AgentSandbox,
   BoxOps & {
     readonly running: Effect.Effect<boolean>;
     // Done once the box answers exec().
     readonly start: Effect.Effect<void, NoBox | BoxStartFailed>;
-    // The box stops BOX_IDLE_MS after its last activity. Set at start, and again when the Coder restarts, since the
+    // The box stops BOX_IDLE_MS after its last activity. Set at start, and again when the Maker restarts, since the
     // timeout doesn't outlive the object.
     readonly keepAlive: Effect.Effect<void>;
     readonly destroy: Effect.Effect<void>;
   }
->()("hopon/worker/Box") {}
+>()("hopon/worker/AgentSandbox") {}
 
 // Every command as `timeout`'s child, which ends it and every process it started, at its time or on an abort.
 const timed = (argv: string[], seconds = COMMAND_TIMEOUT_S) => [
@@ -209,7 +209,7 @@ export const containerBox = (maybe: Container | undefined) => {
     });
     yield* keepAlive;
   });
-  return Layer.succeed(Box, {
+  return Layer.succeed(AgentSandbox, {
     destroy: Effect.promise(() => container().destroy()),
     exec,
     files: new Files({
@@ -221,7 +221,7 @@ export const containerBox = (maybe: Container | undefined) => {
   });
 };
 
-// The box's commands and files, each after `ready` (the Coder's: start a box that stopped, and restore its job).
+// The box's commands and files, each after `ready` (the Maker's: start a box that stopped, and restore its job).
 export const readyFirst = (box: BoxOps, ready: () => Promise<void>): BoxOps => {
   const after =
     <A extends unknown[], R>(op: (...args: A) => Promise<R>) =>

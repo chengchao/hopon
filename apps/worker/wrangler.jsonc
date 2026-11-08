@@ -23,22 +23,22 @@
       "CLERK_SECRET_KEY",
       "OPERATOR_PASSWORD",
       "OPERATOR_WEBHOOK_URL",
-      // modelFetch's Cloudflare API token (packages/model-fetch), for the Talker's and the Coder's model calls; it needs
-      // AI Gateway Run and Workers AI.
+      // modelFetch's Cloudflare API token (packages/model-fetch), for the Maker's model calls; it needs AI Gateway Run and
+      // Workers AI.
       "CLOUDFLARE_API_KEY",
       // Signs a Draft's preview links (#118): HMAC-SHA256 over `draftId.exp`.
       "PREVIEW_SECRET",
     ],
   },
   "vars": {
-    // The Talker's model and effort (#116), through modelFetch on the account's gateway.
-    "MAKER_TALKER_MODEL": "claude-haiku-5-5",
-    "MAKER_TALKER_EFFORT": "high",
-    // The Coder's (#116): Haiku 5.5 at low effort.
-    "MAKER_CODER_MODEL": "claude-haiku-5-5",
-    "MAKER_CODER_EFFORT": "low",
-    // The Talker's abort timer on a build (#116, #122), 30 s more with music: 30 s past the Coder's own deadline, so the
-    // Coder reports `failed` first. The Talker test shortens it.
+    // The main agent's model and effort (#116, ADR 0005), through modelFetch on the account's gateway.
+    "MAKER_MAIN_MODEL": "claude-haiku-5-5",
+    "MAKER_MAIN_EFFORT": "high",
+    // The sub agent's (#116): Haiku 5.5 at low effort.
+    "MAKER_SUB_MODEL": "claude-haiku-5-5",
+    "MAKER_SUB_EFFORT": "low",
+    // The abort timer on a build's turn (#116, #122), 30 s more with music: 30 s past the sub agent's own deadline, so
+    // its job ends `failed` first. The Maker test shortens it.
     "MAKER_BUILD_ABORT_S": "150",
     // Each Creator's weekly Allowance of hopon tokens (ADR 0004): about 25 builds with chat around them.
     "MAKER_WEEKLY_TOKENS": "3000000",
@@ -48,11 +48,11 @@
     "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
     "CLOUDFLARE_GATEWAY_ID": "default",
   },
-  // The Coder's box (#175): one per Draft, which its Coder starts and sizes itself (src/coder-box.ts). No max_instances:
-  // the durable_object policy refuses it, and the account's vCPU are the cap.
+  // The Maker's sandbox (#175, ADR 0005): one per Draft, which its Maker starts and sizes itself (src/agent-sandbox.ts).
+  // No max_instances: the durable_object policy refuses it, and the account's vCPU are the cap.
   "containers": [
     {
-      "class_name": "DraftCoder",
+      "class_name": "Maker",
       "scheduling_policy": "durable_object",
       "images": {
         "box": {
@@ -62,17 +62,14 @@
       },
     },
   ],
-  // A container needs Docker: `pnpm -F worker dev:coder` runs the Coder's box locally; plain `dev` and the tests'
+  // A container needs Docker: `pnpm -F worker dev:maker` runs the Maker's sandbox locally; plain `dev` and the tests'
   // getPlatformProxy leave it out, and a build there fails for lack of a box.
   "dev": { "enable_containers": false },
-  // The Coder bundles the Coder's AGENTS.md and skills (apps/maker/agent-home) as text.
+  // The Maker bundles the sub agent's AGENTS.md and skills (apps/maker/agent-home) as text.
   "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
-  // One Talker (src/talker.ts) and one Coder (src/coder.ts) per Draft, each named by the Draft's id.
+  // One Maker (src/maker.ts) per Draft, named by the Draft's id.
   "durable_objects": {
-    "bindings": [
-      { "name": "TALKER", "class_name": "Talker" },
-      { "name": "CODER", "class_name": "DraftCoder" },
-    ],
+    "bindings": [{ "name": "MAKER", "class_name": "Maker" }],
   },
   // A Container application can't move to the durable_object policy in place, so the Coder is a new class, DraftCoder,
   // and the old Container class goes: it held nothing durable (#175). It went in two deploys, because Cloudflare refuses
@@ -84,15 +81,18 @@
     { "tag": "draft-coder", "new_sqlite_classes": ["DraftCoder"] },
     // contract: #192
     { "tag": "drop-coder", "deleted_classes": ["Coder"] },
+    // ADR 0005: Maker replaces Talker and DraftCoder, which stay as empty classes (src/index.ts) until a later deploy
+    // deletes them, for the same reason. Their Drafts' chats aren't kept.
+    { "tag": "maker", "new_sqlite_classes": ["Maker"] },
   ],
   "compatibility_flags": ["nodejs_compat"],
   // Prunes past days' and weeks' generation_limits rows (src/storage.ts's pruneLimits).
   "triggers": { "crons": ["0 0 * * *"] },
   // A Worker Preview of the hopon Worker for each branch but main (.github/workflows/deploy.yml runs
   // `pnpm run deploy:preview`). A Preview inherits nothing, so the bindings and vars are repeated, and
-  // test/previews.test.js keeps them in step. Each Preview gets its own Talker and Coder namespaces and its own container
-  // app; D1 and R2 are hopon-staging, shared by every Preview, and wrangler.preview-migrations.jsonc migrates that D1.
-  // Its secrets are the Preview base config's (README).
+  // test/previews.test.js keeps them in step. Each Preview gets its own Maker namespace and its own container app; D1
+  // and R2 are hopon-staging, shared by every Preview, and wrangler.preview-migrations.jsonc migrates that D1. Its
+  // secrets are the Preview base config's (README).
   "previews": {
     "d1_databases": [
       {
@@ -106,10 +106,10 @@
     "ai": { "binding": "AI", "remote": true },
     // No `secrets` here: wrangler 4.152 rejects previews.secrets, so a Preview missing one deploys anyway.
     "vars": {
-      "MAKER_TALKER_MODEL": "claude-haiku-5-5",
-      "MAKER_TALKER_EFFORT": "high",
-      "MAKER_CODER_MODEL": "claude-haiku-5-5",
-      "MAKER_CODER_EFFORT": "low",
+      "MAKER_MAIN_MODEL": "claude-haiku-5-5",
+      "MAKER_MAIN_EFFORT": "high",
+      "MAKER_SUB_MODEL": "claude-haiku-5-5",
+      "MAKER_SUB_EFFORT": "low",
       "MAKER_BUILD_ABORT_S": "150",
       "MAKER_WEEKLY_TOKENS": "3000000",
       "MIN_IOS_BUILD": "11",
@@ -119,12 +119,12 @@
     // The same box image at the nearest size, but under the default policy: wrangler 4.152–4.154 refuses a
     // durable_object-policy container here ("configured only in the top-level containers array"), and custom sizes are
     // Enterprise-only under default. exec(), setInactivityTimeout() and destroy() work the same; start() takes neither
-    // image nor size (src/coder-box.ts). test/previews.test.js keeps it in step with production's box. ponytail: a
+    // image nor size (src/agent-sandbox.ts). test/previews.test.js keeps it in step with production's box. ponytail: a
     // default-policy app caps instances, and each Draft's box idles 5 min after its build; raise it if `eval e2e
     // --concurrency` builds fail `busy`.
     "containers": [
       {
-        "class_name": "DraftCoder",
+        "class_name": "Maker",
         "image": "../maker/image/Dockerfile",
         "image_build_context": "../maker/image",
         "instance_type": "standard-3",
@@ -132,10 +132,7 @@
       },
     ],
     "durable_objects": {
-      "bindings": [
-        { "name": "TALKER", "class_name": "Talker" },
-        { "name": "CODER", "class_name": "DraftCoder" },
-      ],
+      "bindings": [{ "name": "MAKER", "class_name": "Maker" }],
     },
   },
   // Repeated as CLOUDFLARE_ACCOUNT_ID in package.json's db:remote and deploy: on a login with several accounts, some

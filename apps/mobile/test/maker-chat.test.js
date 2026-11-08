@@ -9,7 +9,7 @@ import {
   publishable,
 } from "../lib/maker-chat.ts";
 
-// pi's frames as the Talker sends them (apps/worker/src/talker.ts).
+// pi's frames as the Maker sends them (apps/worker/src/maker.ts).
 const user = (id, text) => ({
   id,
   kind: "pi.user",

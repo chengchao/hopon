@@ -62,7 +62,6 @@ import {
   currentRevision,
   draftFiles,
   gameFiles,
-  killBox,
   removeFiles,
   revisionFiles,
   spend,
@@ -297,29 +296,29 @@ const run = <A, E>(
     )
   );
 
-// A Draft's id: its Talker's name, 64 hex characters.
+// A Draft's id: its Maker's name, 64 hex characters.
 const DRAFT = ":id{[0-9a-f]{64}}";
 
-// One request to a Draft's Talker (src/talker.ts), after the route has checked the owner. Its failure is a 500.
-const talker = (env: HoponEnv, id: string, action: string, body = {}) =>
+// One request to a Draft's Maker (src/maker.ts), after the route has checked the owner. Its failure is a 500.
+const maker = (env: HoponEnv, id: string, action: string, body = {}) =>
   Effect.promise(async () => {
-    const response = await env.TALKER.getByName(id).fetch(
-      `https://talker/${action}`,
+    const response = await env.MAKER.getByName(id).fetch(
+      `https://maker/${action}`,
       { body: JSON.stringify(body), method: "POST" }
     );
     if (response.status >= 500) {
-      throw new Error(`Talker ${action}: ${response.status}`);
+      throw new Error(`Maker ${action}: ${response.status}`);
     }
     return response;
   });
 
 const app = new Hono<AppEnv>();
 
-// The app's WebSocket to a Draft's Talker (#126). It carries no Clerk token: the one-time ticket from ws-ticket proves
+// The app's WebSocket to a Draft's Maker (#126). It carries no Clerk token: the one-time ticket from ws-ticket proves
 // the owner. Registered before the middleware, which would copy the 101 response and lose its socket.
 app.get(`/api/drafts/${DRAFT}/ws`, async (c) => {
   const id = c.req.param("id");
-  // Only a Draft that exists reaches a Talker, so a made-up id never creates one.
+  // Only a Draft that exists reaches a Maker, so a made-up id never creates one.
   const draft = await drizzle(c.env.DB)
     .select({ id: drafts.id })
     .from(drafts)
@@ -329,12 +328,12 @@ app.get(`/api/drafts/${DRAFT}/ws`, async (c) => {
     throw fail(404, "Draft not found.");
   }
   const redeemed = await Effect.runPromise(
-    talker(c.env, id, "redeem", { ticket: c.req.query("ticket") ?? "" })
+    maker(c.env, id, "redeem", { ticket: c.req.query("ticket") ?? "" })
   );
   if (!redeemed.ok) {
     throw fail(404, "Draft not found.");
   }
-  return c.env.TALKER.getByName(id).fetch(c.req.raw);
+  return c.env.MAKER.getByName(id).fetch(c.req.raw);
 });
 
 app.use(async (c, next) => {
@@ -554,7 +553,7 @@ app.get("/api/allowance", (c) =>
   )
 );
 
-// At zero the whole Maker stops for the Creator until the week resets (ADR 0004): no message reaches a Talker, so no
+// At zero the whole Maker stops for the Creator until the week resets (ADR 0004): no message reaches a Maker, so no
 // model call starts. The app says when it resets, in the Creator's time.
 const refuseAtZero = Effect.fn("refuseAtZero")(function* (
   env: HoponEnv,
@@ -570,7 +569,7 @@ const refuseAtZero = Effect.fn("refuseAtZero")(function* (
   }
 });
 
-// A new Draft, born on its first message: the Allowance, Screening, then the cap, then the Talker gets the message.
+// A new Draft, born on its first message: the Allowance, Screening, then the cap, then the Maker gets the message.
 app.post(
   "/api/drafts",
   jsonBody(newMessage, "Write a message of up to 2000 characters."),
@@ -582,8 +581,8 @@ app.post(
         const { text } = c.req.valid("json");
         yield* refuseAtZero(c.env, owner);
         yield* screen(c.env, owner, "message", text);
-        // Agent needs a named object, so the id newUniqueId() makes is the Talker's name.
-        const id = c.env.TALKER.newUniqueId().toString();
+        // Agent needs a named object, so the id newUniqueId() makes is the Maker's name.
+        const id = c.env.MAKER.newUniqueId().toString();
         // One statement, so two at once can't both take the last place.
         const { meta } = yield* query((db) =>
           db.run(
@@ -594,7 +593,7 @@ app.post(
         if (!meta.changes) {
           return yield* fail(409, "Delete a Draft to start a new one.");
         }
-        const response = yield* talker(c.env, id, "message", { text });
+        const response = yield* maker(c.env, id, "message", { text });
         const message = yield* Effect.promise(() =>
           response.json<{ id: string }>()
         );
@@ -619,7 +618,7 @@ const ownDraft = Effect.fn("ownDraft")(function* (id: string) {
   return owner;
 });
 
-// A refused message never reaches the Talker, so it isn't kept. One sent while a turn runs joins it as a steer.
+// A refused message never reaches the Maker, so it isn't kept. One sent while a turn runs joins it as a steer.
 app.post(
   `/api/drafts/${DRAFT}/messages`,
   jsonBody(newMessage, "Write a message of up to 2000 characters."),
@@ -632,7 +631,7 @@ app.post(
         const { text } = c.req.valid("json");
         yield* refuseAtZero(c.env, owner);
         yield* screen(c.env, owner, "message", text);
-        const response = yield* talker(c.env, id, "message", { text });
+        const response = yield* maker(c.env, id, "message", { text });
         return c.json(yield* Effect.promise(() => response.json()), 202);
       })
     )
@@ -644,29 +643,26 @@ app.post(`/api/drafts/${DRAFT}/stop`, (c) =>
     Effect.gen(function* () {
       const id = c.req.param("id");
       yield* ownDraft(id);
-      yield* talker(c.env, id, "stop");
+      yield* maker(c.env, id, "stop");
       return c.body(null, 204);
     })
   )
 );
 
-// Delete (#144): the Talker's storage and sockets, the box, the files, then the row. The row goes last, so a Delete
-// that fails on the way leaves the Draft listed and a retry finishes it. Each step is fine to repeat.
-// The Talker's destroy() resets the object once its storage is gone, and on Cloudflare the reset beats the 204 back.
+// Delete (#144): the Maker's box, storage and sockets, the files, then the row. The row goes last, so a Delete that
+// fails on the way leaves the Draft listed and a retry finishes it. Each step is fine to repeat.
+// The Maker's destroy() resets the object once its storage is gone, and on Cloudflare the reset beats the 204 back.
 const destroyed = (defect: unknown) =>
   defect instanceof Error && defect.message === "destroyed";
 
 const deleteDraft = (env: HoponEnv, id: string) =>
   Effect.gen(function* () {
-    yield* talker(env, id, "delete").pipe(
+    yield* maker(env, id, "delete").pipe(
       Effect.catchDefect((defect) =>
         destroyed(defect) ? Effect.void : Effect.die(defect)
       )
     );
-    yield* Effect.promise(async () => {
-      await killBox(env, id);
-      await removeFiles(env.FILES, draftFiles(id));
-    });
+    yield* Effect.promise(() => removeFiles(env.FILES, draftFiles(id)));
     yield* query((db) => db.delete(drafts).where(eq(drafts.id, id)));
   });
 
@@ -708,7 +704,7 @@ app.post(`/api/drafts/${DRAFT}/ws-ticket`, (c) =>
     Effect.gen(function* () {
       const id = c.req.param("id");
       yield* ownDraft(id);
-      const response = yield* talker(c.env, id, "ticket");
+      const response = yield* maker(c.env, id, "ticket");
       return c.json(yield* Effect.promise(() => response.json()));
     })
   )
@@ -826,7 +822,7 @@ app.post(`/api/drafts/${DRAFT}/publish`, (c) =>
       if (!n || !draft?.title) {
         return yield* fail(409, "This Draft has no game yet.");
       }
-      const status = yield* talker(c.env, id, "busy");
+      const status = yield* maker(c.env, id, "busy");
       const { busy } = yield* Effect.promise(() =>
         status.json<{ busy: boolean }>()
       );

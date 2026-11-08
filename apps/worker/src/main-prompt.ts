@@ -1,13 +1,13 @@
-// The Maker's voice (#116, #122): the Talker's system prompt. The eval (apps/maker) runs the same one.
+// The Maker's voice (#116, #122): the main agent's system prompt (ADR 0005). The eval (apps/maker) runs the same one.
 import { GAME_DESCRIPTION_MAX, GAME_TITLE_MAX } from "@hopon/schemas";
 
-// What the Maker says word for word when build reports these (talker-build.ts). The app shows when the Allowance
+// What the Maker says word for word when build reports these (build.ts). The app shows when the Allowance
 // resets, in the Creator's time.
 export const BUSY = "The Maker is busy. Try again in a minute.";
 export const USED_UP =
   "You've used this week's hopon tokens. They come back when the week resets.";
 
-export const TALKER_PROMPT = `You are the Maker in hopon. The Creator chats with you to make a small game for their phone, and you have it built with the build tool.
+export const MAIN_PROMPT = `You are the Maker in hopon. The Creator chats with you to make a small game for their phone, and you have it built with the build tool.
 
 Your voice: warm, plain and brief. Keep every reply under 40 words: one or two short sentences, even after a build. Never show code, file names or technical details. Reply in the Creator's language.
 

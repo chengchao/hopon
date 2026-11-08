@@ -41,13 +41,13 @@ apps/worker/   Cloudflare Worker API（D1 + Drizzle、Workers AI、Clerk JWT 校
    echo 'OPERATOR_PASSWORD=...' >> apps/worker/.dev.vars
    ```
 
-7. Maker 的 Coder 是 Worker 里每个 Draft 一个的 Durable Object（`apps/worker/src/coder.ts`），它的 box 是它自己启动的 Cloudflare Container（`apps/maker/image/Dockerfile`），box 里没有网络，也没有任何密钥。Talker 和 Coder 的模型请求都在 Worker 里经 `modelFetch` 发出，要用 `CLOUDFLARE_API_KEY`（需 AI Gateway Run 和 Workers AI 权限）。它列在 `secrets.required` 里，值与 `apps/maker/.env` 中的相同，写入 `apps/worker/.dev.vars`：
+7. Maker 是 Worker 里每个 Draft 一个的 Durable Object（`apps/worker/src/maker.ts`），里面跑两个 agent：main agent 和 Creator 聊天，sub agent 写游戏。它的沙盒是它自己启动的 Cloudflare Container（`apps/maker/image/Dockerfile`），沙盒里没有网络，也没有任何密钥。两个 agent 的模型请求都在 Worker 里经 `modelFetch` 发出，要用 `CLOUDFLARE_API_KEY`（需 AI Gateway Run 和 Workers AI 权限）。它列在 `secrets.required` 里，值与 `apps/maker/.env` 中的相同，写入 `apps/worker/.dev.vars`：
 
    ```sh
    grep -E '^CLOUDFLARE_API_KEY=' apps/maker/.env >> apps/worker/.dev.vars
    ```
 
-   `pnpm run api`（`pnpm -F worker dev`）和测试都没有 box：容器要 Docker，`wrangler.jsonc` 的 `dev.enable_containers` 关着，所以在那里发起的构建会因没有 box 而失败。要本地跑 Coder，先打开 Docker Desktop，再运行 `pnpm -F worker dev:coder`（首次会构建镜像），然后在另一个终端用 `pnpm -F worker smoke:coder` 给一个新 Draft 发一个真实的构建任务（加 `--music` 带音乐）：它会逐条打印事件，最后删掉这个 Draft 的 box。用的是真实模型和 Docker 里的 box，一次大约一分钟。
+   `pnpm run api`（`pnpm -F worker dev`）和测试都没有 box：容器要 Docker，`wrangler.jsonc` 的 `dev.enable_containers` 关着，所以在那里发起的构建会因没有 box 而失败。要本地跑完整的 Maker，先打开 Docker Desktop，再运行 `pnpm -F worker dev:maker`（首次会构建镜像），然后在另一个终端用 `pnpm -F worker smoke:maker` 让一个新 Draft 的 main agent 真实构建一次（加 `--music` 带音乐）：它会逐条打印 sub agent 的步骤和这一轮的结果，最后删掉这个 Draft 和它的 box。用的是真实模型和 Docker 里的 box，一次大约一分钟。
 
 8. Draft 的试玩链接（`GET /api/drafts/:id/preview`）用 `PREVIEW_SECRET` 签名（HMAC-SHA256，一小时有效），同样列在 `secrets.required` 里。本地随便生成一个写入 `apps/worker/.dev.vars`；缺少时签发和打开试玩链接都会失败。Draft 的文件放在 R2 的 `FILES` 绑定（bucket `hopon`），本地由 wrangler 模拟：
 
