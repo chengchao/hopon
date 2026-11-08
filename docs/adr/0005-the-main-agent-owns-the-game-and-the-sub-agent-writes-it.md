@@ -87,11 +87,20 @@ That report is the author's claim. It tells the main agent where to look, and it
 
 ### The harness checks every build
 
-When the sub agent stops, its `onYield` hook renders any music and reads the source back. Then it ends every process left in the sandbox, clears the workspace and the home directory, and writes the source back, so nothing a model left behind can touch the result. In that clean sandbox it typechecks, emits `game.js` and plays the game twice: with the sub agent's last inputs, and with the fixed random script, because a model's inputs can miss a crash.
+Each time the sub agent stops, pi calls its `onYield` hook, and the hook runs these steps:
+
+1. Render `music.mjs` to `music.js`, if the game has music.
+2. Read the source back from the sandbox into memory.
+3. End every process left in the sandbox, and clear the workspace and the home directory. A background process or an edited `~/.bash_profile` that a model left behind can't touch the result.
+4. Write the source from step 2 back, so the sandbox holds only the game.
+5. Typecheck `game.ts`.
+6. Emit `game.js` from that `game.ts`, so the stored `game.js` always comes from the stored `game.ts`.
+7. Play the game with the sub agent's last playtest inputs.
+8. Play it again with the fixed random script, the same taps every time, because a model's inputs can miss a crash.
 
 These commands run from `argv` with full paths such as `/usr/local/bin/node`, with no shell. Today's `bash -lc` runs `~/.bash_profile`, and a prototype on the real image passed a game that throws by planting a fake `node` there. Each command takes the turn's abort signal, so Stop and the timer don't wait for it.
 
-A type error, console error, frozen clock, identical screenshots or failed music render goes back to the sub agent through `continue`, at most 3 times per build. The main agent doesn't wake. A build still red after that fails.
+Any of these fails the check: a type error, a console error, a frozen clock, identical start and end screenshots, or a failed music render. The hook returns `continue` with the errors, and the sub agent gets them as a new message and goes on, at most 3 times per build. The main agent doesn't wake. A build still red after that fails, and `build` returns the failure to the main agent.
 
 This step runs whatever a model decides, and no model can pass it by claiming success. The pending build holds exactly the bytes it played. It keeps #122's rule that a game that doesn't run never becomes a Revision, and it closes the stale `game.js` defect. It answers only "does the game run", and the two agents answer whether it is the right game.
 
