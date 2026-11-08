@@ -3,7 +3,7 @@
 //   scripted Anthropic stream. The job's brief names the script (SCRIPTS); each reply is the script's next step, by
 //   how many answers the conversation already holds. A script can be a function, for a model that never stops.
 // - The box: files in the Coder's own storage (so they outlive a restart, as a running box does), every command logged
-//   and answered by fakeExec: the playtest always green, music.mjs rendering a fixed track, the rest a no-op. As the
+//   and answered by fakeExec: the playtest green unless game.ts says BROKEN, music.mjs rendering a fixed track, the rest a no-op. As the
 //   platform's, a stopped box refuses every command and file, and one started again is empty. A Draft whose id starts
 //   with "nobox" gets a box that can't start, and one starting "lost" a box that stops with the server (its running
 //   flag lives in memory); `sleep 600` runs until it's aborted.
@@ -37,6 +37,19 @@ type Step =
 
 const GAME = "let speed = 1;\nfunction gameRender() {}\n";
 const SCRIPTS: Record<string, Step[] | ((turn: number) => Step)> = {
+  // Breaks the game after a green playtest: the ending must fail it.
+  breakLate: [
+    { input: { content: GAME, path: "game.ts" }, tool: "write" },
+    { input: {}, tool: "playtest" },
+    {
+      input: {
+        edits: [{ newText: "BROKEN", oldText: "speed = 1" }],
+        path: "game.ts",
+      },
+      tool: "edit",
+    },
+    { text: "Tidied it." },
+  ],
   // Runs a command until it's stopped: cancel's case.
   cancel: [{ input: { command: "sleep 600" }, tool: "bash" }],
   change: [
@@ -49,6 +62,19 @@ const SCRIPTS: Record<string, Step[] | ((turn: number) => Step)> = {
       tool: "edit",
     },
     { input: {}, tool: "playtest" },
+    { text: "Made it faster." },
+  ],
+  // Changes the game after a green playtest and stops: the ending must play what it ships.
+  editLate: [
+    { input: { content: GAME, path: "game.ts" }, tool: "write" },
+    { input: {}, tool: "playtest" },
+    {
+      input: {
+        edits: [{ newText: "speed = 3", oldText: "speed = 1" }],
+        path: "game.ts",
+      },
+      tool: "edit",
+    },
     { text: "Made it faster." },
   ],
   // Never answers: the deadline's case.
@@ -179,6 +205,7 @@ globalThis.fetch = (input, init) => {
 
 const encode = (text: string) => new TextEncoder().encode(text);
 const PLAYTEST = JSON.stringify({ errors: [], ok: true, typeErrors: [] });
+const RED = JSON.stringify({ errors: ["boom"], ok: false, typeErrors: [] });
 // A PNG's first bytes are enough for a screenshot nobody looks at.
 const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 const OPUS = new Uint8Array([79, 103, 103, 83]);
@@ -258,10 +285,16 @@ export class DraftCoder extends Coder {
       if (command.includes("find /workspace -mindepth 1 -delete")) {
         wipe();
       } else if (command.includes("/opt/hopon/playtest.js")) {
-        put("/workspace/game.js", encode("// built"));
+        const game = new TextDecoder().decode(
+          kv.get<Uint8Array>(key("/workspace/game.ts"))
+        );
+        put(
+          "/workspace/game.js",
+          encode(game.includes("speed = 3") ? "// built 3" : "// built")
+        );
         put("/workspace/playtest-start.png", PNG);
         put("/workspace/playtest-end.png", PNG);
-        return ok(`${PLAYTEST}\n`);
+        return ok(`${game.includes("BROKEN") ? RED : PLAYTEST}\n`);
       } else if (command.includes("node music.mjs")) {
         put("/workspace/music.opus", OPUS);
         return ok("30.0\n");
