@@ -144,7 +144,7 @@ const failure = (event: Final | null | undefined) => {
 };
 
 // One build per turn (#122), and the abort timer counts from the turn's build, so a rerun after a restart keeps it.
-// Keyed by pi's run, which a turn's steers join.
+// Keyed by the input that began pi's run, which a turn's steers join; the run's taskId changes every tool round.
 interface Turn {
   run: number;
   callId: string;
@@ -163,7 +163,7 @@ export const buildTool = (
       "Have the coder build a new game or change this one. Takes about a minute. Returns the coder's report.",
     execute: async (spec, api, context) => {
       const live = await api.snapshot(LiveDoc, api.conversationId, context);
-      const run = Number(live?.run?.taskId);
+      const run = Number(live?.run?.inputs[0]);
       const turn = await storage.get<Turn>("turn");
       if (turn?.run === run && turn.callId !== api.callId) {
         throw new Error(
