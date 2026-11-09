@@ -9,13 +9,15 @@
 //   - The sub agent: the brief names the script (SCRIPTS); each reply is the script's next step, by how many answers
 //     the conversation holds. Each call reads 1 input and writes 1 output token, 6 hopon tokens.
 // - The sandbox: files in the Maker's own storage (so they outlive a restart, as a running box does), every command
-//   logged and answered by fakeExec: the playtest green unless game.ts says BROKEN, music.mjs rendering a fixed track,
-//   the rest a no-op. As the platform's, a stopped box refuses every command and file, and one started again is empty.
+//   logged and answered by fakeExec: the playtest green unless game.ts says BROKEN, or RANDOMCRASH under the random
+//   script; music.mjs rendering a fixed track; the rest a no-op. As the platform's, a stopped box refuses every command
+//   and file, and one started again is empty.
 // - The deadline: the "late" scripts' is 1 s, so their case is quick; the reason still names the job's real deadline.
 // /__maker/<draftId>/fake/<what> (MAKER_DEV's route) reaches the Draft's Maker: `log` returns the box's commands, and
 // its start, destroy and inactivity timeout; `release` lets a held step answer; `nobox` stops the box and makes its
 // next start fail; `lose` makes the box stop with the server, as a box on another host would; `stopbox` stops it once;
-// `slowreads/<ms>` and `slowplay/<ms>` slow its reads and its next playtest; `calls` counts the sub agent's model calls;
+// `slowreads/<ms>` and `slowplay/<ms>` slow its reads and its next playtest; `calls` counts the sub agent's model calls,
+// and `told` lists the messages it got after its prompt (the harness's);
 // `mistagged` counts calls whose gateway tag names the wrong agent; `destroyed` says whether the Draft's box was
 // destroyed, and `startsafterdestroy` how often it started after that.
 import { Effect, Layer } from "effect";
@@ -51,8 +53,11 @@ const edit = (to: string) => ({
   tool: "edit",
 });
 const late = [{ hold: true, text: "Too late." }] as const;
+// What a sub agent told that the box lost its work does: writes the game again and plays it.
+const again = [write, play, { text: "Wrote it again." }] as const;
 const SCRIPTS: Record<string, readonly Step[] | ((turn: number) => Step)> = {
-  // Breaks the game after a green playtest: the ending must fail it.
+  // Breaks the game after a green playtest: the harness check fails it, and the sub agent, which never fixes it, gets
+  // the errors 3 times.
   breakLate: [write, play, edit("BROKEN"), { text: "Tidied it." }],
   change: [
     { input: { path: "game.ts" }, tool: "read" },
@@ -62,13 +67,30 @@ const SCRIPTS: Record<string, readonly Step[] | ((turn: number) => Step)> = {
   ],
   // The object resets after the job's state is written and before its prompt is submitted.
   crashset: [write, play, { text: "Built it after a reset." }],
+  // Green under its own inputs, red under the random script: the harness check sends the errors, and it fixes them.
+  crashy: [
+    {
+      input: { content: `${GAME}// RANDOMCRASH\n`, path: "game.ts" },
+      tool: "write",
+    },
+    play,
+    { text: "Built it." },
+    {
+      input: {
+        edits: [{ newText: "", oldText: "// RANDOMCRASH\n" }],
+        path: "game.ts",
+      },
+      tool: "edit",
+    },
+    play,
+    { text: "Fixed the crash." },
+  ],
   // Changes the game after a green playtest and stops: the ending must play what it ships.
   editLate: [write, play, edit("speed = 3"), { text: "Made it faster." }],
   // Runs a command until it's stopped.
   hang: [{ input: { command: "sleep 600" }, tool: "bash" }],
   // Never answers: the deadline's case.
   late,
-  lateMusic: late,
   // Writes forever: the step limit's case.
   loop: () => write,
   music: [
@@ -79,8 +101,13 @@ const SCRIPTS: Record<string, readonly Step[] | ((turn: number) => Step)> = {
     { text: "Built it with music." },
   ],
   new: [write, play, { text: "Built Moon Cat." }],
-  slow: [write, play, { sleep: 2000, text: "Built it after a restart." }],
-  wait: [write, play, { hold: true, text: "Built it after a wait." }],
+  slow: [
+    write,
+    play,
+    { sleep: 2000, text: "Built it after a restart." },
+    ...again,
+  ],
+  wait: [write, play, { hold: true, text: "Built it after a wait." }, ...again],
 };
 
 const sse = (events: object[]) =>
@@ -165,6 +192,7 @@ const gate = (draftId: string) => {
   return found;
 };
 const subCalls = new Map<string, number>();
+const told = new Map<string, string[]>();
 // The Drafts whose box was destroyed, outside the Maker's storage, which a Delete removes.
 const destroyed = new Set<string>();
 // Box starts after a Draft's box was destroyed, and main agent calls tagged as the sub agent's (or the reverse).
@@ -221,6 +249,18 @@ const main = (messages: Message[]) => {
 
 const sub = async (request: Request, draftId: string, messages: Message[]) => {
   subCalls.set(draftId, (subCalls.get(draftId) ?? 0) + 1);
+  told.set(
+    draftId,
+    messages
+      .slice(1)
+      .filter(
+        ({ content, role }) =>
+          role === "user" &&
+          (typeof content === "string" ||
+            content.every((block) => block.type !== "tool_result"))
+      )
+      .flatMap(({ content }) => texts(content))
+  );
   const name = /Brief: (?<name>\w+)/u.exec(JSON.stringify(messages[0]))?.groups
     ?.name;
   const script = SCRIPTS[name ?? ""];
@@ -273,7 +313,7 @@ globalThis.fetch = (input, init) => {
 };
 
 const encode = (text: string) => new TextEncoder().encode(text);
-const PLAYTEST = JSON.stringify({ errors: [], ok: true, typeErrors: [] });
+const GREEN = JSON.stringify({ errors: [], ok: true, typeErrors: [] });
 const RED = JSON.stringify({ errors: ["boom"], ok: false, typeErrors: [] });
 // A PNG's first bytes are enough for a screenshot nobody looks at.
 const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -352,7 +392,7 @@ export class Maker extends RealMaker {
     const log = (command: string) =>
       kv.put("fakelog", [...(kv.get<string[]>("fakelog") ?? []), command]);
     const fakeExec = (command: string): Exec => {
-      if (command.includes("find /workspace -mindepth 1 -delete")) {
+      if (command.includes("/usr/bin/find /workspace")) {
         wipe();
       } else if (command.includes("/opt/hopon/playtest.js")) {
         const game = new TextDecoder().decode(
@@ -364,10 +404,14 @@ export class Maker extends RealMaker {
         );
         put("/workspace/playtest-start.png", PNG);
         put("/workspace/playtest-end.png", PNG);
-        return ok(`${game.includes("BROKEN") ? RED : PLAYTEST}\n`);
-      } else if (command.includes("node music.mjs")) {
-        put("/workspace/music.opus", OPUS);
+        const red =
+          game.includes("BROKEN") ||
+          (game.includes("RANDOMCRASH") && command.endsWith(" random"));
+        return ok(`${red ? RED : GREEN}\n`);
+      } else if (command.includes("ffprobe")) {
         return ok("30.0\n");
+      } else if (command.includes("ffmpeg")) {
+        put("/workspace/music.opus", OPUS);
       }
       return ok();
     };
@@ -498,14 +542,13 @@ export class Maker extends RealMaker {
   }
 
   // The restart test waits for this line: a job pi finished with nobody connected.
-  override async finish(...args: Parameters<RealMaker["finish"]>) {
-    const brief = this.job?.job.spec.brief;
-    const event = await super.finish(...args);
+  override settle(...args: Parameters<RealMaker["settle"]>) {
+    const [, event] = args;
     console.info(
-      `Maker ${this.name}: job ${brief} ${event.type}`,
+      `Maker ${this.name}: job ${this.job?.job.spec.brief} ${event.type}`,
       event.type === "failed" ? event.reason : ""
     );
-    return event;
+    return super.settle(...args);
   }
 
   override armDeadline(...args: Parameters<RealMaker["armDeadline"]>) {
@@ -546,6 +589,9 @@ export class Maker extends RealMaker {
     if (pathname === "/fake/stopbox") {
       kv.put("fakebox:running", false);
       return Promise.resolve(new Response(null, { status: 204 }));
+    }
+    if (pathname === "/fake/told") {
+      return Promise.resolve(Response.json(told.get(this.name) ?? []));
     }
     if (pathname === "/fake/calls") {
       return Promise.resolve(Response.json(subCalls.get(this.name) ?? 0));

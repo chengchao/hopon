@@ -91,12 +91,15 @@ Each time the sub agent stops, pi calls its `onYield` hook, and the hook runs th
 
 1. Render `music.mjs` to `music.js`, if the game has music.
 2. Read the source back from the sandbox into memory.
-3. End every process left in the sandbox, and clear the workspace and the home directory. A background process or an edited `~/.bash_profile` that a model left behind can't touch the result.
+3. Clear the workspace and the home directory, so an edited `~/.bash_profile` or a stray file a model left behind is gone.
 4. Write the source from step 2 back, so the sandbox holds only the game.
 5. Typecheck `game.ts`.
 6. Emit `game.js` from that `game.ts`, so the stored `game.js` always comes from the stored `game.ts`.
 7. Play the game with the sub agent's last playtest inputs.
 8. Play it again with the fixed random script, the same taps every time, because a model's inputs can miss a crash.
+9. Read the source again. If a file differs from step 2, a process the model left rewrote it during the check, and the check fails.
+
+The harness doesn't end the processes a model left. Under the `durable_object` policy every process has root's capabilities, so `kill(-1)` could end Cloudflare's own processes in the Container, and a model that sets out to cheat could rewrite the harness itself. Step 9 catches the likely case, a stray background process, at the cost of one read.
 
 These commands run from `argv` with full paths such as `/usr/local/bin/node`, with no shell. Today's `bash -lc` runs `~/.bash_profile`, and a prototype on the real image passed a game that throws by planting a fake `node` there. Each command takes the turn's abort signal, so Stop and the timer don't wait for it.
 

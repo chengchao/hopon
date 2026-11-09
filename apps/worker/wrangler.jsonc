@@ -31,17 +31,18 @@
     ],
   },
   "vars": {
-    // The main agent's model and effort (#116, ADR 0005), through modelFetch on the account's gateway.
-    "MAKER_MAIN_MODEL": "claude-haiku-5-5",
+    // The main agent's model and effort (ADR 0005: Opus 5.5), through modelFetch on the account's gateway.
+    "MAKER_MAIN_MODEL": "claude-opus-5-5",
     "MAKER_MAIN_EFFORT": "high",
     // The sub agent's (#116): Haiku 5.5 at low effort.
     "MAKER_SUB_MODEL": "claude-haiku-5-5",
     "MAKER_SUB_EFFORT": "low",
-    // The abort timer on a build's turn (#116, #122), 30 s more with music: 30 s past the sub agent's own deadline, so
-    // its job ends `failed` first. The Maker test shortens it.
-    "MAKER_BUILD_ABORT_S": "150",
-    // Each Creator's weekly Allowance of hopon tokens (ADR 0004): about 25 builds with chat around them.
-    "MAKER_WEEKLY_TOKENS": "3000000",
+    // The abort timer on a build's turn (#116, #122): 30 s past the sub agent's own deadline (job.ts), so its job ends
+    // `failed` first. The Maker test shortens it.
+    "MAKER_BUILD_ABORT_S": "240",
+    // Each Creator's weekly Allowance of hopon tokens (ADR 0004, raised for Opus by ADR 0005): about 25 builds with
+    // chat around them, by ADR 0005's guess, which the treatment sweep sets.
+    "MAKER_WEEKLY_TOKENS": "40000000",
     // The oldest iOS build (CFBundleVersion) this Worker still serves: older builds that check show "Please update"
     // (GET /api/version). Raise it when the API drops something a build relies on.
     "MIN_IOS_BUILD": "11",
@@ -106,12 +107,12 @@
     "ai": { "binding": "AI", "remote": true },
     // No `secrets` here: wrangler 4.152 rejects previews.secrets, so a Preview missing one deploys anyway.
     "vars": {
-      "MAKER_MAIN_MODEL": "claude-haiku-5-5",
+      "MAKER_MAIN_MODEL": "claude-opus-5-5",
       "MAKER_MAIN_EFFORT": "high",
       "MAKER_SUB_MODEL": "claude-haiku-5-5",
       "MAKER_SUB_EFFORT": "low",
-      "MAKER_BUILD_ABORT_S": "150",
-      "MAKER_WEEKLY_TOKENS": "3000000",
+      "MAKER_BUILD_ABORT_S": "240",
+      "MAKER_WEEKLY_TOKENS": "40000000",
       "MIN_IOS_BUILD": "11",
       "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
       "CLOUDFLARE_GATEWAY_ID": "default",

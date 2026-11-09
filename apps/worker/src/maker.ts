@@ -48,17 +48,20 @@ import ZZFX from "../../maker/agent-home/.agents/skills/zzfx/SKILL.md";
 import AGENTS from "../../maker/agent-home/AGENTS.md";
 import {
   boxPlaytest,
-  deadlineFor,
-  finishJob,
+  checkBuild,
+  DEADLINE_MS,
+  MAX_REPAIRS,
   MAX_STEPS,
   pastDeadline,
   prompt,
+  repairPrompt,
+  RESTARTED,
   restore,
   screenshots,
   stepLabel,
   SYSTEM_PROMPT,
 } from "../../maker/src/job.ts";
-import type { Job, PlaytestResult } from "../../maker/src/job.ts";
+import type { Job } from "../../maker/src/job.ts";
 import {
   AgentSandbox,
   BoxStartFailed,
@@ -159,7 +162,7 @@ const Input = Type.Object({
   y: Type.Number(),
 });
 
-// The running or last job, in the object's storage, so a restarted object still knows its limits and playtests.
+// The running or last job, in the object's storage, so a restarted object still knows its limits.
 interface JobState {
   jobId: string;
   job: Job;
@@ -167,15 +170,15 @@ interface JobState {
   conversation: string;
   deadlineAt: number;
   steps: number;
-  playtests: PlaytestResult[];
-  // The last playtest's argument, and whether a tool may have changed the workspace since.
+  // The harness check's failures sent back to the sub agent.
+  repairs: number;
+  // The last playtest's argument, which the harness check plays again.
   played?: string;
-  changed?: boolean;
+  // The box started again mid-job and lost what the sub agent wrote, which it hasn't yet been told.
+  restarted?: boolean;
   // Why it was stopped: the deadline, the step limit or Stop.
   stopped?: string;
 }
-
-const CHANGES_WORKSPACE = new Set(["bash", "edit", "write"]);
 
 // Each agent's model calls go through its own pi provider, which tags them for the gateway (pi-models.ts). The eval
 // reads the tags.
@@ -197,8 +200,8 @@ export class Maker extends Agent<Env> {
 
   // The box is a cache over the job: one that stopped (idle, a deploy, a crash) starts again from the unfinished
   // job's source, whether pi resumes the run with nobody connected or a rerun of `build` waits for it. What the old box
-  // held since the job began is gone, and so are its green playtests: the run goes on from the source and must
-  // playtest again before it can end `done`.
+  // held since the job began is gone, and the harness check, which would otherwise pass the old game, first tells the
+  // sub agent to write its changes again.
   up = this.starting.withPermit(
     Effect.gen({ self: this }, function* () {
       const box = yield* AgentSandbox;
@@ -213,7 +216,7 @@ export class Maker extends Agent<Env> {
       const state = this.job;
       if (state && !this.final(state.jobId)) {
         yield* Effect.promise(() => restore(jobBox(box), state.job.source));
-        this.job = { ...state, playtests: [] };
+        this.job = { ...state, restarted: true };
       }
     })
   );
@@ -223,11 +226,15 @@ export class Maker extends Agent<Env> {
     this.sandbox.runPromise(this.up)
   );
 
-  // What each job holds in memory while its `build` call waits: its step listener and its deadline. Keyed by job, so a
-  // stopped job that is still ending never touches the next one.
+  // What each job holds in memory while its `build` call waits: its step listener, its deadline, and the abort of the
+  // harness check's commands. Keyed by job, so a stopped job that is still ending never touches the next one.
   running = new Map<
     string,
-    { step: (label: string) => void; deadline: ReturnType<typeof setTimeout> }
+    {
+      step: (label: string) => void;
+      deadline: ReturnType<typeof setTimeout>;
+      check: AbortController;
+    }
   >();
   // One job begins at a time, so a stopped job still restoring the workspace can't overwrite the next one's.
   beginning = Semaphore.makeUnsafe(1);
@@ -257,6 +264,7 @@ export class Maker extends Agent<Env> {
       return;
     }
     this.job = { ...job, stopped: job.stopped ?? reason };
+    this.running.get(jobId)?.check.abort();
     // oxlint-disable-next-line no-void -- the run ends on its own; its waiter reads `stopped`
     void this.harness.session(job.conversation).abort();
   }
@@ -266,34 +274,43 @@ export class Maker extends Agent<Env> {
     return event;
   }
 
-  // The job's ending: the music rendered, the files read back. Its final event is kept for a rerun of `build`. A
-  // stopped job ends without touching the box. A running one reads its state only once the box is up, since a box that
-  // starts again forgets the job's playtests.
-  async finish(jobId: string, summary: string): Promise<Final> {
-    const stored = this.final(jobId);
-    if (stored) {
-      return stored;
-    }
-    if (!this.job?.stopped) {
-      await this.sandbox.runPromise(this.up);
-    }
-    const state = this.job;
-    if (state?.jobId !== jobId) {
+  // The sub agent's answer, through the harness check (job.ts): a message that sends it back to work, or the job's
+  // final event, kept for a rerun of `build`. A job stopped meanwhile is left to `runJob`.
+  async end(jobId: string, report: string) {
+    await this.sandbox.runPromise(this.up);
+    const before = this.job;
+    if (before?.jobId !== jobId) {
       throw new Error(`job ${jobId} ended without its state`);
     }
-    if (state.stopped) {
-      return this.settle(jobId, { reason: state.stopped, type: "failed" });
+    const verdict = await checkBuild(
+      jobBox(this.box, this.running.get(jobId)?.check.signal),
+      { inputs: before.played, job: before.job }
+    );
+    const state = this.job;
+    if (state?.jobId !== jobId || state.stopped) {
+      return;
     }
-    const { event } = await finishJob(jobBox(this.box), {
-      deadlineAt: state.deadlineAt,
-      deadlineMs: deadlineFor(state.job),
-      job: state.job,
-      playtests: state.playtests,
-      replay: state.changed ? state.played : undefined,
-      stopped: state.stopped,
-      summary: summary.trim(),
-    });
-    return this.settle(jobId, event as Final);
+    if (state.restarted) {
+      this.job = { ...state, restarted: false };
+      return { continue: RESTARTED };
+    }
+    if ("errors" in verdict) {
+      if (state.repairs < MAX_REPAIRS) {
+        this.job = { ...state, repairs: state.repairs + 1 };
+        return { continue: repairPrompt(verdict.errors) };
+      }
+      this.settle(jobId, {
+        reason: `the harness check failed: ${verdict.errors.join("; ")}`,
+        type: "failed",
+      });
+      return;
+    }
+    this.settle(
+      jobId,
+      Date.now() > state.deadlineAt
+        ? { reason: pastDeadline(DEADLINE_MS / 1000), type: "failed" }
+        : { ...verdict, summary: report.trim(), type: "done" }
+    );
   }
 
   playtest = defineTool({
@@ -306,12 +323,7 @@ export class Maker extends Agent<Env> {
       const result = await boxPlaytest(box, played);
       const { job } = this;
       if (job) {
-        this.job = {
-          ...job,
-          changed: false,
-          played,
-          playtests: [...job.playtests, result],
-        };
+        this.job = { ...job, played };
       }
       const images = result.typeErrors.length > 0 ? [] : await screenshots(box);
       return {
@@ -343,11 +355,7 @@ export class Maker extends Agent<Env> {
         return;
       }
       const steps = job.steps + 1;
-      this.job = {
-        ...job,
-        changed: job.changed || CHANGES_WORKSPACE.has(toolCall.name),
-        steps,
-      };
+      this.job = { ...job, steps };
       if (steps > MAX_STEPS) {
         this.stop(job.jobId, `over ${MAX_STEPS} steps`);
         return { block: `Over the ${MAX_STEPS}-step limit.` };
@@ -358,15 +366,15 @@ export class Maker extends Agent<Env> {
     },
   });
 
-  // The ending runs inside pi's run, at the sub agent's final answer, so it completes with nobody connected. A stopped
-  // run never yields; `runJob` ends it.
+  // The ending runs inside pi's run, at each of the sub agent's final answers, so it completes with nobody connected.
+  // A `continue` sends the sub agent back to work in the same run. A stopped run never yields; `runJob` ends it.
   ending = hook(GenerationTask, {
     onYield: async (answer) => {
       const state = this.job;
-      if (!state || this.final(state.jobId)) {
+      if (!state || state.stopped || this.final(state.jobId)) {
         return;
       }
-      await this.finish(state.jobId, text(answer.content));
+      return await this.end(state.jobId, text(answer.content));
     },
   });
 
@@ -508,7 +516,7 @@ export class Maker extends Agent<Env> {
   // A job's deadline, armed when its `build` call waits for it, and again by a rerun after a restart.
   armDeadline(state: JobState) {
     return setTimeout(
-      () => this.stop(state.jobId, pastDeadline(deadlineFor(state.job) / 1000)),
+      () => this.stop(state.jobId, pastDeadline(DEADLINE_MS / 1000)),
       Math.max(0, state.deadlineAt - Date.now())
     );
   }
@@ -548,10 +556,10 @@ export class Maker extends Agent<Env> {
       }
       this.job = {
         conversation: session.id,
-        deadlineAt: Date.now() + deadlineFor(job),
+        deadlineAt: Date.now() + DEADLINE_MS,
         job,
         jobId,
-        playtests: [],
+        repairs: 0,
         steps: 0,
       };
     }
@@ -589,10 +597,17 @@ export class Maker extends Agent<Env> {
     const cancel = () => this.stop(jobId, "cancelled");
     signal.addEventListener("abort", cancel, { once: true });
     const deadline = this.armDeadline(state);
-    this.running.set(jobId, { deadline, step });
+    this.running.set(jobId, { check: new AbortController(), deadline, step });
     try {
-      const result = await session.wait(jobId);
-      return await this.finish(jobId, result.text ?? "");
+      await session.wait(jobId);
+      // The run's last answer settled it (`end`), unless it was stopped or the check threw, which pi swallows.
+      return (
+        this.final(jobId) ??
+        this.settle(jobId, {
+          reason: this.job?.stopped ?? "the harness check didn't finish",
+          type: "failed",
+        })
+      );
     } catch (error) {
       console.error(`Maker ${this.name}: job ${jobId}`, error);
       return this.settle(jobId, {

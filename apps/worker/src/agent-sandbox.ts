@@ -105,7 +105,7 @@ export class AgentSandbox extends Context.Service<
 
 // Every command as `timeout`'s child, which ends it and every process it started, at its time or on an abort.
 const timed = (argv: string[], seconds = COMMAND_TIMEOUT_S) => [
-  "timeout",
+  "/usr/bin/timeout",
   `--kill-after=${KILL_AFTER_S}`,
   String(seconds),
   ...argv,
@@ -468,14 +468,14 @@ export const boxEnv = (box: BoxOps, id: string): ExecutionEnv => {
   };
 };
 
-// The game rules' Box: commands in the workspace under the command timeout, their output whatever the exit code.
-// An abort of `signal` stops the command and everything it started.
+// The game rules' Box: programs in the workspace under the command timeout, their output whatever the exit code.
+// An abort of `signal` stops the program and everything it started.
 export const jobBox = (box: BoxOps, signal?: AbortSignal): JobBox => ({
-  read: (file) => readText(box.files, file),
-  readBytes: (file) => readBytes(box.files, file),
-  run: async (command) => {
-    const result = await box.exec(timed(["bash", "-lc", command]), { signal });
+  exec: async (argv) => {
+    const result = await box.exec(timed(argv), { signal });
     return { ...result, stdout: decode(result.stdout) };
   },
+  read: (file) => readText(box.files, file),
+  readBytes: (file) => readBytes(box.files, file),
   write: (file, text) => write(box.files, file, text),
 });

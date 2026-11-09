@@ -316,8 +316,9 @@ test(
     const gone = await fetch(first);
     assert.equal(gone.status, 404);
 
-    // A change after the last green playtest is played before it ships; a break after it fails the build, which leaves
-    // the Revision alone.
+    // The harness check plays what ships, a change after the last green playtest included: once with the sub agent's
+    // inputs and once with the random script. A break after it fails the check, whose errors go back to the sub agent 3
+    // times; then the build fails and leaves the Revision alone.
     const before = await playtests(draft);
     assert.equal(await socket.turn("build editLate"), "turn_done");
     assert.deepEqual(await revisionFile(draft, "game.js"), [
@@ -325,12 +326,14 @@ test(
       200,
       "// built 3",
     ]);
-    assert.equal(await playtests(draft), before + 2);
+    assert.equal(await playtests(draft), before + 3);
+    const calls = await subCalls(draft);
     assert.equal(await socket.turn("build breakLate"), "turn_done");
     assert.match(
       await lastReply(draft),
-      /The build failed: last playtest not green/u
+      /The build failed: the harness check failed: your inputs: boom/u
     );
+    assert.equal((await subCalls(draft)) - calls, 4 + 3);
     assert.equal(await revisionOf(draft), 3);
 
     // A box that can't start: busy has its own line, and the sub agent made no model call.
@@ -397,8 +400,8 @@ test(
     const kept = await boxLog(draft);
     assert.ok(kept.includes("inactivity timeout"));
 
-    // Again on a box that stops with the server: a fresh one starts and gets the job's source. Its green playtests went
-    // with the old box, and a job that doesn't play again fails.
+    // Again on a box that stops with the server: a fresh one starts and gets the job's source. What the sub agent wrote
+    // went with the old box, so the harness check tells it to write it again before it plays anything.
     await fake(draft, "lose");
     const { length: lostBefore } = await boxLog(draft);
     step = socket.after("the step label", stepLabel);
@@ -409,24 +412,35 @@ test(
     from = Buffer.concat(serverLog).length;
     await start();
     socket = await connect(draft);
-    await logged(from, `Maker ${draft}: job slow failed never playtested`);
+    await logged(from, `Maker ${draft}: job slow done`);
     await socket.until("the turn's end after the second restart", over);
     const all = await boxLog(draft);
     const lost = all.slice(lostBefore);
     const restarted = lost.lastIndexOf("start");
     assert.ok(restarted > 0, JSON.stringify(lost));
-    assert.match(lost[restarted + 1], /find \/workspace -mindepth 1 -delete/u);
-    assert.match(await lastReply(draft), /The build failed: never playtested/u);
-    assert.deepEqual(await revisionFile(draft, "game.ts"), [5, 200, GAME]);
+    assert.match(
+      lost[restarted + 1],
+      /\/usr\/bin\/find \/workspace \/home\/user -mindepth 1 -delete/u
+    );
+    assert.equal(await lastReply(draft), "said: Wrote it again.");
+    assert.deepEqual(await revisionFile(draft, "game.ts"), [6, 200, GAME]);
 
-    // Every command the box ran was under `timeout --kill-after=5`, so an abort stops all it started.
+    // Every command the box ran was under `timeout --kill-after=5`, so an abort stops all it started. The harness's own
+    // (the playtest, the sweep) name the program by its full path, with no shell to run a model's ~/.bash_profile.
     const log = await boxLog(draft);
     const commands = log.filter(
       (entry) => !["start", "destroy", "inactivity timeout"].includes(entry)
     );
     assert.ok(commands.length > 0);
     for (const command of commands) {
-      assert.match(command, /^timeout --kill-after=5 \d+ /u);
+      assert.match(command, /^\/usr\/bin\/timeout --kill-after=5 \d+ /u);
+    }
+    const harness = commands.filter((command) =>
+      /playtest\.js|\/usr\/bin\/find/u.test(command)
+    );
+    assert.ok(harness.length > 0);
+    for (const command of harness) {
+      assert.match(command, /^\/usr\/bin\/timeout --kill-after=5 \d+ \/usr\//u);
     }
 
     // Between turns, Publish turns the last Revision into a Game with the Maker's title and description, and the Draft
@@ -481,6 +495,23 @@ test(
 );
 
 test(
+  "harness check: a game that crashes only under random taps goes back to the sub agent, which fixes it",
+  { timeout: 60_000 },
+  async (t) => {
+    await serve(t);
+    const { id: draft } = await json("/api/drafts", { text: "build crashy" });
+    const socket = await connect(draft);
+    await socket.until("the crashy turn's end", over);
+    assert.equal(await lastReply(draft), "said: Fixed the crash.");
+    assert.deepEqual(await revisionFile(draft, "game.ts"), [1, 200, GAME]);
+    assert.deepEqual(await fakeJson(draft, "told"), [
+      "The harness played your game and it failed:\n- random taps: boom\nFix these, playtest again, then give your report.",
+    ]);
+    socket.close();
+  }
+);
+
+test(
   "limits: the deadline and the 21st step end the job failed, and nothing is written",
   { timeout: 120_000 },
   async (t) => {
@@ -488,15 +519,10 @@ test(
     const { id: draft } = await json("/api/drafts", { text: "build late" });
     const socket = await connect(draft);
     await socket.until("the late turn's end", over);
-    // 120 s, or 150 s with music; the fake's is 1 s.
+    // 210 s; the fake's is 1 s.
     assert.match(
       await lastReply(draft),
-      /The build failed: past the 120 s deadline/u
-    );
-    assert.equal(await socket.turn("build lateMusic"), "turn_done");
-    assert.match(
-      await lastReply(draft),
-      /The build failed: past the 150 s deadline/u
+      /The build failed: past the 210 s deadline/u
     );
     // Twenty steps run; the 21st is blocked and ends the job.
     const calls = await subCalls(draft);
@@ -539,7 +565,7 @@ test(
     assert.equal(await socket.turn("build late"), "turn_done");
     assert.match(
       await lastReply(draft),
-      /The build failed: past the 120 s deadline/u
+      /The build failed: past the 210 s deadline/u
     );
     await fake(draft, "slowreads/0");
 
@@ -554,7 +580,8 @@ test(
     assert.equal(await stopped, "turn_failed");
     assert.ok(Date.now() - at < 3000, `Stop took ${Date.now() - at} ms`);
 
-    // The box stops after the green playtest: the job's playtests went with it, so the job fails and nothing changes.
+    // The box stops after the green playtest: what the sub agent wrote went with it, so the harness check tells it to
+    // write it again, and the Revision holds what it played then.
     step = socket.after("the step label", stepLabel);
     const held = socket.turn("build wait");
     await step();
@@ -562,8 +589,8 @@ test(
     await fake(draft, "stopbox");
     await fake(draft, "release");
     assert.equal(await held, "turn_done");
-    assert.match(await lastReply(draft), /The build failed: never playtested/u);
-    assert.equal(await revisionOf(draft), 2);
+    assert.equal(await lastReply(draft), "said: Wrote it again.");
+    assert.equal(await revisionOf(draft), 3);
 
     // A reset after the job's state is written and before its prompt is submitted: the rerun submits it.
     socket.close();
@@ -574,7 +601,7 @@ test(
     socket = await connect(draft);
     await logged(from, `Maker ${draft}: job crashset done`);
     await socket.until("the turn's end after the reset", over);
-    assert.equal(await revisionOf(draft), 3);
+    assert.equal(await revisionOf(draft), 4);
 
     // Every model call was tagged with the agent that made it.
     assert.equal(await fakeJson(draft, "mistagged"), 0);

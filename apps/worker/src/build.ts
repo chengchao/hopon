@@ -37,8 +37,6 @@ export interface SubAgent {
   ) => Promise<Final>;
 }
 
-// A build with music gets this much more than MAKER_BUILD_ABORT_S, as the sub agent's deadline does.
-const MUSIC_EXTRA_S = 30;
 // A Revision's files the sub agent makes rather than edits (from game.ts and music.mjs), so the job never carries them.
 const BUILT = new Set(["game.js", "music.js"]);
 
@@ -204,10 +202,10 @@ export const buildTool = (
         return created.id;
       }, context);
       const signal = context.abortSignal ?? new AbortController().signal;
-      const abortMs =
-        (Number(env.MAKER_BUILD_ABORT_S) + (spec.music ? MUSIC_EXTRA_S : 0)) *
-        1000;
-      const timer = setTimeout(endTurn, startedAt + abortMs - Date.now());
+      const timer = setTimeout(
+        endTurn,
+        startedAt + Number(env.MAKER_BUILD_ABORT_S) * 1000 - Date.now()
+      );
       const job = () =>
         sub.run(
           { conversation, job: { draftId, revision: n, source, spec }, jobId },
