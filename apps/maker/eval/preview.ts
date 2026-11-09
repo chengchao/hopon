@@ -176,6 +176,8 @@ interface Build {
 interface Turn {
   sentAt: number;
   sent: string[];
+  // When the Worker last accepted one of the turn's messages: a snapshot from before then can't show it.
+  acceptedAt?: number;
   answered: Map<string, string | undefined>;
   texts: string[];
   cost: number;
@@ -368,9 +370,12 @@ export const runPreviewE2E = async ({
         onFrame(JSON.parse(String(data)) as Frame);
       }
     });
-    const reconnect = async () => {
+    const reconnect = async ({ code, reason }: CloseEvent) => {
       clearInterval(ping);
       if (socket === ws && draftId) {
+        console.warn(
+          `${chat.id}: the socket closed (${code} ${reason}) ${turn ? `${Date.now() - turn.sentAt} ms into a turn` : "between turns"}; reconnecting`
+        );
         await sleep(RECONNECT_MS);
         await connect(id);
       }
@@ -391,6 +396,9 @@ export const runPreviewE2E = async ({
     if (!ok) {
       return { refused: String(json.error) };
     }
+    if (turn) {
+      turn.acceptedAt = Date.now();
+    }
     if (!draftId) {
       draftId = String(json.id);
       await connect(draftId);
@@ -398,15 +406,16 @@ export const runPreviewE2E = async ({
     return { id: String(json.message ?? json.id) };
   };
 
-  // Settled: no run, nothing queued, and every message sent this turn answered. A snapshot taken after them (the
-  // first message's Draft is made before its socket opens) stands in for outcomes the socket didn't see.
+  // Settled: no run, nothing queued, and every message sent this turn answered. A snapshot taken after the Worker
+  // accepted them (the first message's Draft is made before its socket opens) stands in for outcomes the socket didn't
+  // see. One taken while a message was still in flight, by a socket that reconnected then, shows neither it nor its run.
   const settled = async (current: Turn) => {
     const deadline = Date.now() + TURN_MS;
     const done = () =>
       !view.running &&
       view.inbox === 0 &&
       (current.sent.every((id) => current.answered.has(id)) ||
-        (current.snapshotAt ?? 0) > current.sentAt);
+        (current.snapshotAt ?? 0) > (current.acceptedAt ?? Infinity));
     while (!done()) {
       if (Date.now() > deadline) {
         throw new Error(
