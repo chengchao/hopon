@@ -120,12 +120,11 @@ const play = async (page, input) => {
   }
 };
 
-// Plays the game: load, tap to start, screenshot, run the inputs (ms after the start tap), screenshot.
-// Red on a type error, any console error, a clock that didn't run, or identical start and end screenshots.
-export const playtest = async ({ inputs = [], ms } = {}) => {
+// Typechecks and emits game.js, then opens the browser: the type errors, or the browser and the served files.
+const prepare = async () => {
   const typeErrors = existsSync("game.ts") ? await typecheck() : ["no game.ts"];
   if (typeErrors.length > 0) {
-    return { errors: [], ok: false, typeErrors: typeErrors.slice(0, 10) };
+    return { typeErrors: typeErrors.slice(0, 10) };
   }
   await emit();
   const files = {
@@ -142,34 +141,133 @@ export const playtest = async ({ inputs = [], ms } = {}) => {
   const browser = await chromium
     .connect(BROWSER_SERVER, { timeout: 2000 })
     .catch(() => chromium.launch());
+  return { browser, files };
+};
+
+// A fresh page of the game, loaded, tapped to start and given 500 ms; its console errors go to `errors`.
+const openGame = async (browser, files, errors) => {
+  const context = await browser.newContext({ viewport: VIEWPORT });
+  const page = await context.newPage();
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      errors.push(message.text());
+    }
+  });
+  page.on("pageerror", (error) => errors.push(String(error)));
+  await page.route("**/*", (route) => {
+    const url = new URL(route.request().url());
+    const body = url.origin === ORIGIN ? files[url.pathname] : undefined;
+    if (body === undefined) {
+      return route.fulfill({ body: "not found", status: 404 });
+    }
+    return route.fulfill({
+      body,
+      contentType: url.pathname.endsWith(".js")
+        ? "text/javascript"
+        : "text/html",
+      headers: { "content-security-policy": GAME_CSP },
+    });
+  });
+  await page.goto(`${ORIGIN}/`);
+  await sleep(500);
+  await play(page, { type: "tap", ...START });
+  await sleep(500);
+  return page;
+};
+
+// What a test's checks read: the game's top-level `testVars`, and the scaffold's score and state.
+const testState = () =>
+  /* oxlint-disable no-undef -- the game's and the runtime's globals */
+  ({
+    score: typeof hopon === "object" ? hopon.score : undefined,
+    state: typeof hopon === "object" ? hopon.state : undefined,
+    vars:
+      typeof testVars === "object" && testVars !== null ? { ...testVars } : {},
+  });
+/* oxlint-enable no-undef */
+
+const TEST_TICK_MS = 20;
+const describe = ({ vars, score, state }) =>
+  `vars ${JSON.stringify(vars)}, score ${score}, state ${state}`;
+
+// The main agent's tests (ADR 0005 spike): each on a fresh page, its inputs at their times (ms after the start), each
+// check's expression evaluated at its time against the state then and at the check before. A test stops at its first
+// failure. Red on a type error or any failed check.
+export const runTests = async ({ tests = [] } = {}) => {
+  const prepared = await prepare();
+  if (prepared.typeErrors) {
+    return { failures: [], ok: false, typeErrors: prepared.typeErrors };
+  }
+  const { browser, files } = prepared;
+  const failures = [];
+  try {
+    // oxlint-disable no-await-in-loop -- one test, input and check after another, in real time
+    for (const test of tests) {
+      const errors = [];
+      const page = await openGame(browser, files, errors);
+      const begun = Date.now();
+      let prev = await page.evaluate(testState);
+      const inputs = (test.inputs ?? []).toSorted((a, b) => a.at - b.at);
+      const checks = (test.checks ?? []).toSorted((a, b) => a.at - b.at);
+      while (checks.length > 0) {
+        const elapsed = Date.now() - begun;
+        while (inputs.length > 0 && inputs[0].at <= elapsed) {
+          await play(page, inputs.shift());
+        }
+        if (checks[0].at <= elapsed) {
+          const check = checks.shift();
+          const now = await page.evaluate(testState);
+          let passed = false;
+          let threw = "";
+          try {
+            /* oxlint-disable no-new-func -- the main agent's expression, run in the box */
+            const expect = new Function(
+              "vars",
+              "score",
+              "state",
+              "prev",
+              `return (${check.expect});`
+            );
+            /* oxlint-enable no-new-func */
+            // `prev` is flat, as the main agent writes it: prev.lives, prev.score.
+            const flat = { ...prev.vars, score: prev.score, state: prev.state };
+            passed = Boolean(expect(now.vars, now.score, now.state, flat));
+          } catch (error) {
+            threw = `; it threw ${String(error)}`;
+          }
+          if (!passed) {
+            failures.push(
+              `test "${test.name}": at ${check.at} ms, expected ${check.expect}${threw}; got ${describe(now)}; before ${describe(prev)}`
+            );
+            break;
+          }
+          prev = now;
+        }
+        await sleep(TEST_TICK_MS);
+      }
+      for (const error of errors.slice(0, 3)) {
+        failures.push(`test "${test.name}": console error ${error}`);
+      }
+      await page.context().close();
+    }
+    // oxlint-enable no-await-in-loop
+  } finally {
+    await browser.close();
+  }
+  return { failures, ok: failures.length === 0, typeErrors: [] };
+};
+
+// Plays the game: load, tap to start, screenshot, run the inputs (ms after the start tap), screenshot.
+// Red on a type error, any console error, a clock that didn't run, or identical start and end screenshots.
+export const playtest = async ({ inputs = [], ms } = {}) => {
+  const prepared = await prepare();
+  if (prepared.typeErrors) {
+    return { errors: [], ok: false, typeErrors: prepared.typeErrors };
+  }
+  const { browser, files } = prepared;
   const errors = [];
   try {
-    const context = await browser.newContext({ viewport: VIEWPORT });
-    const page = await context.newPage();
-    page.on("console", (message) => {
-      if (message.type() === "error") {
-        errors.push(message.text());
-      }
-    });
-    page.on("pageerror", (error) => errors.push(String(error)));
-    await page.route("**/*", (route) => {
-      const url = new URL(route.request().url());
-      const body = url.origin === ORIGIN ? files[url.pathname] : undefined;
-      if (body === undefined) {
-        return route.fulfill({ body: "not found", status: 404 });
-      }
-      return route.fulfill({
-        body,
-        contentType: url.pathname.endsWith(".js")
-          ? "text/javascript"
-          : "text/html",
-        headers: { "content-security-policy": GAME_CSP },
-      });
-    });
-    await page.goto(`${ORIGIN}/`);
-    await sleep(500);
-    await play(page, { type: "tap", ...START });
-    await sleep(500);
+    const page = await openGame(browser, files, errors);
     const start = await page.screenshot({ path: "playtest-start.png" });
     const begun = Date.now();
     const deadline =

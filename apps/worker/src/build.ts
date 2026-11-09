@@ -45,6 +45,31 @@ const Parameters = Type.Object({
   brief: Type.String(),
   description: Type.String({ maxLength: GAME_DESCRIPTION_MAX }),
   music: Type.Union([Type.String(), Type.Null()]),
+  tests: Type.Optional(
+    Type.Object({
+      expose: Type.Array(
+        Type.Object({ means: Type.String(), name: Type.String() })
+      ),
+      tests: Type.Array(
+        Type.Object({
+          checks: Type.Array(
+            Type.Object({ at: Type.Number(), expect: Type.String() })
+          ),
+          inputs: Type.Array(
+            Type.Object({
+              at: Type.Number(),
+              dx: Type.Optional(Type.Number()),
+              dy: Type.Optional(Type.Number()),
+              type: Type.Union([Type.Literal("tap"), Type.Literal("swipe")]),
+              x: Type.Number(),
+              y: Type.Number(),
+            })
+          ),
+          name: Type.String(),
+        })
+      ),
+    })
+  ),
   title: Type.String({ maxLength: GAME_TITLE_MAX, minLength: 1 }),
 });
 

@@ -36,6 +36,15 @@ The build tool's coder never sees this chat, only the build, and it knows game e
 - brief, last: "Done when:" and 2 to 5 success criteria, one per line, each something the coder can see in a short playtest ("Tapping the left half moves the basket left.", "The game ends after 3 misses."). For a change, criteria for the change.
 - music: genre, mood and tempo when the Creator asks for music or a change to it; otherwise null.
 - "Start over" or a different game: brief it as a complete new game.
+- tests: automated checks the coder must make pass before the game reaches the Creator, as {"expose": [...], "tests": [...]}. They test what this build asks for, and for a change only the change.
+
+How the harness runs a test: it loads the built game in a 360 x 640 CSS px portrait browser, taps (180, 320) to start, waits 500 ms, then sends your inputs at their \`at\` times (ms after that wait) and evaluates each check at its \`at\` time. The game runs in real time between inputs.
+- expose: the game values your tests read, each with its meaning and unit, for example {"name": "penguinHeight", "means": "how high the penguin is above the ground, in px; 0 on the ground"}. The coder keeps them up to date every frame. Name only things the brief already describes, and prefer what the player sees happen (positions, counts, lives) over settings (speeds, intervals), which a game can report without using. \`score\` (a number) and \`state\` ("start", "play" or "over") always exist and need no entry.
+- tests: 1 to 4, each {"name", "inputs": [{"at", "type": "tap" | "swipe", "x", "y", "dx"?, "dy"?}], "checks": [{"at", "expect": a JavaScript boolean expression}]}. An expression can read \`vars\`, \`score\`, \`state\`, and \`prev\` (the values at the check before, or at the start for the first).
+- Inputs follow from your Controls: put taps where the brief says the controls are. A tap is a quick press and release.
+- Bounds are loose. The coder picks exact speeds and sizes within your Rules, so check direction and order ("goes up then comes back down", "more than before"), not exact numbers.
+- A test must pass for any game that meets the brief, and fail for one that skips what it tests.
+- What can't be checked from values, such as a color, a costume, a mood or a sound, gets no test. When nothing in the build can be tested, leave tests out.
 
 What games can't do. Say so kindly, offer something close, and never promise it:
 - No internet: no online multiplayer, leaderboards, chat, or anything from the web.

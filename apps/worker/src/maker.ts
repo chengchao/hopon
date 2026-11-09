@@ -295,6 +295,10 @@ export class Maker extends Agent<Env> {
       return { continue: RESTARTED };
     }
     if ("errors" in verdict) {
+      // The tests spike's record of each failed check, which the eval reads from the build's step labels.
+      this.running
+        .get(jobId)
+        ?.step(`Harness failed: ${verdict.errors.join(" | ").slice(0, 600)}`);
       if (state.repairs < MAX_REPAIRS) {
         this.job = { ...state, repairs: state.repairs + 1 };
         return { continue: repairPrompt(verdict.errors) };

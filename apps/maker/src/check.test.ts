@@ -11,7 +11,7 @@ import { after, before, test } from "node:test";
 
 import { littlejsHtml } from "../image/page.ts";
 import { boxPlaytest, checkBuild, restore, WORKSPACE } from "./job.ts";
-import type { Box, Job } from "./job.ts";
+import type { Box, Job, Tests } from "./job.ts";
 
 const IMAGE = process.env.HOPON_BOX_IMAGE;
 const skip = IMAGE ? false : "set HOPON_BOX_IMAGE to the sandbox image";
@@ -194,6 +194,59 @@ test(
     assert.match(
       verdict.errors.join("\n"),
       /random taps: .*tapped the corner/u
+    );
+  }
+);
+
+const TESTED = withLine("testVars.basketX = bx;").replace(
+  "function gameUpdate() {",
+  "const testVars: Record<string, number> = {};\nfunction gameUpdate() {"
+);
+const swipeLeft = (expect: string): Tests => ({
+  expose: [{ means: "the basket's x, in world units", name: "basketX" }],
+  tests: [
+    {
+      checks: [{ at: 1000, expect }],
+      inputs: [{ at: 300, dx: -120, dy: 0, type: "swipe", x: 180, y: 500 }],
+      name: "a swipe left moves the basket left",
+    },
+  ],
+});
+const tested = (tests: Tests): Job => ({
+  ...job,
+  spec: { ...job.spec, tests },
+});
+
+test(
+  "the main agent's tests pass on a game that does what they check",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(box, { "game.ts": TESTED });
+
+    const verdict = await checkBuild(box, {
+      inputs: INPUTS,
+      job: tested(swipeLeft("vars.basketX < prev.basketX")),
+    });
+
+    assert.ok("files" in verdict, JSON.stringify(verdict));
+  }
+);
+
+test(
+  "a test the game doesn't meet fails the check, with what the game showed",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(box, { "game.ts": TESTED });
+
+    const verdict = await checkBuild(box, {
+      inputs: INPUTS,
+      job: tested(swipeLeft("vars.basketX > prev.basketX")),
+    });
+
+    assert.ok("errors" in verdict, JSON.stringify(verdict));
+    assert.match(
+      verdict.errors.join("\n"),
+      /test "a swipe left moves the basket left": at 1000 ms, expected vars\.basketX > prev\.basketX; got vars \{"basketX":-?\d/u
     );
   }
 );

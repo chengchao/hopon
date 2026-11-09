@@ -34,6 +34,24 @@ export const SYSTEM_PROMPT = `You are the sub agent in hopon, an app where peopl
 
 Your tools run in the game's workspace, a sandbox with no network. Follow the project instructions below.`;
 
+// The main agent's tests of a build (ADR 0005 spike): the game values they read, which the sub agent keeps on a
+// top-level `testVars` in game.ts, and the tests the harness runs on every check.
+const TestsSchema = Schema.Struct({
+  expose: Schema.Array(
+    Schema.Struct({ means: Schema.String, name: Schema.String })
+  ),
+  tests: Schema.Array(
+    Schema.Struct({
+      checks: Schema.Array(
+        Schema.Struct({ at: Schema.Number, expect: Schema.String })
+      ),
+      inputs: Schema.Array(Schema.Unknown),
+      name: Schema.String,
+    })
+  ),
+});
+export type Tests = typeof TestsSchema.Type;
+
 // The job from the Talker (#122), decoded at the server's door.
 export const JobSchema = Schema.Struct({
   draftId: Schema.String,
@@ -45,6 +63,7 @@ export const JobSchema = Schema.Struct({
     brief: Schema.String,
     // genre and mood when this build writes or rewrites the music, else null
     music: Schema.NullOr(Schema.String),
+    tests: Schema.optional(TestsSchema),
     title: Schema.String,
   }),
 });
@@ -181,6 +200,18 @@ export const stepLabel = (tool: string, args: Record<string, unknown>) => {
   return tool === "edit" ? "Fixing the game" : "Writing the game";
 };
 
+const hasTests = (tests: Tests | undefined): tests is Tests =>
+  (tests?.tests.length ?? 0) > 0;
+
+const testsPrompt = (tests: Tests) =>
+  [
+    "",
+    "Tests: the harness runs these on your game and fails the build until every one passes. Keep each value below up to date every frame, from the game's real state, on a top-level object in game.ts: `const testVars: Record<string, number | string | boolean> = {};` (keep it when you change the game).",
+    ...tests.expose.map(({ means, name }) => `- testVars.${name}: ${means}`),
+    "Each test loads the game, taps (180, 320) to start, waits 500 ms, then sends its inputs at their `at` (ms) and evaluates each check's expression at its `at` over `vars` (testVars), `score`, `state` (hopon's) and `prev` (the values at the check before). Save the tests below as tests.json and run them with `node /opt/hopon/playtest.js tests`.",
+    JSON.stringify(tests),
+  ].join("\n");
+
 export const prompt = ({ revision, spec }: Job) =>
   [
     revision === 0
@@ -191,7 +222,33 @@ export const prompt = ({ revision, spec }: Job) =>
     spec.music
       ? `Music: write music.mjs for this game (${spec.music}) and render music.wav.`
       : "Music: none this turn; leave any existing music.mjs as it is.",
+    ...(hasTests(spec.tests) ? [testsPrompt(spec.tests)] : []),
   ].join("\n");
+
+interface TestsResult {
+  ok: boolean;
+  failures: string[];
+  typeErrors: string[];
+}
+
+const boxTests = async (box: Box, tests: Tests): Promise<TestsResult> => {
+  const result = await box.exec([
+    NODE,
+    PLAYTEST,
+    "tests",
+    JSON.stringify(tests),
+  ]);
+  const line = result.stdout.trim().split("\n").at(-1) ?? "";
+  try {
+    return JSON.parse(line) as TestsResult;
+  } catch {
+    return {
+      failures: [`tests crashed: ${(result.stderr || line).slice(0, 500)}`],
+      ok: false,
+      typeErrors: [],
+    };
+  }
+};
 
 // What the harness says to the sub agent when its check fails, or the box lost the job's work.
 export const repairPrompt = (errors: readonly string[]) =>
@@ -314,6 +371,12 @@ export const checkBuild = async (
   const random = await boxPlaytest(box, "random");
   if (!random.ok) {
     return { errors: played(random, "random taps") };
+  }
+  if (hasTests(job.spec.tests)) {
+    const tested = await boxTests(box, job.spec.tests);
+    if (!tested.ok) {
+      return { errors: [...tested.typeErrors, ...tested.failures] };
+    }
   }
   const [emitted, ...after] = await Promise.all(
     ["game.js", ...SOURCE_FILES].map((file) => readText(box, file))
