@@ -348,15 +348,22 @@ const describe = ({ vars, score, state }) =>
   `vars ${JSON.stringify(vars)}, score ${score}, state ${state}`;
 
 // The main agent's tests (ADR 0005 spike): each on a fresh page, its inputs at their times (ms after the start), each
-// check's expression evaluated at its time against the state then and at the check before. A test stops at its first
-// failure. Red on a type error or any failed check.
+// check's expression evaluated at its time against the state then and `prev`, the same shape at the check before. A test
+// stops at its first failed check, or at a check whose expression throws, which is a test error and not the game's. Red
+// on a type error or any failed check.
 export const runTests = async ({ tests = [] } = {}) => {
   const prepared = await prepare();
   if (prepared.typeErrors) {
-    return { failures: [], ok: false, typeErrors: prepared.typeErrors };
+    return {
+      failures: [],
+      ok: false,
+      testErrors: [],
+      typeErrors: prepared.typeErrors,
+    };
   }
   const { browser, files } = prepared;
   const failures = [];
+  const testErrors = [];
   const timings = [];
   try {
     // oxlint-disable no-await-in-loop -- one test, input and check after another, in game time
@@ -385,8 +392,7 @@ export const runTests = async ({ tests = [] } = {}) => {
         } else {
           const { check } = event;
           const now = await page.evaluate(testState);
-          let passed = false;
-          let threw = "";
+          let passed;
           try {
             /* oxlint-disable no-new-func -- the main agent's expression, run in the box */
             const expect = new Function(
@@ -397,15 +403,17 @@ export const runTests = async ({ tests = [] } = {}) => {
               `return (${check.expect});`
             );
             /* oxlint-enable no-new-func */
-            // `prev` is flat, as the main agent writes it: prev.lives, prev.score.
-            const flat = { ...prev.vars, score: prev.score, state: prev.state };
-            passed = Boolean(expect(now.vars, now.score, now.state, flat));
+            passed = Boolean(expect(now.vars, now.score, now.state, prev));
           } catch (error) {
-            threw = `; it threw ${String(error)}`;
+            // An expression that throws is the test's mistake, which no change to the game fixes.
+            testErrors.push(
+              `test "${test.name}": at ${check.at} ms, ${check.expect} threw ${String(error)}; skipped`
+            );
+            break;
           }
           if (!passed) {
             failures.push(
-              `test "${test.name}": at ${check.at} ms, expected ${check.expect}${threw}; got ${describe(now)}; before ${describe(prev)}`
+              `test "${test.name}": at ${check.at} ms, expected ${check.expect}; got ${describe(now)}; before ${describe(prev)}`
             );
             break;
           }
@@ -422,7 +430,13 @@ export const runTests = async ({ tests = [] } = {}) => {
   } finally {
     await browser.close();
   }
-  return { failures, ok: failures.length === 0, timings, typeErrors: [] };
+  return {
+    failures,
+    ok: failures.length === 0,
+    testErrors,
+    timings,
+    typeErrors: [],
+  };
 };
 
 // Plays the game: load, tap to start, screenshot, run the inputs (ms after the start tap), screenshot.

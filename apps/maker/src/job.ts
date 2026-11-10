@@ -32,6 +32,8 @@ const MUSIC_MAX_S = 40;
 
 export const SYSTEM_PROMPT = `You are the sub agent in hopon, an app where people make small phone games by chatting. You get one build job from the main agent, who talks to the Creator: a new game to make, or a change to the game in the workspace. The brief names the engine and ends with the success criteria under "Done when:". You build it, playtest it until it meets every criterion, and report back to the main agent. You never talk to the Creator.
 
+When the work the user asked for is done and checked, stop and report. Don't add features, tests, files, docs or refactors that weren't asked for. If you think one would help, mention it at the end instead of doing it.
+
 Your tools run in the game's workspace, a sandbox with no network. Follow the project instructions below.`;
 
 // The main agent's tests of a build (ADR 0005 spike): the game values they read, which the sub agent keeps on a
@@ -208,7 +210,7 @@ const testsPrompt = (tests: Tests) =>
     "",
     "Tests: the harness runs these on your game and fails the build until every one passes. Keep each value below up to date every frame, from the game's real state, on a top-level object in game.ts: `const testVars: Record<string, number | string | boolean> = {};` (keep it when you change the game).",
     ...tests.expose.map(({ means, name }) => `- testVars.${name}: ${means}`),
-    "Each test loads the game, taps (180, 320) to start, waits 500 ms, then sends its inputs at their `at` (ms) and evaluates each check's expression at its `at` over `vars` (testVars), `score`, `state` (hopon's) and `prev` (the values at the check before). Save the tests below as tests.json and run them with `node /opt/hopon/playtest.js tests`.",
+    "Each test loads the game, taps (180, 320) to start, waits 500 ms, then sends its inputs at their `at` (ms) and evaluates each check's expression at its `at` over `vars` (testVars), `score`, `state` (hopon's) and `prev`, the same three at the check before (`prev.vars`, `prev.score`, `prev.state`). Save the tests below as tests.json and run them with `node /opt/hopon/playtest.js tests`.",
     JSON.stringify(tests),
   ].join("\n");
 
@@ -228,6 +230,8 @@ export const prompt = ({ revision, spec }: Job) =>
 interface TestsResult {
   ok: boolean;
   failures: string[];
+  // Checks whose expression threw: the main agent's mistakes, skipped rather than sent back to the sub agent.
+  testErrors: string[];
   typeErrors: string[];
 }
 
@@ -245,6 +249,7 @@ const boxTests = async (box: Box, tests: Tests): Promise<TestsResult> => {
     return {
       failures: [`tests crashed: ${(result.stderr || line).slice(0, 500)}`],
       ok: false,
+      testErrors: [],
       typeErrors: [],
     };
   }
@@ -346,7 +351,10 @@ export const checkBuild = async (
   box: Box,
   { job, inputs }: { job: Job; inputs: string | undefined }
 ): Promise<
-  { errors: string[] } | { files: Record<string, string>; deleted: string[] }
+  (
+    | { errors: string[] }
+    | { files: Record<string, string>; deleted: string[] }
+  ) & { testErrors?: string[] }
 > => {
   const music = job.spec.music ? await renderMusic(box) : null;
   const texts = await Promise.all(
@@ -372,11 +380,15 @@ export const checkBuild = async (
   if (!random.ok) {
     return { errors: played(random, "random taps") };
   }
-  if (hasTests(job.spec.tests)) {
-    const tested = await boxTests(box, job.spec.tests);
-    if (!tested.ok) {
-      return { errors: [...tested.typeErrors, ...tested.failures] };
-    }
+  const tested = hasTests(job.spec.tests)
+    ? await boxTests(box, job.spec.tests)
+    : null;
+  const testErrors = tested?.testErrors ?? [];
+  if (tested && !tested.ok) {
+    return {
+      errors: [...tested.typeErrors, ...tested.failures],
+      testErrors,
+    };
   }
   const [emitted, ...after] = await Promise.all(
     ["game.js", ...SOURCE_FILES].map((file) => readText(box, file))
@@ -392,5 +404,8 @@ export const checkBuild = async (
       ),
     };
   }
-  return diffRevision({ ...source, "game.js": emitted }, job.source, opus);
+  return {
+    ...diffRevision({ ...source, "game.js": emitted }, job.source, opus),
+    testErrors,
+  };
 };

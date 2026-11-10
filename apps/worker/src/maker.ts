@@ -41,6 +41,7 @@ import {
   Semaphore,
 } from "effect";
 
+import BUILDING_GAMES from "../../maker/agent-home/.agents/skills/building-games/SKILL.md";
 import DOM_GAMES from "../../maker/agent-home/.agents/skills/dom-games/SKILL.md";
 import LITTLEJS from "../../maker/agent-home/.agents/skills/littlejs-api/SKILL.md";
 import MUSIC_SYNTH from "../../maker/agent-home/.agents/skills/music-synth/SKILL.md";
@@ -129,28 +130,30 @@ const SILENT_MS = 60_000;
 // AGENTS.md as the sub agent's project section, with its "read the skill" lines pointed at activate_skill: the skills
 // aren't files.
 const READ_SKILL =
-  "Read the skill for the engine with the **read tool**. Skills are not in the workspace, so bash can't see them; don't look for them with bash";
+  "Read the `building-games` skill, then the skill for the engine, with the **read tool**. Skills are not in the workspace, so bash can't see them; don't look for them with bash";
 if (!AGENTS.includes(READ_SKILL)) {
   throw new Error("AGENTS.md no longer says how to read a skill");
 }
 const PROJECT = AGENTS.replace(
   READ_SKILL,
-  "Load the skill for the engine with **activate_skill**. Skills are not in the workspace, so bash can't see them; don't look for them with bash"
+  "Load the `building-games` skill, then the skill for the engine, with **activate_skill**. Skills are not in the workspace, so bash can't see them; don't look for them with bash"
 )
   .replaceAll("Read the `", "Load the `")
   .replaceAll("read the `", "load the `");
 
 const SKILLS = fromManifest({
-  fingerprint: "v1",
+  fingerprint: "v2",
   id: "hopon-coder",
-  skills: [DOM_GAMES, LITTLEJS, MUSIC_SYNTH, ZZFX].map((raw) => {
-    const parsed = parseSkillMarkdown(raw);
-    if (!parsed) {
-      throw new Error(`a SKILL.md without frontmatter: ${raw.slice(0, 80)}`);
+  skills: [BUILDING_GAMES, DOM_GAMES, LITTLEJS, MUSIC_SYNTH, ZZFX].map(
+    (raw) => {
+      const parsed = parseSkillMarkdown(raw);
+      if (!parsed) {
+        throw new Error(`a SKILL.md without frontmatter: ${raw.slice(0, 80)}`);
+      }
+      const { body, description, name } = parsed;
+      return { body, description, name };
     }
-    const { body, description, name } = parsed;
-    return { body, description, name };
-  }),
+  ),
 });
 
 const Input = Type.Object({
@@ -294,17 +297,23 @@ export class Maker extends Agent<Env> {
       this.job = { ...state, restarted: false };
       return { continue: RESTARTED };
     }
-    if ("errors" in verdict) {
-      // The tests spike's record of each failed check, which the eval reads from the build's step labels.
+    // The tests spike's record of each failed check and each test error, which the eval reads from the step labels.
+    const { testErrors = [], ...outcome } = verdict;
+    if (testErrors.length > 0) {
       this.running
         .get(jobId)
-        ?.step(`Harness failed: ${verdict.errors.join(" | ").slice(0, 600)}`);
+        ?.step(`Test error: ${testErrors.join(" | ").slice(0, 600)}`);
+    }
+    if ("errors" in outcome) {
+      this.running
+        .get(jobId)
+        ?.step(`Harness failed: ${outcome.errors.join(" | ").slice(0, 600)}`);
       if (state.repairs < MAX_REPAIRS) {
         this.job = { ...state, repairs: state.repairs + 1 };
-        return { continue: repairPrompt(verdict.errors) };
+        return { continue: repairPrompt(outcome.errors) };
       }
       this.settle(jobId, {
-        reason: `the harness check failed: ${verdict.errors.join("; ")}`,
+        reason: `the harness check failed: ${outcome.errors.join("; ")}`,
         type: "failed",
       });
       return;
@@ -313,7 +322,7 @@ export class Maker extends Agent<Env> {
       jobId,
       Date.now() > state.deadlineAt
         ? { reason: pastDeadline(DEADLINE_MS / 1000), type: "failed" }
-        : { ...verdict, summary: report.trim(), type: "done" }
+        : { ...outcome, summary: report.trim(), type: "done" }
     );
   }
 

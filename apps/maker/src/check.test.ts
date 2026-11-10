@@ -225,7 +225,7 @@ test(
 
     const verdict = await checkBuild(box, {
       inputs: INPUTS,
-      job: tested(swipeLeft("vars.basketX < prev.basketX")),
+      job: tested(swipeLeft("vars.basketX < prev.vars.basketX")),
     });
 
     assert.ok("files" in verdict, JSON.stringify(verdict));
@@ -240,13 +240,32 @@ test(
 
     const verdict = await checkBuild(box, {
       inputs: INPUTS,
-      job: tested(swipeLeft("vars.basketX > prev.basketX")),
+      job: tested(swipeLeft("vars.basketX > prev.vars.basketX")),
     });
 
     assert.ok("errors" in verdict, JSON.stringify(verdict));
     assert.match(
       verdict.errors.join("\n"),
-      /test "a swipe left moves the basket left": at 1000 ms, expected vars\.basketX > prev\.basketX; got vars \{"basketX":-?\d/u
+      /test "a swipe left moves the basket left": at 1000 ms, expected vars\.basketX > prev\.vars\.basketX; got vars \{"basketX":-?\d/u
+    );
+  }
+);
+
+test(
+  "a check that throws is the test's error: it doesn't fail the build, and the harness reports it",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(box, { "game.ts": TESTED });
+
+    const verdict = await checkBuild(box, {
+      inputs: INPUTS,
+      job: tested(swipeLeft("vars.basketX < prev.missing.basketX")),
+    });
+
+    assert.ok("files" in verdict, JSON.stringify(verdict));
+    assert.match(
+      (verdict.testErrors ?? []).join("\n"),
+      /test "a swipe left moves the basket left": at 1000 ms, vars\.basketX < prev\.missing\.basketX threw TypeError/u
     );
   }
 );
