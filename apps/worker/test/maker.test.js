@@ -519,10 +519,10 @@ test(
     const { id: draft } = await json("/api/drafts", { text: "build late" });
     const socket = await connect(draft);
     await socket.until("the late turn's end", over);
-    // 210 s; the fake's is 1 s.
+    // 300 s; the fake's is 1 s.
     assert.match(
       await lastReply(draft),
-      /The build failed: past the 210 s deadline/u
+      /The build failed: past the 300 s deadline/u
     );
     // Twenty steps run; the 21st is blocked and ends the job.
     const calls = await subCalls(draft);
@@ -565,7 +565,7 @@ test(
     assert.equal(await socket.turn("build late"), "turn_done");
     assert.match(
       await lastReply(draft),
-      /The build failed: past the 210 s deadline/u
+      /The build failed: past the 300 s deadline/u
     );
     await fake(draft, "slowreads/0");
 

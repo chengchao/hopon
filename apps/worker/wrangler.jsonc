@@ -39,7 +39,7 @@
     "MAKER_SUB_EFFORT": "high",
     // The abort timer on a build's turn (#116, #122): 30 s past the sub agent's own deadline (job.ts), so its job ends
     // `failed` first. The Maker test shortens it.
-    "MAKER_BUILD_ABORT_S": "240",
+    "MAKER_BUILD_ABORT_S": "330",
     // Each Creator's weekly Allowance of hopon tokens (ADR 0004, raised for Opus by ADR 0005): about 25 builds with
     // chat around them, by ADR 0005's guess, which the treatment sweep sets.
     "MAKER_WEEKLY_TOKENS": "40000000",
@@ -111,7 +111,7 @@
       "MAKER_MAIN_EFFORT": "high",
       "MAKER_SUB_MODEL": "claude-sonnet-5-5",
       "MAKER_SUB_EFFORT": "high",
-      "MAKER_BUILD_ABORT_S": "240",
+      "MAKER_BUILD_ABORT_S": "330",
       "MAKER_WEEKLY_TOKENS": "40000000",
       "MIN_IOS_BUILD": "11",
       "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",

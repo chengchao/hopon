@@ -21,10 +21,10 @@ export interface Box {
 }
 
 // #116's turn limits. Steps are the owner's call, raised from #111's 12 to 20 on 2026-11-03: a p95 cap of 10 failed 2
-// of 72 good builds. The deadline is #116's p95 (112 s, music 142 s) plus the harness check, about 30 s a pass and up to
-// 3 repairs (ADR 0005); a guess the control sweep checks. The turn's abort timer sits 30 s past it (#122).
+// of 72 good builds. The deadline is the owner's call too, raised from 210 s to 5 minutes on 2026-11-09 with the move to
+// Sonnet at high effort. The turn's abort timer sits 30 s past it (#122).
 export const MAX_STEPS = 20;
-export const DEADLINE_MS = 210_000;
+export const DEADLINE_MS = 300_000;
 // Harness repairs per build (ADR 0005): a check that fails sends the errors back this many times, then the build fails.
 export const MAX_REPAIRS = 3;
 const MUSIC_MIN_S = 20;
