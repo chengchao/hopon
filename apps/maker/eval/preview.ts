@@ -169,6 +169,9 @@ interface Build {
   startedAt: number;
   endedAt?: number;
   labels: string[];
+  // When each label reached the socket. The Worker sends a label as the model finishes that tool call, so a gap is
+  // the previous tool's run plus the model writing the next call.
+  labelAt: number[];
   result?: ToolResultMessage;
 }
 
@@ -223,6 +226,7 @@ const toolEvent = (turn: Turn, event: AgentEvent, at: number) => {
   if (event.type === "tool_execution_start" && event.toolName === "build") {
     turn.builds.set(event.toolCallId, {
       callId: event.toolCallId,
+      labelAt: [],
       labels: [],
       spec: event.args as unknown as Spec,
       startedAt: at,
@@ -240,6 +244,13 @@ const toolEvent = (turn: Turn, event: AgentEvent, at: number) => {
         .split("\n")
         .filter(Boolean);
       build.labels = set ? lines : [...build.labels, ...lines];
+      build.labelAt = [
+        ...build.labelAt.slice(0, build.labels.length),
+        ...Array.from(
+          { length: Math.max(0, build.labels.length - build.labelAt.length) },
+          () => at
+        ),
+      ];
     }
   } else if (event.type === "tool_execution_end") {
     const build = turn.builds.get(event.toolCallId);
@@ -495,6 +506,8 @@ export const runPreviewE2E = async ({
       run,
       // From the `build` call's start to its result: the job, plus reading and writing R2.
       seconds: ((build.endedAt ?? Date.now()) - build.startedAt) / 1000,
+      // Seconds from the build's start to each label, in step order.
+      stepSeconds: build.labelAt.map((at) => (at - build.startedAt) / 1000),
       steps: build.labels.length,
       summary: failed ? undefined : text,
       thinking: "preview",
