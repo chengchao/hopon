@@ -1,8 +1,8 @@
-# The Coder's box (#175): node, Chromium, ffmpeg, typescript and the box scripts under /opt/hopon.
+# The Coder's box (#175): node, python3, Chromium, ffmpeg, typescript and the box scripts under /opt/hopon.
 # apps/worker/wrangler.jsonc builds it from this directory, and `wrangler deploy` pushes it;
 # `pnpm -F maker build:runtime` makes runtime.js and littlejs.d.ts first. It runs with no internet and no secrets.
 FROM node:24-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg python3 && rm -rf /var/lib/apt/lists/*
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/hopon/browsers
 RUN mkdir -p /opt/hopon /workspace \
   && cd /opt/hopon && npm init -y >/dev/null && npm pkg set type=module \

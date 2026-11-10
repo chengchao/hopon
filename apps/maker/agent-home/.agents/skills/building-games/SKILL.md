@@ -14,7 +14,7 @@ Build a **playable, correct** browser game — not a static screenshot. It is pl
 - **It ends.** The player can lose, and win when the brief has a win; the game then calls `hopon.gameOver()`, and a tap starts a fresh round with everything reset.
 - **The rules are the ones on screen.** What hits, scores and hurts matches what the player sees; nothing that matters is off screen or too small to see.
 - **No dead ends.** No state where nothing can happen and the game hasn't ended: a level with no way forward, a timer that never runs out, a board with no move left.
-- **Every "Done when:" criterion is met,** and your playtest shows it.
+- **Every "Done when:" criterion is met,** shown by the tests, the playtest's `state`, `score` and `overAt`, or its screenshots.
 
 ## Made for a phone
 

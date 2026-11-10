@@ -14,13 +14,13 @@ When the workspace already has a game, keep its engine whatever the brief says: 
 ## Workflow
 
 1. Read the `building-games` skill, then the skill for the engine, with the **read tool**. Skills are not in the workspace, so bash can't see them; don't look for them with bash, and don't explore the workspace either: it holds only the game's files. Then write the whole game with the write tool (`game.ts`, plus `index.html` for plain DOM). For a change, edit the existing files; don't rewrite what works.
-2. Call `playtest`. Give it `inputs` that play your game the way a player would: taps where your buttons, cards or targets are, swipes for your swipe controls, timed so the game gets going. Choose inputs that show the criteria. It typechecks first; type errors come back with no screenshots.
-3. Look at both screenshots and check each criterion against what you see. Fix every error, anything that looks wrong or unreadable, and any criterion you can't see met, then playtest again.
-4. Stop when the playtest is green (`ok: true`), the end screenshot shows the game being played, and every criterion is met, or when you can't get further.
+2. Call `playtest`. Give it `inputs` that play your game the way a player would: taps where your buttons, cards or targets are, swipes for your swipe controls, timed so the game gets going. It typechecks first; type errors come back with no screenshots.
+3. Look at both screenshots: fix every error and anything that looks wrong or unreadable, then playtest again. Screenshots are for how the game looks. What the game does (it ends, the score goes up, a swipe moves the player) is proven by the job's tests when it has them, and by the playtest's `state`, `score` and `overAt`: don't replay to see it in a screenshot.
+4. Stop when the playtest is green (`ok: true`), the tests pass when the job has them, and every criterion is met, or when you can't get further.
 
 Make it fair: the skill's "Fair games" and "Hits and collisions" sections are the most common reasons a green game still isn't playable.
 
-A playtest is red when the typecheck fails, there is any console error, the clock didn't run, or the start and end screenshots are identical (a frozen or blank game). `state "over"` within 3 s of the start is a warning: the game ends before a player can act, so make it more forgiving.
+A playtest runs on a fake clock, so a minute of play takes seconds; input times are in game ms. When the game ends it stops: `overAt` is when, no later input is played (a tap would start a new round), and the end screenshot is the over screen a second later. It is red when the typecheck fails, there is any console error, the clock didn't run, or the start and end screenshots are identical (a frozen or blank game). `state "over"` within 3 s of the start is a warning: the game ends before a player can act, so make it more forgiving.
 
 When the job asks for music, read the `music-synth` skill and write `music.mjs` after the game is green.
 

@@ -18,6 +18,11 @@ const START = { x: 180, y: 320 };
 const RANDOM_MS = 10_000;
 const OVER_TOO_SOON_MS = 3000;
 const SAMPLE_MS = 250;
+// How long after the game ends the playtest's end screenshot is taken: long enough for the over screen to draw.
+const OVER_SHOWN_MS = 1000;
+// CSS transitions and animations run on real time, not the fake clock: the real wait before a screenshot, so a pop or a
+// card flip isn't caught half way.
+const CSS_SETTLE_MS = 300;
 // browser.js, started by the template.
 const BROWSER_SERVER = "ws://127.0.0.1:9222/hopon";
 
@@ -103,23 +108,6 @@ const pageState = () => {
   /* oxlint-enable no-undef */
 };
 
-const play = async (page, input) => {
-  if (input.type === "swipe") {
-    await page.mouse.move(input.x, input.y);
-    await page.mouse.down();
-    await page.mouse.move(
-      input.x + (input.dx ?? 0),
-      input.y + (input.dy ?? 0),
-      {
-        steps: 6,
-      }
-    );
-    await page.mouse.up();
-  } else {
-    await page.mouse.click(input.x, input.y);
-  }
-};
-
 // Typechecks and emits game.js, then opens the browser: the type errors, or the browser and the served files.
 const prepare = async () => {
   const typeErrors = existsSync("game.ts") ? await typecheck() : ["no game.ts"];
@@ -144,41 +132,10 @@ const prepare = async () => {
   return { browser, files };
 };
 
-// A fresh page of the game, loaded, tapped to start and given 500 ms; its console errors go to `errors`.
-const openGame = async (browser, files, errors) => {
-  const context = await browser.newContext({ viewport: VIEWPORT });
-  const page = await context.newPage();
-  page.on("console", (message) => {
-    if (message.type() === "error") {
-      errors.push(message.text());
-    }
-  });
-  page.on("pageerror", (error) => errors.push(String(error)));
-  await page.route("**/*", (route) => {
-    const url = new URL(route.request().url());
-    const body = url.origin === ORIGIN ? files[url.pathname] : undefined;
-    if (body === undefined) {
-      return route.fulfill({ body: "not found", status: 404 });
-    }
-    return route.fulfill({
-      body,
-      contentType: url.pathname.endsWith(".js")
-        ? "text/javascript"
-        : "text/html",
-      headers: { "content-security-policy": GAME_CSP },
-    });
-  });
-  await page.goto(`${ORIGIN}/`);
-  await sleep(500);
-  await play(page, { type: "tap", ...START });
-  await sleep(500);
-  return page;
-};
-
 const TEST_SEED = 115;
 const FRAME_MS = 1000 / 60;
 
-// A test's page on a fake clock with a seeded Math.random: it loads in real time, then time stands still and moves only
+// A test's or a playtest's page on a fake clock with a seeded Math.random: it loads in real time, then time stands still and moves only
 // as the test says, so the same game plays the same way every run and a minute of play takes no minute to run.
 // Runs in the page before its scripts: Math.random seeded, and time frozen until `__hoponAdvance(ms)` moves it, firing
 // each animation frame (every 1/60 s) and each timer in order, all in the page.
@@ -439,7 +396,9 @@ export const runTests = async ({ tests = [] } = {}) => {
   };
 };
 
-// Plays the game: load, tap to start, screenshot, run the inputs (ms after the start tap), screenshot.
+// Plays the game on the tests' fake clock: load, tap to start, screenshot, run the inputs (game ms after the start tap),
+// screenshot the end. When the game ends it stops there, plays no more inputs (a tap would start a new round) and
+// screenshots the over screen OVER_SHOWN_MS later.
 // Red on a type error, any console error, a clock that didn't run, or identical start and end screenshots.
 export const playtest = async ({ inputs = [], ms } = {}) => {
   const prepared = await prepare();
@@ -449,25 +408,38 @@ export const playtest = async ({ inputs = [], ms } = {}) => {
   const { browser, files } = prepared;
   const errors = [];
   try {
-    const page = await openGame(browser, files, errors);
+    const { advance, input, page } = await openTestGame(browser, files, errors);
+    await sleep(CSS_SETTLE_MS);
     const start = await page.screenshot({ path: "playtest-start.png" });
-    const begun = Date.now();
-    const deadline =
-      begun + Math.max(ms ?? 0, ...inputs.map((input) => input.at + 300), 3000);
-    let overAt;
+    const until = Math.max(
+      ms ?? 0,
+      ...inputs.map((step) => step.at + 300),
+      3000
+    );
     const queue = inputs.toSorted((a, b) => a.at - b.at);
-    // oxlint-disable no-await-in-loop -- one input after another, like a player
-    while (Date.now() < deadline) {
-      while (queue.length > 0 && queue[0].at <= Date.now() - begun) {
-        await play(page, queue.shift());
-      }
+    let t = 0;
+    let overAt;
+    // oxlint-disable no-await-in-loop -- one input after another, in game time
+    for (;;) {
       const { state } = await page.evaluate(pageState);
       if (state === "over") {
-        overAt ??= Date.now() - begun;
+        overAt = t;
+        await advance(OVER_SHOWN_MS);
+        break;
       }
-      await sleep(SAMPLE_MS);
+      if (t >= until) {
+        break;
+      }
+      if (queue.length > 0 && queue[0].at <= t) {
+        t += await input(queue.shift());
+      } else {
+        const to = Math.min(until, t + SAMPLE_MS, queue[0]?.at ?? until);
+        await advance(to - t);
+        t = to;
+      }
     }
     // oxlint-enable no-await-in-loop
+    await sleep(CSS_SETTLE_MS);
     const end = await page.screenshot({ path: "playtest-end.png" });
     const state = await page.evaluate(pageState);
     const identical = start.equals(end);

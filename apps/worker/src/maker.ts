@@ -328,7 +328,7 @@ export class Maker extends Agent<Env> {
 
   playtest = defineTool({
     description:
-      "Typecheck and play the game in headless Chromium (360×640): loads it, taps the centre to start, runs your inputs, and returns the result with screenshots of the start and the end.",
+      "Typecheck and play the game in headless Chromium (360×640) on a fake clock: loads it, taps the centre to start, runs your inputs (game ms), stops when the game ends, and returns the result with screenshots of the start and the end (the over screen when it ended).",
     execute: async ({ inputs }, _api, context) => {
       // Stop and the deadline abort the run, and with it the playtest's command.
       const box = jobBox(this.box, context?.abortSignal);
