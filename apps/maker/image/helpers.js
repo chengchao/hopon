@@ -175,6 +175,164 @@ const openGame = async (browser, files, errors) => {
   return page;
 };
 
+const TEST_SEED = 115;
+const FRAME_MS = 1000 / 60;
+
+// A test's page on a fake clock with a seeded Math.random: it loads in real time, then time stands still and moves only
+// as the test says, so the same game plays the same way every run and a minute of play takes no minute to run.
+// Runs in the page before its scripts: Math.random seeded, and time frozen until `__hoponAdvance(ms)` moves it, firing
+// each animation frame (every 1/60 s) and each timer in order, all in the page.
+const fakeTime = ({ seed, frameMs }) => {
+  let random = seed;
+  Math.random = () => {
+    random = (random * 16_807) % 2_147_483_647;
+    return random / 2_147_483_647;
+  };
+  const EPOCH = 1_700_000_000_000;
+  let now = 0;
+  let ids = 0;
+  const timers = new Map();
+  let frames = new Map();
+  const RealDate = Date;
+  globalThis.Date = class extends RealDate {
+    constructor(...args) {
+      super(...(args.length > 0 ? args : [EPOCH + now]));
+    }
+    static now() {
+      return EPOCH + now;
+    }
+  };
+  performance.now = () => now;
+  const schedule =
+    (repeat) =>
+    (fn, ms = 0, ...args) => {
+      ids += 1;
+      const every = Math.max(0, Number(ms) || 0);
+      timers.set(ids, {
+        args,
+        at: now + every,
+        every: repeat ? Math.max(every, 1) : null,
+        fn,
+      });
+      return ids;
+    };
+  globalThis.setTimeout = schedule(false);
+  globalThis.setInterval = schedule(true);
+  globalThis.clearTimeout = (id) => timers.delete(id);
+  globalThis.clearInterval = (id) => timers.delete(id);
+  globalThis.requestAnimationFrame = (fn) => {
+    ids += 1;
+    frames.set(ids, fn);
+    return ids;
+  };
+  globalThis.cancelAnimationFrame = (id) => frames.delete(id);
+  globalThis.__hoponWaiting = () => frames.size + timers.size;
+  globalThis.__hoponAdvance = (ms) => {
+    const end = now + ms;
+    for (;;) {
+      const frameAt = (Math.floor(now / frameMs + 1e-9) + 1) * frameMs;
+      let next = null;
+      for (const [id, timer] of timers) {
+        if (
+          !next ||
+          timer.at < next[1].at ||
+          (timer.at === next[1].at && id < next[0])
+        ) {
+          next = [id, timer];
+        }
+      }
+      if (next && next[1].at <= Math.min(frameAt, end)) {
+        const [id, timer] = next;
+        now = Math.max(now, timer.at);
+        if (timer.every === null) {
+          timers.delete(id);
+        } else {
+          timer.at += timer.every;
+        }
+        if (typeof timer.fn === "function") {
+          timer.fn(...timer.args);
+        }
+      } else if (frameAt <= end) {
+        now = frameAt;
+        const due = frames;
+        frames = new Map();
+        for (const fn of due.values()) {
+          fn(now);
+        }
+      } else {
+        now = end;
+        return;
+      }
+    }
+  };
+};
+
+const openTestGame = async (browser, files, errors) => {
+  const context = await browser.newContext({ viewport: VIEWPORT });
+  await context.addInitScript(fakeTime, { frameMs: FRAME_MS, seed: TEST_SEED });
+  const page = await context.newPage();
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      errors.push(message.text());
+    }
+  });
+  page.on("pageerror", (error) => errors.push(String(error)));
+  await page.route("**/*", (route) => {
+    const url = new URL(route.request().url());
+    const body = url.origin === ORIGIN ? files[url.pathname] : undefined;
+    if (body === undefined) {
+      return route.fulfill({ body: "not found", status: 404 });
+    }
+    return route.fulfill({
+      body,
+      contentType: url.pathname.endsWith(".js")
+        ? "text/javascript"
+        : "text/html",
+      headers: { "content-security-policy": GAME_CSP },
+    });
+  });
+  await page.goto(`${ORIGIN}/`);
+  // Loading waits on real events (scripts, images), with the game's time still at 0, until the game has asked for
+  // its first frame or timer: a LittleJS game once its engine has started.
+  // Polled from here: the page's own timers are the fake ones.
+  const loadedBy = Date.now() + 10_000;
+  /* oxlint-disable no-await-in-loop, no-undef -- one poll after another; fakeTime's global */
+  while (
+    (await page.evaluate(() => __hoponWaiting())) === 0 &&
+    Date.now() < loadedBy
+  ) {
+    await sleep(20);
+  }
+  /* oxlint-enable no-await-in-loop, no-undef */
+  // oxlint-disable-next-line no-undef -- fakeTime's global
+  const advance = (ms) => page.evaluate((n) => __hoponAdvance(n), ms);
+  await advance(500);
+  // Each input takes the game time it plays over: a tap holds for two frames, a swipe moves over six.
+  const input = async (step) => {
+    await page.mouse.move(step.x, step.y);
+    await page.mouse.down();
+    if (step.type === "swipe") {
+      /* oxlint-disable no-await-in-loop -- a finger's moves, one frame apart */
+      for (let i = 1; i <= 6; i += 1) {
+        await page.mouse.move(
+          step.x + ((step.dx ?? 0) * i) / 6,
+          step.y + ((step.dy ?? 0) * i) / 6
+        );
+        await advance(FRAME_MS);
+      }
+      /* oxlint-enable no-await-in-loop */
+    } else {
+      await advance(2 * FRAME_MS);
+    }
+    await page.mouse.up();
+    await advance(FRAME_MS);
+    return step.type === "swipe" ? 7 * FRAME_MS : 3 * FRAME_MS;
+  };
+  await input({ type: "tap", ...START });
+  await advance(500);
+  return { advance, input, page };
+};
+
 // What a test's checks read: the game's top-level `testVars`, and the scaffold's score and state.
 const testState = () =>
   /* oxlint-disable no-undef -- the game's and the runtime's globals */
@@ -186,7 +344,6 @@ const testState = () =>
   });
 /* oxlint-enable no-undef */
 
-const TEST_TICK_MS = 20;
 const describe = ({ vars, score, state }) =>
   `vars ${JSON.stringify(vars)}, score ${score}, state ${state}`;
 
@@ -200,22 +357,33 @@ export const runTests = async ({ tests = [] } = {}) => {
   }
   const { browser, files } = prepared;
   const failures = [];
+  const timings = [];
   try {
-    // oxlint-disable no-await-in-loop -- one test, input and check after another, in real time
+    // oxlint-disable no-await-in-loop -- one test, input and check after another, in game time
     for (const test of tests) {
       const errors = [];
-      const page = await openGame(browser, files, errors);
-      const begun = Date.now();
+      const wall = Date.now();
+      const { advance, input, page } = await openTestGame(
+        browser,
+        files,
+        errors
+      );
       let prev = await page.evaluate(testState);
-      const inputs = (test.inputs ?? []).toSorted((a, b) => a.at - b.at);
-      const checks = (test.checks ?? []).toSorted((a, b) => a.at - b.at);
-      while (checks.length > 0) {
-        const elapsed = Date.now() - begun;
-        while (inputs.length > 0 && inputs[0].at <= elapsed) {
-          await play(page, inputs.shift());
+      // Inputs before checks at the same time; game time `t` moves only forward.
+      const events = [
+        ...(test.inputs ?? []).map((step) => ({ at: step.at, step })),
+        ...(test.checks ?? []).map((check) => ({ at: check.at, check })),
+      ].toSorted((a, b) => a.at - b.at || (a.step ? -1 : 1));
+      let t = 0;
+      for (const event of events) {
+        if (event.at > t) {
+          await advance(event.at - t);
+          t = event.at;
         }
-        if (checks[0].at <= elapsed) {
-          const check = checks.shift();
+        if (event.step) {
+          t += await input(event.step);
+        } else {
+          const { check } = event;
           const now = await page.evaluate(testState);
           let passed = false;
           let threw = "";
@@ -243,18 +411,18 @@ export const runTests = async ({ tests = [] } = {}) => {
           }
           prev = now;
         }
-        await sleep(TEST_TICK_MS);
       }
       for (const error of errors.slice(0, 3)) {
         failures.push(`test "${test.name}": console error ${error}`);
       }
+      timings.push({ gameMs: t, name: test.name, wallMs: Date.now() - wall });
       await page.context().close();
     }
     // oxlint-enable no-await-in-loop
   } finally {
     await browser.close();
   }
-  return { failures, ok: failures.length === 0, typeErrors: [] };
+  return { failures, ok: failures.length === 0, timings, typeErrors: [] };
 };
 
 // Plays the game: load, tap to start, screenshot, run the inputs (ms after the start tap), screenshot.
