@@ -2261,7 +2261,7 @@ test("ban: asks first, bans an account whatever its Clerk role, and only a repor
   ]);
 });
 
-test("runtime: /runtime/v2.js and /dom/v1.js are the maker's scaffolds, long-cached, signed out", async (t) => {
+test("runtime: /runtime/v2.js and /dom/v2.js are the maker's scaffolds, /dom/v1.js as it shipped, long-cached, signed out", async (t) => {
   const { call } = await setup(t);
   const runtime = await call("/runtime/v2.js", { user: "" });
   assert.equal(runtime.status, 200);
@@ -2280,17 +2280,30 @@ test("runtime: /runtime/v2.js and /dom/v1.js are the maker's scaffolds, long-cac
   // LittleJS and the scaffold, with the feed's bridge.
   assert.match(code, /engineInit/u);
   assert.match(code, /"pause"/u);
-  // The plain-DOM scaffold, the box's bytes.
-  const dom = await call("/dom/v1.js", { user: "" });
+  // The plain-DOM scaffold, the box's bytes, with the music and the feed's bridge.
+  const dom = await call("/dom/v2.js", { user: "" });
   assert.equal(dom.status, 200);
   assert.match(dom.headers.get("Content-Type"), /^text\/javascript/u);
   assert.equal(
     dom.headers.get("Cache-Control"),
     "public, max-age=31536000, immutable"
   );
+  const domCode = await dom.text();
   assert.equal(
-    await dom.text(),
+    domCode,
     readFileSync(new URL("../../maker/image/dom.js", import.meta.url), "utf-8")
+  );
+  assert.match(domCode, /hopon\.music/u);
+  assert.match(domCode, /"pause"/u);
+  const v1 = await call("/dom/v1.js", { user: "" });
+  assert.equal(
+    await v1.text(),
+    JSON.parse(
+      readFileSync(
+        new URL("../src/runtime/dom-v1.json", import.meta.url),
+        "utf-8"
+      )
+    )
   );
   // v1 changed before any Creator's Game used it, so it's gone rather than stale.
   for (const gone of ["/runtime/v1.js", "/runtime/v3.js"]) {
