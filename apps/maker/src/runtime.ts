@@ -1,7 +1,8 @@
 // Builds image/runtime.js: LittleJS core (release mode: no debug, editor, 3D or plugins) plus the hopon scaffold, and
 // image/littlejs.d.ts: the engine's declarations narrowed to what that build defines, as globals, plus hopon's.
 // The same bytes go to the Worker, which serves them as /runtime/v2.js, so the box's playtest runs what the phone runs.
-// It also copies the plain-DOM scaffold (image/dom.js) to the Worker as is, served as /dom/v1.js.
+// It also copies the plain-DOM scaffold (image/dom.js) to the Worker as is, served as /dom/v2.js. /dom/v1.js, without the
+// music, stays frozen in dom-v1.json for the Games that load it.
 // `pnpm -F maker build:runtime` rebuilds; runtime.test.ts fails when the Worker's copy is stale.
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -42,7 +43,8 @@ const DTS_PATH = path.join(image, "littlejs.d.ts");
 const served = (file: string) =>
   path.join(import.meta.dirname, "..", "..", "worker", "src", "runtime", file);
 export const SERVED_PATH = served("v2.json");
-export const DOM_SERVED_PATH = served("dom-v1.json");
+export const DOM_V1_PATH = served("dom-v1.json");
+export const DOM_SERVED_PATH = served("dom-v2.json");
 
 // One top-level declaration of the engine's d.ts: its JSDoc plus the declaration, which ends where the next one starts.
 const DECLARATION =
@@ -92,7 +94,10 @@ const narrowDeclarations = (source: string) => {
 // change then ships as the next version. (Runtime v1 was #137's, changed by #146 before any Creator's Game used it, so
 // it's no longer served.)
 export const V2_SHA256: string | undefined = undefined;
-export const DOM_V1_SHA256: string | undefined = undefined;
+// Frozen on 2026-11-11, when Game 5 shipped on it.
+export const DOM_V1_SHA256 =
+  "d070bfc4ba9b6d36dca6a5daa4e9ebf0002d84c217d97dfe5b2983a584ca96a0";
+export const DOM_V2_SHA256: string | undefined = undefined;
 
 const sha256 = (code: string) =>
   createHash("sha256").update(code).digest("hex");
@@ -130,7 +135,7 @@ export const buildRuntime = async () => {
   const code = await compileRuntime(source);
   assertUnchanged(code, V2_SHA256, "/runtime/v2.js");
   const dom = domScaffold();
-  assertUnchanged(dom, DOM_V1_SHA256, "/dom/v1.js");
+  assertUnchanged(dom, DOM_V2_SHA256, "/dom/v2.js");
   writeFileSync(RUNTIME_PATH, code);
   writeFileSync(SERVED_PATH, `${JSON.stringify(code)}\n`);
   writeFileSync(DOM_SERVED_PATH, `${JSON.stringify(dom)}\n`);

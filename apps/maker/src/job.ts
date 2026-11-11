@@ -3,7 +3,7 @@
 // box runs it unchanged (#173); the Worker's adapts its Container (jobBox in apps/worker/src/agent-sandbox.ts).
 import { Schema } from "effect";
 
-import { isLittlejsHtml, littlejsHtml, MUSIC } from "../image/page.ts";
+import { domHtml, isLittlejsHtml, littlejsHtml, MUSIC } from "../image/page.ts";
 
 export const WORKSPACE = "/workspace";
 
@@ -140,7 +140,8 @@ const readText = async (box: Box, file: string) => {
   }
 };
 
-// What a Revision holds of the sub agent's (#117); the harness adds game.js, music.js and a LittleJS game's index.html.
+// What a Revision holds of the sub agent's (#117); the harness adds game.js, music.js and a LittleJS game's index.html,
+// and a plain-DOM game's index.html gets the music's script from it.
 const SOURCE_FILES = ["index.html", "game.ts", "music.mjs"];
 const HOME = "/home/user";
 
@@ -292,8 +293,11 @@ const diffRevision = (
     opus !== null || (workspace["music.mjs"] !== null && "music.mjs" in source);
   const revision = { ...workspace };
   // Only a plain-DOM game has index.html in the box: restore keeps the harness's page out.
-  if (revision["index.html"] === null && revision["game.ts"] !== null) {
+  const page = revision["index.html"];
+  if (page === null && revision["game.ts"] !== null) {
     revision["index.html"] = littlejsHtml(music);
+  } else if (page !== null) {
+    revision["index.html"] = domHtml(page, music);
   }
   const files: Record<string, string> = {};
   const deleted: string[] = [];
@@ -334,17 +338,21 @@ const write = async (box: Box, files: Record<string, string | null>) => {
   );
 };
 
-// The workspace holds exactly the job's source, but for a LittleJS game's index.html: the harness's, not the sub
-// agent's, and in the box it would make the game look like plain DOM. A box left dirty by a failed or stopped job
+// The workspace holds exactly the job's source, but for index.html. A LittleJS game's is the harness's, not the sub
+// agent's, and in the box it would make the game look like plain DOM. A plain-DOM game's goes in on the current
+// scaffold and without the music's script, which the harness adds back. A box left dirty by a failed or stopped job
 // starts from Revision n.
 export const restore = async (box: Box, source: Job["source"]) => {
   await sweep(box);
   await write(
     box,
     Object.fromEntries(
-      Object.entries(source).filter(
-        ([file, text]) => file !== "index.html" || !isLittlejsHtml(text)
-      )
+      Object.entries(source).flatMap(([file, text]) => {
+        if (file !== "index.html") {
+          return [[file, text]];
+        }
+        return isLittlejsHtml(text) ? [] : [[file, domHtml(text, false)]];
+      })
     )
   );
 };

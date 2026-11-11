@@ -7,7 +7,9 @@ import {
   assertUnchanged,
   compileRuntime,
   DOM_SERVED_PATH,
+  DOM_V1_PATH,
   DOM_V1_SHA256,
+  DOM_V2_SHA256,
   domScaffold,
   SERVED_PATH,
   V2_SHA256,
@@ -24,8 +26,16 @@ test("the Worker serves the runtime the box builds", async () => {
 
 test("the Worker serves the plain-DOM scaffold the box serves", () => {
   const served = JSON.parse(readFileSync(DOM_SERVED_PATH, "utf-8"));
-  assertUnchanged(served, DOM_V1_SHA256, "/dom/v1.js");
+  assertUnchanged(served, DOM_V2_SHA256, "/dom/v2.js");
   assert.equal(served, domScaffold(), `${DOM_SERVED_PATH} ${STALE}`);
+});
+
+test("the Worker still serves /dom/v1.js as it shipped", () => {
+  assertUnchanged(
+    JSON.parse(readFileSync(DOM_V1_PATH, "utf-8")),
+    DOM_V1_SHA256,
+    "/dom/v1.js"
+  );
 });
 
 test("a frozen runtime refuses different bytes", () => {

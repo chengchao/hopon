@@ -9,7 +9,7 @@ import path from "node:path";
 import { buffer } from "node:stream/consumers";
 import { after, before, test } from "node:test";
 
-import { littlejsHtml } from "../image/page.ts";
+import { DOM_SRC, littlejsHtml } from "../image/page.ts";
 import { boxPlaytest, checkBuild, restore, WORKSPACE } from "./job.ts";
 import type { Box, Job, Tests } from "./job.ts";
 
@@ -298,5 +298,38 @@ test(
     );
     assert.equal(verdict.files["index.html"], littlejsHtml(false));
     assert.deepEqual(verdict.deleted, []);
+  }
+);
+
+const OCEAN = path.join(import.meta.dirname, "../eval/revisions/ocean-memory");
+const ocean = (file: string) => readFileSync(path.join(OCEAN, file), "utf-8");
+
+test(
+  "a plain-DOM game on /dom/v1.js runs on the current scaffold, and its Revision loads its music after it",
+  { skip, timeout: 300_000 },
+  async () => {
+    const source = {
+      "game.ts": ocean("game.ts"),
+      "index.html": ocean("index.html").replace(
+        "</script>",
+        '</script><script src="music.js"></script>'
+      ),
+      "music.mjs": "// a loop",
+    };
+    await restore(box, source);
+
+    const verdict = await checkBuild(box, {
+      job: { ...job, revision: 1, source },
+    });
+
+    assert.ok("files" in verdict, JSON.stringify(verdict));
+    assert.match(
+      verdict.files["index.html"],
+      new RegExp(
+        `<script src="${DOM_SRC}"></script><script src="music.js"></script>`,
+        "u"
+      )
+    );
+    assert.doesNotMatch(verdict.files["index.html"], /dom\/v1/u);
   }
 );

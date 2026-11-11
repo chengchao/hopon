@@ -47,6 +47,7 @@ import {
   TERMS,
 } from "./pages.ts";
 import DOM_V1 from "./runtime/dom-v1.json" with { type: "json" };
+import DOM_V2 from "./runtime/dom-v2.json" with { type: "json" };
 import RUNTIME_V2 from "./runtime/v2.json" with { type: "json" };
 import {
   blocks,
@@ -421,6 +422,7 @@ const gzipped = (c: HonoContext<AppEnv>): Record<string, string> =>
 for (const [route, code] of [
   ["/runtime/v2.js", RUNTIME_V2],
   ["/dom/v1.js", DOM_V1],
+  ["/dom/v2.js", DOM_V2],
 ]) {
   app.get(route, (c) =>
     c.body(code, 200, {
