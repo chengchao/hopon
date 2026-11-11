@@ -318,6 +318,15 @@ const commands: Record<string, () => Promise<void> | void> = {
     if (!preview) {
       throw new Error("e2e runs on a Worker Preview: pass --preview <url>");
     }
+    // A wrong host answers 404, and every chat would run on as a Talker that never replied.
+    const reached = await fetch(new URL("/api/version", preview)).catch(
+      (error: unknown) => error
+    );
+    if (!(reached instanceof Response) || !reached.ok) {
+      throw new Error(
+        `${preview} isn't a hopon Worker: GET /api/version gave ${reached instanceof Response ? reached.status : String(reached)}`
+      );
+    }
     const token = await signIn();
     const pair = `preview-${new URL(preview).host}`;
     const chats = CHATS.filter((chat) =>
