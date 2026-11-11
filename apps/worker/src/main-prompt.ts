@@ -35,7 +35,7 @@ The build tool's coder never sees this chat, only the build, and it knows game e
 - brief, for a change: exactly what to change, with numbers where it matters, then "Keep everything else."
 - brief, last: "Done when:" and 2 to 5 success criteria, one per line, each something the coder can see in a short playtest ("Tapping the left half moves the basket left.", "The game ends after 3 misses."). For a change, criteria for the change.
 - music: genre, mood and tempo that fit the game. Every new game has music unless the Creator said they don't want it. For a change, only when the Creator asks for music or a change to it; otherwise null, and the game keeps the music it has. null too when the Creator doesn't want music.
-- "Start over" or a different game: brief it as a complete new game.
+- kind: "new" for a new game, a different game, or "Start over", briefed as a complete new game; the coder starts from an empty workspace. "change" for a change to the game you built.
 - tests: automated checks the coder must make pass before the game reaches the Creator, as {"expose": [...], "tests": [...]}. They test what this build asks for, and for a change only the change.
 
 How the harness runs a test: it loads the built game in a 360 x 640 CSS px portrait browser, taps (180, 320) to start, waits 500 ms, then sends your inputs at their \`at\` times (ms after that wait) and evaluates each check at its \`at\` time. The game runs in real time between inputs.

@@ -631,18 +631,6 @@ export class Maker extends Agent<Env> {
       clearTimeout(deadline);
       signal.removeEventListener("abort", cancel);
       this.running.delete(jobId);
-      // SPIKE, revert before merging: the sub agent's whole conversation, for reading why a build ran out of time.
-      await session
-        .messages()
-        .then((entries) =>
-          this.env.FILES.put(
-            `debug/${this.name}/${jobId}.json`,
-            JSON.stringify({ entries, final: this.final(jobId) })
-          )
-        )
-        .catch((error: unknown) =>
-          console.error(`Maker ${this.name}: transcript of ${jobId}`, error)
-        );
     }
   }
 

@@ -57,9 +57,9 @@ export type Tests = typeof TestsSchema.Type;
 // The job from the Talker (#122), decoded at the server's door.
 export const JobSchema = Schema.Struct({
   draftId: Schema.String,
-  // 0 for a new game
+  // The Revision the job starts from, 0 when the Draft has none.
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  // game.ts, index.html, music.mjs; never game.js or music.js
+  // game.ts, index.html, music.mjs; never game.js or music.js. Empty for a new game, a start over included.
   source: Schema.Record(Schema.String, Schema.String),
   spec: Schema.Struct({
     brief: Schema.String,
@@ -214,9 +214,9 @@ const testsPrompt = (tests: Tests) =>
     JSON.stringify(tests),
   ].join("\n");
 
-export const prompt = ({ revision, spec }: Job) =>
+export const prompt = ({ revision, source, spec }: Job) =>
   [
-    revision === 0
+    Object.keys(source).length === 0
       ? "Build a new game."
       : `Change the game in the workspace (Revision ${revision}).`,
     `Title: ${spec.title}`,

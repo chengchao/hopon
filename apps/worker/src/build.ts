@@ -44,6 +44,10 @@ const BUILT = new Set(["game.js", "music.js"]);
 const Parameters = Type.Object({
   brief: Type.String(),
   description: Type.String({ maxLength: GAME_DESCRIPTION_MAX }),
+  kind: Type.Union([Type.Literal("new"), Type.Literal("change")], {
+    description:
+      "new: a new game, a different game, or Start over, built in an empty workspace; change: a change to the current game",
+  }),
   music: Type.Union([Type.String(), Type.Null()]),
   tests: Type.Optional(
     Type.Object({
@@ -208,7 +212,9 @@ export const buildTool = (
         );
       }
 
-      const names = await listRevision(env.FILES, current);
+      // A new game starts from an empty workspace and carries nothing of Revision n.
+      const names =
+        spec.kind === "new" ? [] : await listRevision(env.FILES, current);
       const source = await readSource(env.FILES, current, names);
       const jobId = `${draftId}-${api.callId}`;
       // The sub agent's conversation, owned by this call, so a rerun finds it. pi 1.4 can't delete a conversation, so

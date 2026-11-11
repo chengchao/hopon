@@ -425,6 +425,15 @@ test(
     assert.equal(await lastReply(draft), "said: Wrote it again.");
     assert.deepEqual(await revisionFile(draft, "game.ts"), [6, 200, GAME]);
 
+    // A start over: the sub agent is asked for a new game in an empty workspace, and 7/ carries nothing of 6/.
+    const [, musicBefore] = await revisionFile(draft, "music.mjs");
+    assert.equal(musicBefore, 200);
+    assert.equal(await socket.turn("build fresh"), "turn_done");
+    assert.equal(await lastReply(draft), "said: Build a new game.");
+    assert.deepEqual(await revisionFile(draft, "game.ts"), [7, 200, GAME]);
+    const [, musicAfter] = await revisionFile(draft, "music.mjs");
+    assert.equal(musicAfter, 404);
+
     // Every command the box ran was under `timeout --kill-after=5`, so an abort stops all it started. The harness's own
     // (the playtest, the sweep) name the program by its full path, with no shell to run a model's ~/.bash_profile.
     const log = await boxLog(draft);

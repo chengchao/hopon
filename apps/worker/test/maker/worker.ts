@@ -87,6 +87,8 @@ const SCRIPTS: Record<string, readonly Step[] | ((turn: number) => Step)> = {
   ],
   // Changes the game after a green playtest and stops: the ending must play what it ships.
   editLate: [write, play, edit("speed = 3"), { text: "Made it faster." }],
+  // A start over: reports its prompt's first line, which says whether it was asked for a new game.
+  fresh: [write, play, { text: "{prompt}" }],
   // Runs a command until it's stopped.
   hang: [{ input: { command: "sleep 600" }, tool: "bash" }],
   // Never answers: the deadline's case.
@@ -240,6 +242,7 @@ const main = (messages: Message[]) => {
     {
       brief: script,
       description: "Tap to jump from moon to moon.",
+      kind: script === "fresh" ? "new" : "change",
       music: /music/iu.test(script) ? "chiptune" : null,
       title: "Moon Cat",
     },
@@ -287,7 +290,8 @@ const sub = async (request: Request, draftId: string, messages: Message[]) => {
   if ("sleep" in step) {
     await scheduler.wait(step.sleep);
   }
-  return say(step.text, SUB);
+  const [prompt = ""] = texts(messages[0]?.content).join("\n").split("\n");
+  return say(step.text.replace("{prompt}", prompt), SUB);
 };
 
 // Calls go to the agent whose conversation sent them, which the job prompt in the first message shows, and a gateway
