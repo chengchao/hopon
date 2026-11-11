@@ -34,9 +34,10 @@
     // The main agent's model and effort (ADR 0005: Opus 5.5), through modelFetch on the account's gateway.
     "MAKER_MAIN_MODEL": "claude-opus-5-5",
     "MAKER_MAIN_EFFORT": "high",
-    // The sub agent's: Sonnet 5.5 at high effort, the owner's call on 2026-11-09 (Haiku 5.5 at low effort before, #116).
+    // The sub agent's: Sonnet 5.5 at medium effort, the owner's call on 2026-11-11 (high from 2026-11-09, which ran out
+    // of time on 3 of 6 builds; Haiku 5.5 at low effort before, #116).
     "MAKER_SUB_MODEL": "claude-sonnet-5-5",
-    "MAKER_SUB_EFFORT": "high",
+    "MAKER_SUB_EFFORT": "medium",
     // The abort timer on a build's turn (#116, #122): 30 s past the sub agent's own deadline (job.ts), so its job ends
     // `failed` first. The Maker test shortens it.
     "MAKER_BUILD_ABORT_S": "330",
@@ -110,7 +111,6 @@
       "MAKER_MAIN_MODEL": "claude-opus-5-5",
       "MAKER_MAIN_EFFORT": "high",
       "MAKER_SUB_MODEL": "claude-sonnet-5-5",
-      // An experiment on the Preview only (ADR 0005): does medium cut the sub agent's first write without worse games?
       "MAKER_SUB_EFFORT": "medium",
       "MAKER_BUILD_ABORT_S": "330",
       "MAKER_WEEKLY_TOKENS": "80000000",
