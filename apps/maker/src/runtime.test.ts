@@ -7,12 +7,11 @@ import {
   assertUnchanged,
   compileRuntime,
   DOM_SERVED_PATH,
-  DOM_V1_PATH,
-  DOM_V1_SHA256,
-  DOM_V2_SHA256,
+  DOM_V3_SHA256,
   domScaffold,
+  FROZEN,
   SERVED_PATH,
-  V2_SHA256,
+  V3_SHA256,
 } from "./runtime.ts";
 
 const STALE =
@@ -20,22 +19,20 @@ const STALE =
 
 test("the Worker serves the runtime the box builds", async () => {
   const served = JSON.parse(readFileSync(SERVED_PATH, "utf-8"));
-  assertUnchanged(served, V2_SHA256, "/runtime/v2.js");
+  assertUnchanged(served, V3_SHA256, "/runtime/v3.js");
   assert.equal(served, await compileRuntime(), `${SERVED_PATH} ${STALE}`);
 });
 
 test("the Worker serves the plain-DOM scaffold the box serves", () => {
   const served = JSON.parse(readFileSync(DOM_SERVED_PATH, "utf-8"));
-  assertUnchanged(served, DOM_V2_SHA256, "/dom/v2.js");
+  assertUnchanged(served, DOM_V3_SHA256, "/dom/v3.js");
   assert.equal(served, domScaffold(), `${DOM_SERVED_PATH} ${STALE}`);
 });
 
-test("the Worker still serves /dom/v1.js as it shipped", () => {
-  assertUnchanged(
-    JSON.parse(readFileSync(DOM_V1_PATH, "utf-8")),
-    DOM_V1_SHA256,
-    "/dom/v1.js"
-  );
+test("the Worker still serves each older scaffold as it shipped", () => {
+  for (const { path, route, sha256 } of FROZEN) {
+    assertUnchanged(JSON.parse(readFileSync(path, "utf-8")), sha256, route);
+  }
 });
 
 test("a frozen runtime refuses different bytes", () => {

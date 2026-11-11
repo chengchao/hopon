@@ -1,11 +1,10 @@
-// hopon's plain-DOM scaffold, served at /dom/v2.js before game.js (by the Worker and the box's playtest, the same
+// hopon's plain-DOM scaffold, served at /dom/v3.js before game.js (by the Worker and the box's playtest, the same
 // bytes). It only keeps the score and the game's state, which the playtest reads; the game draws its own screens. The
 // frame counter is the playtest's clock: it stops when the page's main thread hangs.
 /* oxlint-disable no-unused-vars -- globals for game.js */
-// The ringer switch silences the game, as it does other apps' game sounds, and the player's own music plays on under
-// it, as in the LittleJS scaffold.
+// Sound plays with the ringer switch on silent and pauses the player's own music, as in the LittleJS scaffold.
 if (navigator.audioSession) {
-  navigator.audioSession.type = "ambient";
+  navigator.audioSession.type = "playback";
 }
 const hopon = {
   addScore(points = 1) {

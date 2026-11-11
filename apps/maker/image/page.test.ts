@@ -9,7 +9,7 @@ const v1 = `<body><p>hi</p><script src="/dom/v1.js"></script>
 test("a plain-DOM page moves to the current scaffold and loads its music right after it", () => {
   assert.equal(
     domHtml(v1, true),
-    `<body><p>hi</p><script src="/dom/v2.js"></script><script src="music.js"></script>
+    `<body><p>hi</p><script src="/dom/v3.js"></script><script src="music.js"></script>
 <script src="game.js"></script></body>`
   );
 });

@@ -2261,52 +2261,48 @@ test("ban: asks first, bans an account whatever its Clerk role, and only a repor
   ]);
 });
 
-test("runtime: /runtime/v2.js and /dom/v2.js are the maker's scaffolds, /dom/v1.js as it shipped, long-cached, signed out", async (t) => {
+// A scaffold as the Worker serves it, from its committed JSON.
+const servedScaffold = (file) =>
+  JSON.parse(
+    readFileSync(new URL(`../src/runtime/${file}`, import.meta.url), "utf-8")
+  );
+
+test("runtime: /runtime/v3.js and /dom/v3.js are the maker's scaffolds, the older ones as they shipped, long-cached, signed out", async (t) => {
   const { call } = await setup(t);
-  const runtime = await call("/runtime/v2.js", { user: "" });
-  assert.equal(runtime.status, 200);
-  assert.match(runtime.headers.get("Content-Type"), /^text\/javascript/u);
-  assert.equal(
-    runtime.headers.get("Cache-Control"),
-    "public, max-age=31536000, immutable"
-  );
-  const code = await runtime.text();
-  assert.equal(
-    code,
-    JSON.parse(
-      readFileSync(new URL("../src/runtime/v2.json", import.meta.url), "utf-8")
-    )
-  );
-  // LittleJS and the scaffold, with the feed's bridge.
+  const scaffold = async (route) => {
+    const response = await call(route, { user: "" });
+    assert.equal(response.status, 200, route);
+    assert.match(response.headers.get("Content-Type"), /^text\/javascript/u);
+    assert.equal(
+      response.headers.get("Cache-Control"),
+      "public, max-age=31536000, immutable"
+    );
+    return await response.text();
+  };
+  // LittleJS and the scaffold, with the feed's bridge, playing through the silent switch.
+  const code = await scaffold("/runtime/v3.js");
+  assert.equal(code, servedScaffold("v3.json"));
   assert.match(code, /engineInit/u);
   assert.match(code, /"pause"/u);
+  assert.match(code, /"playback"/u);
   // The plain-DOM scaffold, the box's bytes, with the music and the feed's bridge.
-  const dom = await call("/dom/v2.js", { user: "" });
-  assert.equal(dom.status, 200);
-  assert.match(dom.headers.get("Content-Type"), /^text\/javascript/u);
+  const dom = await scaffold("/dom/v3.js");
   assert.equal(
-    dom.headers.get("Cache-Control"),
-    "public, max-age=31536000, immutable"
-  );
-  const domCode = await dom.text();
-  assert.equal(
-    domCode,
+    dom,
     readFileSync(new URL("../../maker/image/dom.js", import.meta.url), "utf-8")
   );
-  assert.match(domCode, /hopon\.music/u);
-  assert.match(domCode, /"pause"/u);
-  const v1 = await call("/dom/v1.js", { user: "" });
-  assert.equal(
-    await v1.text(),
-    JSON.parse(
-      readFileSync(
-        new URL("../src/runtime/dom-v1.json", import.meta.url),
-        "utf-8"
-      )
-    )
-  );
+  assert.match(dom, /hopon\.music/u);
+  assert.match(dom, /"playback"/u);
+  for (const [route, file] of [
+    ["/runtime/v2.js", "v2.json"],
+    ["/dom/v1.js", "dom-v1.json"],
+    ["/dom/v2.js", "dom-v2.json"],
+  ]) {
+    // oxlint-disable-next-line no-await-in-loop -- one request each
+    assert.equal(await scaffold(route), servedScaffold(file), route);
+  }
   // v1 changed before any Creator's Game used it, so it's gone rather than stale.
-  for (const gone of ["/runtime/v1.js", "/runtime/v3.js"]) {
+  for (const gone of ["/runtime/v1.js", "/runtime/v4.js"]) {
     // oxlint-disable-next-line no-await-in-loop -- two requests
     assert.equal(await status(call(gone, { user: "" })), 404);
   }

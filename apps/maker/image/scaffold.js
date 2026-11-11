@@ -142,10 +142,11 @@ setShowSplashScreen(false);
 addEventListener("load", () => {
   engineInit(
     () => {
-      // The ringer switch silences the game, as it does other apps' game sounds, and the player's own music plays on
-      // under it. The engine's own setting ("auto", from engineInit) leaves the choice to WebKit.
+      // Sound plays with the ringer switch on silent, as in other apps of games to scroll through, and pauses the
+      // player's own music while it plays: the owner's call on 2026-11-11 ("ambient" in /runtime/v2.js). The engine's
+      // own setting ("auto", from engineInit) leaves the choice to WebKit.
       if (navigator.audioSession) {
-        navigator.audioSession.type = "ambient";
+        navigator.audioSession.type = "playback";
       }
       hoponMusic = hoponMusicDecode();
       hoponBegin();
