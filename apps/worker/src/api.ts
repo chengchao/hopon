@@ -48,7 +48,9 @@ import {
 } from "./pages.ts";
 import DOM_V1 from "./runtime/dom-v1.json" with { type: "json" };
 import DOM_V2 from "./runtime/dom-v2.json" with { type: "json" };
+import DOM_V3 from "./runtime/dom-v3.json" with { type: "json" };
 import RUNTIME_V2 from "./runtime/v2.json" with { type: "json" };
+import RUNTIME_V3 from "./runtime/v3.json" with { type: "json" };
 import {
   blocks,
   comments,
@@ -421,8 +423,10 @@ const gzipped = (c: HonoContext<AppEnv>): Record<string, string> =>
 // Versioned by path, so they're cached for good.
 for (const [route, code] of [
   ["/runtime/v2.js", RUNTIME_V2],
+  ["/runtime/v3.js", RUNTIME_V3],
   ["/dom/v1.js", DOM_V1],
   ["/dom/v2.js", DOM_V2],
+  ["/dom/v3.js", DOM_V3],
 ]) {
   app.get(route, (c) =>
     c.body(code, 200, {
