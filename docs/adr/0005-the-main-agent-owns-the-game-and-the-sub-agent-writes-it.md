@@ -164,7 +164,7 @@ A `beforeRequest` hook removes `read` and `bash` output and images from earlier 
 | Harness repairs | 3 per build | The sub agent's `onYield` |
 | Main agent tool calls | 20 per turn; the 21st ends the turn | The main agent's `beforeTool` |
 | One `bash` call | The time left, at most 120 s | The main agent's `beforeTool` |
-| Allowance | 40,000,000 hopon tokens a week, checked at the turn's start and at each `build` | `build` and the API |
+| Allowance | 80,000,000 hopon tokens a week ($8; see the amendment), checked at the turn's start and at each `build` | `build` and the API |
 
 The main agent's tool limit also bounds sandbox time, which ADR 0004 doesn't charge for, and how far a turn can overshoot the Allowance.
 
@@ -230,10 +230,11 @@ What the spike's Preview sweeps measured, 3 chats each:
 | tests-spike-6 | 2 of 4 | Deadline twice, both chasing the game-over screen; the fourth chat had no Allowance |
 | tests-spike-7 | Not counted | The new sandbox image rolled out during the sweep and restarted sandboxes mid-build |
 | tests-spike-8 | 1 of 4 | AI Gateway credit ran out (402); one deadline on a start over sent as a change |
+| tests-int-1 | 3 of 6 | Deadline 3 times, each after a first write that ended at 120 to 158 s |
 
 - **One model call writes the whole game,** in 63 to 183 s, mostly reasoning (7,500 to 16,000 tokens). It is the largest share of every build that ran out of time.
 - **The sandbox renders slowly.** A test of 3.5 s of game time took 9 s, about 3 s of it opening the page, so a frame costs about 30 ms. The fake clock makes runs repeatable and stops at game over, but it doesn't make them faster there.
-- **The sub agent's model calls cost $0.42 to $0.55 a build.** At that rate 40,000,000 hopon tokens a week is about 9 builds, not 25 (a guess from the per-call costs). The eval can't read the gateway's totals (`not authorized for that account`), so the Allowance waits for a clean sweep that can.
+- **A build turn costs about 3,600,000 hopon tokens ($0.36).** The clean sweep tests-int-1 charged 21,580,000 for 6 build turns, and the gateway logged $1.60 for the sub agent (median $0.25 a build) and $0.36 for the main agent. The owner set the Allowance to $8 a week, 80,000,000 hopon tokens, about 22 build turns.
 
 Not yet decided: `medium` effort for the sub agent's first write, and LittleJS's `setHeadlessMode` for the tests, which need no pixels.
 

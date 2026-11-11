@@ -40,9 +40,9 @@
     // The abort timer on a build's turn (#116, #122): 30 s past the sub agent's own deadline (job.ts), so its job ends
     // `failed` first. The Maker test shortens it.
     "MAKER_BUILD_ABORT_S": "330",
-    // Each Creator's weekly Allowance of hopon tokens (ADR 0004, raised for Opus by ADR 0005): about 25 builds with
-    // chat around them, by ADR 0005's guess, which the treatment sweep sets.
-    "MAKER_WEEKLY_TOKENS": "40000000",
+    // Each Creator's weekly Allowance of hopon tokens (ADR 0004): $8 a week, the owner's call on 2026-11-11. A build turn
+    // measured about 3,600,000 (ADR 0005), so about 22 a week.
+    "MAKER_WEEKLY_TOKENS": "80000000",
     // The oldest iOS build (CFBundleVersion) this Worker still serves: older builds that check show "Please update"
     // (GET /api/version). Raise it when the API drops something a build relies on.
     "MIN_IOS_BUILD": "11",
@@ -110,9 +110,10 @@
       "MAKER_MAIN_MODEL": "claude-opus-5-5",
       "MAKER_MAIN_EFFORT": "high",
       "MAKER_SUB_MODEL": "claude-sonnet-5-5",
-      "MAKER_SUB_EFFORT": "high",
+      // An experiment on the Preview only (ADR 0005): does medium cut the sub agent's first write without worse games?
+      "MAKER_SUB_EFFORT": "medium",
       "MAKER_BUILD_ABORT_S": "330",
-      "MAKER_WEEKLY_TOKENS": "40000000",
+      "MAKER_WEEKLY_TOKENS": "80000000",
       "MIN_IOS_BUILD": "11",
       "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
       "CLOUDFLARE_GATEWAY_ID": "default",
