@@ -316,9 +316,8 @@ test(
     const gone = await fetch(first);
     assert.equal(gone.status, 404);
 
-    // The harness check plays what ships, a change after the last green playtest included: once with the sub agent's
-    // inputs and once with the random script. A break after it fails the check, whose errors go back to the sub agent 3
-    // times; then the build fails and leaves the Revision alone.
+    // The harness check runs what ships, a change after the last green playtest included. A break after it fails the
+    // check, whose errors go back to the sub agent 3 times; then the build fails and leaves the Revision alone.
     const before = await playtests(draft);
     assert.equal(await socket.turn("build editLate"), "turn_done");
     assert.deepEqual(await revisionFile(draft, "game.js"), [
@@ -326,12 +325,12 @@ test(
       200,
       "// built 3",
     ]);
-    assert.equal(await playtests(draft), before + 3);
+    assert.equal(await playtests(draft), before + 2);
     const calls = await subCalls(draft);
     assert.equal(await socket.turn("build breakLate"), "turn_done");
     assert.match(
       await lastReply(draft),
-      /The build failed: the harness check failed: your inputs: boom/u
+      /The build failed: the harness check failed: boom/u
     );
     assert.equal((await subCalls(draft)) - calls, 4 + 3);
     assert.equal(await revisionOf(draft), 3);
@@ -504,17 +503,17 @@ test(
 );
 
 test(
-  "harness check: a game that crashes only under random taps goes back to the sub agent, which fixes it",
+  "harness check: a game green under its own playtest and red under the check goes back to the sub agent, which fixes it",
   { timeout: 60_000 },
   async (t) => {
     await serve(t);
     const { id: draft } = await json("/api/drafts", { text: "build crashy" });
     const socket = await connect(draft);
     await socket.until("the crashy turn's end", over);
-    assert.equal(await lastReply(draft), "said: Fixed the crash.");
+    assert.equal(await lastReply(draft), "said: Fixed it.");
     assert.deepEqual(await revisionFile(draft, "game.ts"), [1, 200, GAME]);
     assert.deepEqual(await fakeJson(draft, "told"), [
-      "The harness played your game and it failed:\n- random taps: boom\nFix these, playtest again, then give your report.",
+      "The harness ran your game and it failed:\n- boom\nFix these, playtest again, then give your report.",
     ]);
     socket.close();
   }

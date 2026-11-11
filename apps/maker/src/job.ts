@@ -82,6 +82,8 @@ export interface PlaytestResult {
   clock?: number;
   identical?: boolean;
   overAt?: number;
+  // Real ms by phase.
+  timings?: Record<string, number>;
 }
 
 export type CoderEvent =
@@ -99,7 +101,12 @@ export type CoderEvent =
 const NODE = "/usr/local/bin/node";
 const PLAYTEST = "/opt/hopon/playtest.js";
 
-// `arg` is the playtest's JSON ({inputs, ms}) or "random", the fixed 10 s script.
+// What a playtest.js run that printed no result left: its exit code always, since one killed by a signal or by
+// `timeout` prints nothing at all.
+const crashed = (result: Awaited<ReturnType<Box["exec"]>>, line: string) =>
+  `exit ${result.exitCode}: ${(result.stderr || line).slice(0, 500)}`;
+
+// `arg` is the playtest's JSON ({inputs, ms}).
 export const boxPlaytest = async (box: Box, arg: string) => {
   const result = await box.exec([NODE, PLAYTEST, arg]);
   const line = result.stdout.trim().split("\n").at(-1) ?? "";
@@ -107,7 +114,7 @@ export const boxPlaytest = async (box: Box, arg: string) => {
     return JSON.parse(line) as PlaytestResult;
   } catch {
     return {
-      errors: [`playtest crashed: ${(result.stderr || line).slice(0, 500)}`],
+      errors: [`playtest crashed: ${crashed(result, line)}`],
       ok: false,
       typeErrors: [],
     } satisfies PlaytestResult;
@@ -205,6 +212,14 @@ export const stepLabel = (tool: string, args: Record<string, unknown>) => {
 const hasTests = (tests: Tests | undefined): tests is Tests =>
   (tests?.tests.length ?? 0) > 0;
 
+// The harness's own test, ahead of the main agent's on every check: the game loads, starts and plays a second with no
+// console error. With no test from the main agent it is the whole of "does the game run".
+const RUNS: Tests["tests"][number] = {
+  checks: [{ at: 1000, expect: "state !== undefined" }],
+  inputs: [],
+  name: "the game runs",
+};
+
 const testsPrompt = (tests: Tests) =>
   [
     "",
@@ -247,7 +262,7 @@ const boxTests = async (box: Box, tests: Tests): Promise<TestsResult> => {
     return JSON.parse(line) as TestsResult;
   } catch {
     return {
-      failures: [`tests crashed: ${(result.stderr || line).slice(0, 500)}`],
+      failures: [`tests crashed: ${crashed(result, line)}`],
       ok: false,
       testErrors: [],
       typeErrors: [],
@@ -258,7 +273,7 @@ const boxTests = async (box: Box, tests: Tests): Promise<TestsResult> => {
 // What the harness says to the sub agent when its check fails, or the box lost the job's work.
 export const repairPrompt = (errors: readonly string[]) =>
   [
-    "The harness played your game and it failed:",
+    "The harness ran your game and it failed:",
     ...errors.map((error) => `- ${error}`),
     "Fix these, playtest again, then give your report.",
   ].join("\n");
@@ -299,7 +314,7 @@ const diffRevision = (
 
 // The workspace and the home directory emptied. Processes a model left are not ended: under the durable_object policy
 // every process has root's capabilities, so kill(-1) could end Cloudflare's own, and a model that means to cheat could
-// rewrite the harness anyway. checkBuild instead reads the source again after playing it.
+// rewrite the harness anyway. checkBuild instead reads the source again after running it.
 const sweep = async (box: Box) => {
   await box.exec([
     "/usr/bin/find",
@@ -337,19 +352,15 @@ export const restore = async (box: Box, source: Job["source"]) => {
 export const pastDeadline = (seconds: number) =>
   `past the ${seconds} s deadline`;
 
-const played = (result: PlaytestResult, run: string) => [
-  ...result.typeErrors,
-  ...result.errors.map((error) => `${run}: ${error}`),
-];
-
 // The harness's check of a build (ADR 0005), each time the sub agent stops: the music rendered, the source read into
-// memory, the box swept and given back only that source, then the game played with the sub agent's last inputs and
-// with the fixed random script, and the source read again to show nothing rewrote it meanwhile. Its errors, or the
-// Revision's files, which hold exactly what it played. Whatever the
-// model claims, a game that doesn't run never becomes a Revision (#122), and game.js always comes from game.ts.
+// memory, the box swept and given back only that source, then the game typechecked, emitted and run through RUNS and
+// the main agent's tests, and the source read again to show nothing rewrote it meanwhile. Its errors, or the
+// Revision's files, which hold exactly what it ran. Whatever the model claims, a game that doesn't run never becomes a
+// Revision (#122), and game.js always comes from game.ts. It replays no playtest and plays no random script: in 46
+// recorded builds those two failed 2, both on a playtest that printed nothing, and caught no broken game.
 export const checkBuild = async (
   box: Box,
-  { job, inputs }: { job: Job; inputs: string | undefined }
+  { job }: { job: Job }
 ): Promise<
   (
     | { errors: string[] }
@@ -372,19 +383,12 @@ export const checkBuild = async (
   if (music !== null) {
     return { errors: [music] };
   }
-  const theirs = await boxPlaytest(box, inputs ?? "{}");
-  if (!theirs.ok) {
-    return { errors: played(theirs, "your inputs") };
-  }
-  const random = await boxPlaytest(box, "random");
-  if (!random.ok) {
-    return { errors: played(random, "random taps") };
-  }
-  const tested = hasTests(job.spec.tests)
-    ? await boxTests(box, job.spec.tests)
-    : null;
-  const testErrors = tested?.testErrors ?? [];
-  if (tested && !tested.ok) {
+  const tested = await boxTests(box, {
+    expose: job.spec.tests?.expose ?? [],
+    tests: [RUNS, ...(job.spec.tests?.tests ?? [])],
+  });
+  const { testErrors } = tested;
+  if (!tested.ok) {
     return {
       errors: [...tested.typeErrors, ...tested.failures],
       testErrors,
@@ -400,7 +404,7 @@ export const checkBuild = async (
     return {
       errors: changed.map(
         (file) =>
-          `${file} changed while the harness played it: stop whatever process is writing it`
+          `${file} changed while the harness ran it: stop whatever process is writing it`
       ),
     };
   }

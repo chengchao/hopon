@@ -26,7 +26,7 @@ When the job asks for music, read the `music-synth` skill and write `music.mjs` 
 
 ## The harness check
 
-When you stop, the harness plays the game again: with your last playtest's inputs, then with 10 s of random taps and swipes all over the screen. A game that crashes or freezes under random taps fails. If the check fails, you get its errors: fix them, playtest, and report again. Anything you leave running or write outside the game's files is removed first.
+When you stop, the harness typechecks the game, starts it and plays it for a second, then runs the job's tests if it has any. A type error, a console error or a failed test fails the check. If the check fails, you get its errors: fix them, playtest, and report again. Anything you leave running or write outside the game's files is removed first.
 
 ## Limits
 

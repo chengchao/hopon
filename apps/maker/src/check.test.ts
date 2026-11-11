@@ -1,5 +1,5 @@
 // The harness check (ADR 0005) on the real sandbox image, in Docker: what a model leaves behind can't pass a game that
-// doesn't run, and the random script catches a crash the model's own inputs miss. It needs the image, so it runs only
+// doesn't run, and the main agent's tests decide a build. It needs the image, so it runs only
 // with HOPON_BOX_IMAGE set, e.g. to one of `docker images cloudflare-dev/maker-box-*` after `pnpm -F worker dev:maker`.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -81,10 +81,7 @@ const GAME = readFileSync(
 const withLine = (line: string) =>
   GAME.replace("function gameUpdate() {", `function gameUpdate() {\n  ${line}`);
 const BROKEN = withLine('throw new Error("broken game");');
-const CORNER = withLine(
-  'if (mouseWasPressed(0) && mousePosScreen.x < 120 && mousePosScreen.y > 480) throw new Error("tapped the corner");'
-);
-// The sub agent's inputs: taps in the middle, never the corner.
+// The sub agent's inputs: taps in the middle.
 const INPUTS = JSON.stringify({
   inputs: [500, 1000, 1500, 2000].map((at) => ({
     at,
@@ -154,12 +151,12 @@ test(
     );
 
     try {
-      const verdict = await checkBuild(box, { inputs: INPUTS, job });
+      const verdict = await checkBuild(box, { job });
 
       assert.ok("errors" in verdict, JSON.stringify(verdict));
       assert.match(
         verdict.errors.join("\n"),
-        /game\.ts changed while the harness played it/u
+        /game\.ts changed while the harness ran it/u
       );
       const profile = await bash("test -e ~/.bash_profile && echo still there");
       assert.equal(
@@ -181,20 +178,38 @@ test(
 );
 
 test(
-  "a game that crashes only under random taps fails the check",
+  "a game that throws when it runs fails the check, with no test from the main agent",
   { skip, timeout: 300_000 },
   async () => {
-    await restore(box, { "game.ts": CORNER });
-    const theirs = await boxPlaytest(box, INPUTS);
-    assert.equal(theirs.ok, true, "the sub agent's own inputs miss the crash");
+    await restore(box, { "game.ts": BROKEN });
 
-    const verdict = await checkBuild(box, { inputs: INPUTS, job });
+    const verdict = await checkBuild(box, { job });
 
     assert.ok("errors" in verdict, JSON.stringify(verdict));
     assert.match(
       verdict.errors.join("\n"),
-      /random taps: .*tapped the corner/u
+      /test "the game runs": console error .*broken game/u
     );
+  }
+);
+
+test(
+  "a playtest says where its time went",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(box, { "game.ts": GAME });
+
+    const result = await boxPlaytest(box, INPUTS);
+
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.deepEqual(Object.keys(result.timings ?? {}).toSorted(), [
+      "browserMs",
+      "emitMs",
+      "loadMs",
+      "playMs",
+      "screenshotsMs",
+      "typecheckMs",
+    ]);
   }
 );
 
@@ -224,7 +239,6 @@ test(
     await restore(box, { "game.ts": TESTED });
 
     const verdict = await checkBuild(box, {
-      inputs: INPUTS,
       job: tested(swipeLeft("vars.basketX < prev.vars.basketX")),
     });
 
@@ -239,7 +253,6 @@ test(
     await restore(box, { "game.ts": TESTED });
 
     const verdict = await checkBuild(box, {
-      inputs: INPUTS,
       job: tested(swipeLeft("vars.basketX > prev.vars.basketX")),
     });
 
@@ -258,7 +271,6 @@ test(
     await restore(box, { "game.ts": TESTED });
 
     const verdict = await checkBuild(box, {
-      inputs: INPUTS,
       job: tested(swipeLeft("vars.basketX < prev.missing.basketX")),
     });
 
@@ -276,7 +288,7 @@ test(
   async () => {
     await restore(box, { "game.ts": GAME });
 
-    const verdict = await checkBuild(box, { inputs: INPUTS, job });
+    const verdict = await checkBuild(box, { job });
 
     assert.ok("files" in verdict, JSON.stringify(verdict));
     assert.equal(verdict.files["game.ts"], GAME);

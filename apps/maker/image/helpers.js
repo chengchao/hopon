@@ -108,13 +108,17 @@ const pageState = () => {
   /* oxlint-enable no-undef */
 };
 
-// Typechecks and emits game.js, then opens the browser: the type errors, or the browser and the served files.
+// Typechecks and emits game.js, then opens the browser: the type errors, or the browser and the served files, with
+// the real ms each took.
 const prepare = async () => {
+  const began = Date.now();
   const typeErrors = existsSync("game.ts") ? await typecheck() : ["no game.ts"];
   if (typeErrors.length > 0) {
     return { typeErrors: typeErrors.slice(0, 10) };
   }
+  const checked = Date.now();
   await emit();
+  const emitted = Date.now();
   const files = {
     "/": isDom() ? readFileSync("index.html") : littlejsHtml(false),
     [DOM_SRC]: readFileSync(path.join(here, "dom.js")),
@@ -129,7 +133,15 @@ const prepare = async () => {
   const browser = await chromium
     .connect(BROWSER_SERVER, { timeout: 2000 })
     .catch(() => chromium.launch());
-  return { browser, files };
+  return {
+    browser,
+    files,
+    timings: {
+      browserMs: Date.now() - emitted,
+      emitMs: emitted - checked,
+      typecheckMs: checked - began,
+    },
+  };
 };
 
 const TEST_SEED = 115;
@@ -391,7 +403,7 @@ export const runTests = async ({ tests = [] } = {}) => {
     failures,
     ok: failures.length === 0,
     testErrors,
-    timings,
+    timings: { ...prepared.timings, tests: timings },
     typeErrors: [],
   };
 };
@@ -408,9 +420,12 @@ export const playtest = async ({ inputs = [], ms } = {}) => {
   const { browser, files } = prepared;
   const errors = [];
   try {
+    const began = Date.now();
     const { advance, input, page } = await openTestGame(browser, files, errors);
+    const loaded = Date.now();
     await sleep(CSS_SETTLE_MS);
     const start = await page.screenshot({ path: "playtest-start.png" });
+    const shot = Date.now();
     const until = Math.max(
       ms ?? 0,
       ...inputs.map((step) => step.at + 300),
@@ -439,6 +454,7 @@ export const playtest = async ({ inputs = [], ms } = {}) => {
       }
     }
     // oxlint-enable no-await-in-loop
+    const playedAt = Date.now();
     await sleep(CSS_SETTLE_MS);
     const end = await page.screenshot({ path: "playtest-end.png" });
     const state = await page.evaluate(pageState);
@@ -457,6 +473,13 @@ export const playtest = async ({ inputs = [], ms } = {}) => {
       ok: errors.length === 0 && state.clock > 0 && !identical,
       overAt,
       screenshots: ["playtest-start.png", "playtest-end.png"],
+      // Real ms, by phase: where a slow playtest spent its time.
+      timings: {
+        ...prepared.timings,
+        loadMs: loaded - began,
+        playMs: playedAt - shot,
+        screenshotsMs: shot - loaded + (Date.now() - playedAt),
+      },
       typeErrors: [],
       warnings,
       ...state,

@@ -9,8 +9,8 @@
 //   - The sub agent: the brief names the script (SCRIPTS); each reply is the script's next step, by how many answers
 //     the conversation holds. Each call reads 1 input and writes 1 output token, 6 hopon tokens.
 // - The sandbox: files in the Maker's own storage (so they outlive a restart, as a running box does), every command
-//   logged and answered by fakeExec: the playtest green unless game.ts says BROKEN, or RANDOMCRASH under the random
-//   script; music.mjs rendering a fixed track; the rest a no-op. As the platform's, a stopped box refuses every command
+//   logged and answered by fakeExec: the playtest green unless game.ts says BROKEN, the check's tests red on that or
+//   FAILSTEST; music.mjs rendering a fixed track; the rest a no-op. As the platform's, a stopped box refuses every command
 //   and file, and one started again is empty.
 // - The deadline: the "late" scripts' is 1 s, so their case is quick; the reason still names the job's real deadline.
 // /__maker/<draftId>/fake/<what> (MAKER_DEV's route) reaches the Draft's Maker: `log` returns the box's commands, and
@@ -67,23 +67,23 @@ const SCRIPTS: Record<string, readonly Step[] | ((turn: number) => Step)> = {
   ],
   // The object resets after the job's state is written and before its prompt is submitted.
   crashset: [write, play, { text: "Built it after a reset." }],
-  // Green under its own inputs, red under the random script: the harness check sends the errors, and it fixes them.
+  // Green under its own playtest, red under the harness check's tests: the check sends the errors, and it fixes them.
   crashy: [
     {
-      input: { content: `${GAME}// RANDOMCRASH\n`, path: "game.ts" },
+      input: { content: `${GAME}// FAILSTEST\n`, path: "game.ts" },
       tool: "write",
     },
     play,
     { text: "Built it." },
     {
       input: {
-        edits: [{ newText: "", oldText: "// RANDOMCRASH\n" }],
+        edits: [{ newText: "", oldText: "// FAILSTEST\n" }],
         path: "game.ts",
       },
       tool: "edit",
     },
     play,
-    { text: "Fixed the crash." },
+    { text: "Fixed it." },
   ],
   // Changes the game after a green playtest and stops: the ending must play what it ships.
   editLate: [write, play, edit("speed = 3"), { text: "Made it faster." }],
@@ -408,10 +408,13 @@ export class Maker extends RealMaker {
         );
         put("/workspace/playtest-start.png", PNG);
         put("/workspace/playtest-end.png", PNG);
-        const red =
-          game.includes("BROKEN") ||
-          (game.includes("RANDOMCRASH") && command.endsWith(" random"));
-        return ok(`${red ? RED : GREEN}\n`);
+        if (command.includes("/opt/hopon/playtest.js tests ")) {
+          const red = game.includes("BROKEN") || game.includes("FAILSTEST");
+          return ok(
+            `${JSON.stringify({ failures: red ? ["boom"] : [], ok: !red, testErrors: [], typeErrors: [] })}\n`
+          );
+        }
+        return ok(`${game.includes("BROKEN") ? RED : GREEN}\n`);
       } else if (command.includes("ffprobe")) {
         return ok("30.0\n");
       } else if (command.includes("ffmpeg")) {

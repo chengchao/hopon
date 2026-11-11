@@ -175,8 +175,6 @@ interface JobState {
   steps: number;
   // The harness check's failures sent back to the sub agent.
   repairs: number;
-  // The last playtest's argument, which the harness check plays again.
-  played?: string;
   // The box started again mid-job and lost what the sub agent wrote, which it hasn't yet been told.
   restarted?: boolean;
   // Why it was stopped: the deadline, the step limit or Stop.
@@ -287,7 +285,7 @@ export class Maker extends Agent<Env> {
     }
     const verdict = await checkBuild(
       jobBox(this.box, this.running.get(jobId)?.check.signal),
-      { inputs: before.played, job: before.job }
+      { job: before.job }
     );
     const state = this.job;
     if (state?.jobId !== jobId || state.stopped) {
@@ -332,12 +330,10 @@ export class Maker extends Agent<Env> {
     execute: async ({ inputs }, _api, context) => {
       // Stop and the deadline abort the run, and with it the playtest's command.
       const box = jobBox(this.box, context?.abortSignal);
-      const played = JSON.stringify({ inputs: inputs ?? [] });
-      const result = await boxPlaytest(box, played);
-      const { job } = this;
-      if (job) {
-        this.job = { ...job, played };
-      }
+      const result = await boxPlaytest(
+        box,
+        JSON.stringify({ inputs: inputs ?? [] })
+      );
       const images = result.typeErrors.length > 0 ? [] : await screenshots(box);
       return {
         output: [
