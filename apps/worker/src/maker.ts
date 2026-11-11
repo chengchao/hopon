@@ -297,7 +297,7 @@ export class Maker extends Agent<Env> {
       this.job = { ...state, restarted: false };
       return { continue: RESTARTED };
     }
-    // The tests spike's record of each failed check and each test error, which the eval reads from the step labels.
+    // The record of each failed check and each test error, which the eval reads from the step labels.
     const { testErrors = [], ...outcome } = verdict;
     if (testErrors.length > 0) {
       this.running

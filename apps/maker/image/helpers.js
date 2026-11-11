@@ -304,7 +304,7 @@ const testState = () =>
 const describe = ({ vars, score, state }) =>
   `vars ${JSON.stringify(vars)}, score ${score}, state ${state}`;
 
-// The main agent's tests (ADR 0005 spike): each on a fresh page, its inputs at their times (ms after the start), each
+// The main agent's tests (ADR 0005): each on a fresh page, its inputs at their times (ms after the start), each
 // check's expression evaluated at its time against the state then and `prev`, the same shape at the check before. A test
 // stops at its first failed check, or at a check whose expression throws, which is a test error and not the game's. Red
 // on a type error or any failed check.

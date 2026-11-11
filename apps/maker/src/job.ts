@@ -36,7 +36,7 @@ When the work the user asked for is done and checked, stop and report. Don't add
 
 Your tools run in the game's workspace, a sandbox with no network. Follow the project instructions below.`;
 
-// The main agent's tests of a build (ADR 0005 spike): the game values they read, which the sub agent keeps on a
+// The main agent's tests of a build (ADR 0005): the game values they read, which the sub agent keeps on a
 // top-level `testVars` in game.ts, and the tests the harness runs on every check.
 const TestsSchema = Schema.Struct({
   expose: Schema.Array(
