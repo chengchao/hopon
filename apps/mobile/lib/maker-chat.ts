@@ -1,5 +1,5 @@
-// The Make tab's chat (#147): a pure function of the Talker's latest snapshot plus the live batches since it
-// (apps/worker/src/talker.ts sends pi-durable's events), and of the messages this app has sent but the Talker hasn't
+// The Make tab's chat (#147): a pure function of the Maker's latest snapshot plus the live batches since it
+// (apps/worker/src/maker.ts sends pi-durable's events), and of the messages this app has sent but the Maker hasn't
 // taken yet. The socket and the screen live in app/create.tsx; this is the part the tests drive.
 import type { DraftSummary } from "@hopon/schemas";
 

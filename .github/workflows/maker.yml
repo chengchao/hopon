@@ -1,24 +1,26 @@
-# The Talker under wrangler with real model calls (apps/worker/scripts/talker-check.mjs), the upgrade test for PiHarness
-# and pi-durable. It spends model calls and takes about two minutes, so it runs only on PRs that can change the Talker:
+# The Maker under wrangler with real model calls (apps/worker/scripts/maker-check.mjs), the upgrade test for PiHarness
+# and pi-durable. It spends model calls and takes about two minutes, so it runs only on PRs that can change the Maker:
 # its code, its config, modelFetch, or a dependency bump. Needs the CLOUDFLARE_API_KEY repository secret.
-name: Talker
+name: Maker
 
 on:
   pull_request:
     paths:
-      - "apps/worker/src/talker*.ts"
+      - "apps/worker/src/maker.ts"
+      - "apps/worker/src/build.ts"
+      - "apps/worker/src/main-prompt.ts"
       - "apps/worker/src/index.ts"
       - "apps/worker/wrangler.jsonc"
-      - "apps/worker/scripts/talker-check.mjs"
+      - "apps/worker/scripts/maker-check.mjs"
       - "packages/model-fetch/**"
       - "pnpm-lock.yaml"
-      - ".github/workflows/talker.yml"
+      - ".github/workflows/maker.yml"
 
 permissions:
   contents: read
 
 jobs:
-  talker:
+  maker:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -29,6 +31,6 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: node apps/worker/scripts/talker-check.mjs
+      - run: node apps/worker/scripts/maker-check.mjs
         env:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}

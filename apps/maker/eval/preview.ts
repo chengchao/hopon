@@ -29,7 +29,7 @@ import { judgeCoder } from "./judge.ts";
 import { judgeChat, turnRecord } from "./talker.ts";
 import type { Chat } from "./talker.ts";
 
-// A Revision's files (talker-build.ts writes them to R2), and the ones a job carries.
+// A Revision's files (the Worker's build.ts writes them to R2), and the ones a job carries.
 const REVISION_FILES = ["index.html", "game.ts", "game.js", "music.mjs", MUSIC];
 const SOURCE_FILES = ["game.ts", "index.html", "music.mjs"];
 const PLAYTEST = path.join(import.meta.dirname, "..", "image", "playtest.js");
@@ -169,6 +169,9 @@ interface Build {
   startedAt: number;
   endedAt?: number;
   labels: string[];
+  // When each label reached the socket. The Worker sends a label as the model finishes that tool call, so a gap is
+  // the previous tool's run plus the model writing the next call.
+  labelAt: number[];
   result?: ToolResultMessage;
 }
 
@@ -176,6 +179,8 @@ interface Build {
 interface Turn {
   sentAt: number;
   sent: string[];
+  // When the Worker last accepted one of the turn's messages: a snapshot from before then can't show it.
+  acceptedAt?: number;
   answered: Map<string, string | undefined>;
   texts: string[];
   cost: number;
@@ -221,6 +226,7 @@ const toolEvent = (turn: Turn, event: AgentEvent, at: number) => {
   if (event.type === "tool_execution_start" && event.toolName === "build") {
     turn.builds.set(event.toolCallId, {
       callId: event.toolCallId,
+      labelAt: [],
       labels: [],
       spec: event.args as unknown as Spec,
       startedAt: at,
@@ -238,6 +244,13 @@ const toolEvent = (turn: Turn, event: AgentEvent, at: number) => {
         .split("\n")
         .filter(Boolean);
       build.labels = set ? lines : [...build.labels, ...lines];
+      build.labelAt = [
+        ...build.labelAt.slice(0, build.labels.length),
+        ...Array.from(
+          { length: Math.max(0, build.labels.length - build.labelAt.length) },
+          () => at
+        ),
+      ];
     }
   } else if (event.type === "tool_execution_end") {
     const build = turn.builds.get(event.toolCallId);
@@ -368,9 +381,12 @@ export const runPreviewE2E = async ({
         onFrame(JSON.parse(String(data)) as Frame);
       }
     });
-    const reconnect = async () => {
+    const reconnect = async ({ code, reason }: CloseEvent) => {
       clearInterval(ping);
       if (socket === ws && draftId) {
+        console.warn(
+          `${chat.id}: the socket closed (${code} ${reason}) ${turn ? `${Date.now() - turn.sentAt} ms into a turn` : "between turns"}; reconnecting`
+        );
         await sleep(RECONNECT_MS);
         await connect(id);
       }
@@ -391,6 +407,9 @@ export const runPreviewE2E = async ({
     if (!ok) {
       return { refused: String(json.error) };
     }
+    if (turn) {
+      turn.acceptedAt = Date.now();
+    }
     if (!draftId) {
       draftId = String(json.id);
       await connect(draftId);
@@ -398,15 +417,16 @@ export const runPreviewE2E = async ({
     return { id: String(json.message ?? json.id) };
   };
 
-  // Settled: no run, nothing queued, and every message sent this turn answered. A snapshot taken after them (the
-  // first message's Draft is made before its socket opens) stands in for outcomes the socket didn't see.
+  // Settled: no run, nothing queued, and every message sent this turn answered. A snapshot taken after the Worker
+  // accepted them (the first message's Draft is made before its socket opens) stands in for outcomes the socket didn't
+  // see. One taken while a message was still in flight, by a socket that reconnected then, shows neither it nor its run.
   const settled = async (current: Turn) => {
     const deadline = Date.now() + TURN_MS;
     const done = () =>
       !view.running &&
       view.inbox === 0 &&
       (current.sent.every((id) => current.answered.has(id)) ||
-        (current.snapshotAt ?? 0) > current.sentAt);
+        (current.snapshotAt ?? 0) > (current.acceptedAt ?? Infinity));
     while (!done()) {
       if (Date.now() > deadline) {
         throw new Error(
@@ -486,6 +506,8 @@ export const runPreviewE2E = async ({
       run,
       // From the `build` call's start to its result: the job, plus reading and writing R2.
       seconds: ((build.endedAt ?? Date.now()) - build.startedAt) / 1000,
+      // Seconds from the build's start to each label, in step order.
+      stepSeconds: build.labelAt.map((at) => (at - build.startedAt) / 1000),
       steps: build.labels.length,
       summary: failed ? undefined : text,
       thinking: "preview",

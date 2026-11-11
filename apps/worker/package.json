@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --ip 0.0.0.0",
-    "dev:coder": "pnpm -F maker build:runtime && wrangler dev --enable-containers --var CODER_DEV:1 --ip 0.0.0.0",
-    "smoke:coder": "node scripts/coder-smoke.mjs",
+    "dev:maker": "pnpm -F maker build:runtime && wrangler dev --enable-containers --var MAKER_DEV:1 --ip 0.0.0.0",
+    "smoke:maker": "node scripts/maker-smoke.mjs",
     "games-to-r2": "node scripts/games-to-r2.mjs",
     "dev:offline": "wrangler dev --local --ip 0.0.0.0 --var HOPON_OFFLINE:1",
     "db:generate": "drizzle-kit generate",

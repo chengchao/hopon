@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed. Changes the Maker of ADR 0003 in two ways: who does what, and how many Durable Objects it takes. It also raises the Allowance of ADR 0004. The rule that the agent writing code never reads the Creator's words stays.
+Proposed, amended on 2026-11-10 (see "The main agent's tests replace its review"). Changes the Maker of ADR 0003 in two ways: who does what, and how many Durable Objects it takes. It also raises the Allowance of ADR 0004. The rule that the agent writing code never reads the Creator's words stays.
 
 The Talker becomes the **main agent** and the Coder becomes the **sub agent**. Both run inside one Durable Object, `Maker`, the name Creators already know. The box becomes the **sandbox**.
 
@@ -45,13 +45,13 @@ Two defects turned up on `main`. Neither depends on this decision.
 |  | Main agent | Sub agent |
 | --- | --- | --- |
 | Conversation | The root, for the life of the Draft | A child owned by a `build` call, new for each build |
-| Model | `claude-opus-5-5` | `claude-haiku-5-5` |
+| Model | `claude-opus-5-5` | `claude-sonnet-5-5` (was `claude-haiku-5-5`; see the amendment) |
 | Tools | `build`, pi's `read` and `bash`, `activate_skill` | pi's `read`, `write`, `edit` and `bash`, `playtest`, `activate_skill` |
 | Reads the Creator's words | Yes | No, only the brief |
 
 The two agents differ in what they do and what they can see, and pi's per-conversation configuration carries all of that. Each is one pi extension with its own prompt and hooks, so a hook runs only for its own agent.
 
-`build` creates the child, submits the job's prompt, waits for it and passes its step labels to the status row. Stop aborts the child through pi. `build` sets `executionMode: "sequential"`, because pi otherwise runs a message's tool calls in parallel, and two builds or a `build` and a `bash` would collide in the one sandbox. The job prompt says "change the game" whenever a pending build or a Revision exists, since `revision === 0` no longer means a new game. The job route, the NDJSON stream, the ping and the cancel route all go, and so does `session.reset()`.
+`build` creates the child, submits the job's prompt, waits for it and passes its step labels to the status row. Stop aborts the child through pi. `build` sets `executionMode: "sequential"`, because pi otherwise runs a message's tool calls in parallel, and two builds or a `build` and a `bash` would collide in the one sandbox. `build`'s `kind` says whether the build is a new game or a change. A new game, a start over included, gets an empty workspace and carries nothing of the last Revision, and the job prompt says "Build a new game" exactly when the workspace is empty. The job route, the NDJSON stream, the ping and the cancel route all go, and so does `session.reset()`.
 
 `MAKER_TALKER_MODEL` and `MAKER_CODER_MODEL` become `MAKER_MAIN_MODEL` and `MAKER_SUB_MODEL`. The tool name `build` stays, because the app reads it.
 
@@ -91,12 +91,17 @@ Each time the sub agent stops, pi calls its `onYield` hook, and the hook runs th
 
 1. Render `music.mjs` to `music.js`, if the game has music.
 2. Read the source back from the sandbox into memory.
-3. End every process left in the sandbox, and clear the workspace and the home directory. A background process or an edited `~/.bash_profile` that a model left behind can't touch the result.
+3. Clear the workspace and the home directory, so an edited `~/.bash_profile` or a stray file a model left behind is gone.
 4. Write the source from step 2 back, so the sandbox holds only the game.
 5. Typecheck `game.ts`.
 6. Emit `game.js` from that `game.ts`, so the stored `game.js` always comes from the stored `game.ts`.
 7. Play the game with the sub agent's last playtest inputs.
 8. Play it again with the fixed random script, the same taps every time, because a model's inputs can miss a crash.
+9. Read the source again. If a file differs from step 2, a process the model left rewrote it during the check, and the check fails.
+
+Steps 7 and 8 were dropped on 2026-11-10; a 1 s test of the harness's own took their place (see the amendment).
+
+The harness doesn't end the processes a model left. Under the `durable_object` policy every process has root's capabilities, so `kill(-1)` could end Cloudflare's own processes in the Container, and a model that sets out to cheat could rewrite the harness itself. Step 9 catches the likely case, a stray background process, at the cost of one read.
 
 These commands run from `argv` with full paths such as `/usr/local/bin/node`, with no shell. Today's `bash -lc` runs `~/.bash_profile`, and a prototype on the real image passed a game that throws by planting a fake `node` there. Each command takes the turn's abort signal, so Stop and the timer don't wait for it.
 
@@ -161,7 +166,7 @@ A `beforeRequest` hook removes `read` and `bash` output and images from earlier 
 | Harness repairs | 3 per build | The sub agent's `onYield` |
 | Main agent tool calls | 20 per turn; the 21st ends the turn | The main agent's `beforeTool` |
 | One `bash` call | The time left, at most 120 s | The main agent's `beforeTool` |
-| Allowance | 40,000,000 hopon tokens a week, checked at the turn's start and at each `build` | `build` and the API |
+| Allowance | 80,000,000 hopon tokens a week ($8; see the amendment), checked at the turn's start and at each `build` | `build` and the API |
 
 The main agent's tool limit also bounds sandbox time, which ADR 0004 doesn't charge for, and how far a turn can overshoot the Allowance.
 
@@ -211,11 +216,38 @@ Each step ends in a check. Step 2 merges to `main` alone. Steps 3 to 7 stay on a
 7. The treatment sweep, then the owner's blind score and decision.
 8. The switch to production, in two deploys, because Cloudflare refuses to delete a class in the deploy that moves its binding (code 10061): the first adds `Maker`, the second deletes `Talker` and `DraftCoder`. The owner confirms the second, since it can't be undone.
 
+## The main agent's tests replace its review
+
+On 2026-11-10 the owner dropped steps 5 and 6 of the delivery order: the pending build, `maker-wire.ts`, the main agent's `read` and `bash`, and `verify-game`. A build still becomes a Revision as soon as it succeeds. Instead of reviewing the game, the main agent writes tests with the brief, and the harness runs them on every check.
+
+- **`build` gains two parameters,** against the owner's earlier "no new tool parameters", because code reads both. `tests` names the game values the tests read (`expose`, kept by the sub agent on a top-level `testVars` in `game.ts`) and 1 to 4 tests of timed inputs and checks, each a JavaScript expression over `vars`, `score`, `state` and `prev`. `kind` is `new` or `change`; before it, a start over on Revision 1 or later reached the sub agent as a change with the old game's files, and it kept the old engine.
+- **The harness check gains a step after step 8:** it runs the tests, and a failed check goes back to the sub agent like any other harness error. A check whose expression throws is the main agent's mistake, so it is skipped and reported apart from the failures.
+- **The check plays no replay and no random script.** The owner dropped steps 7 and 8 the same day. In 46 recorded builds they failed 2, both on a playtest that printed nothing, one of them while the sandbox image rolled out, and they caught no broken game; one of those false alarms sent a green game back and it ran out of time. In their place the harness puts a test of its own ahead of the main agent's: the game loads, starts and plays 1 s with no console error. So steps 5 and 6 still run on every check, and a game that throws still can't become a Revision, with or without tests from the main agent. The frozen-clock and identical-screenshot rules now hold only in the sub agent's `playtest`. A playtest that prints no result now reports its exit code, and every playtest reports the real ms of each phase.
+- **Tests and playtests run on a fake clock.** Time moves only as the harness says, every animation frame and timer fires in order, and `Math.random` is seeded, so the same game plays the same way every run. A playtest stops at game over, plays no later input (a tap would start a new round) and screenshots the over screen. Before this, the sub agent ran long real-time playtests to see that screen, and a tap restarted the game each time; both deadline failures of the first sweep spent their last 90 to 100 s on it.
+- **The sub agent runs on Sonnet 5.5** at high effort (medium from 2026-11-11, below), with 300 s per build (`MAKER_BUILD_ABORT_S` 330 on the turn). It loads a `building-games` skill that says what a finished game is, whatever the engine. `AGENTS.md` says screenshots are for how the game looks, and tests, `state`, `score` and `overAt` prove what it does. The sandbox has `python3`, which the model reached for unprompted.
+
+What the spike's Preview sweeps measured, 3 chats each:
+
+| Sweep | Builds that passed | What failed them |
+| --- | --- | --- |
+| tests-spike-6 | 2 of 4 | Deadline twice, both chasing the game-over screen; the fourth chat had no Allowance |
+| tests-spike-7 | Not counted | The new sandbox image rolled out during the sweep and restarted sandboxes mid-build |
+| tests-spike-8 | 1 of 4 | AI Gateway credit ran out (402); one deadline on a start over sent as a change |
+| tests-int-1 | 3 of 6 | Deadline 3 times, each after a first write that ended at 120 to 158 s |
+
+- **One model call writes the whole game,** in 63 to 183 s, mostly reasoning (7,500 to 16,000 tokens). It is the largest share of every build that ran out of time.
+- **The sandbox renders slowly.** A test of 3.5 s of game time took 9 s, about 3 s of it opening the page, so a frame costs about 30 ms. The fake clock makes runs repeatable and stops at game over, but it doesn't make them faster there.
+- **A build turn costs about 3,600,000 hopon tokens ($0.36).** The clean sweep tests-int-1 charged 21,580,000 for 6 build turns, and the gateway logged $1.60 for the sub agent (median $0.25 a build) and $0.36 for the main agent. The owner set the Allowance to $8 a week, 80,000,000 hopon tokens, about 22 build turns.
+
+On 2026-11-11 the owner moved the sub agent to `medium` effort. tests-int-1, at `high` and with the old check, ran out of time on 3 of 6 builds. tests-int-3, at `medium` without the replay and the random script, finished all 6 in 29 to 134 s for $0.07 to $0.21 each, and 5 passed once a start over is judged as a new game. Its one failure, like both of tests-int-2's, missed a requirement the brief stated and no test checked: on-screen text in Spanish, a "Time's Up!" screen. Six builds an arm is too few to call; the next sweeps keep counting.
+
+Not yet decided: LittleJS's `setHeadlessMode` for the tests, which need no pixels.
+
 ## Considered
 
 - **Keep two classes under new names.** Keeps ADR 0003's separation and needs less change, but the two objects differ only in configuration pi already holds per conversation, and the job route between them does nothing a child conversation doesn't.
 - **A separate `AgentSandbox` Durable Object.** The first answer to sharing the sandbox, and the fallback if a Container on `Maker` doesn't hibernate well. With one class it adds an RPC hop and a third object per Draft for no gain, since the module already keeps the code apart.
-- **`engine` and `successCriteria` as `build` parameters.** Structured, but no code reads them. They belong in the prompt.
+- **`engine` and `successCriteria` as `build` parameters.** Structured, but no code reads them. They belong in the prompt. `tests` and `kind` are parameters because code does read them.
 - **`delegate`, `revise` and `accept` tools.** They let the main agent reject a build, but they add three tools and require a layer that renames them to `build` for the app. Holding the Revision until the turn ends gives the same final say without them, except for outright rejection.
 - **The sub agent loses `bash` and `playtest` and only writes code.** Ownership looks cleaner, but the sub agent couldn't check its success criteria, and every visual fix it makes at low effort today would cost a main agent review and a new `build`.
 - **The harness produces evidence and the main agent rules on it, seeing no code.** It spends fewer tokens, but two stills and some numbers can't tell the main agent whether the design was built. It assumed a tight clock that the owner has removed.

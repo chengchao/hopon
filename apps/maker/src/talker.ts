@@ -15,7 +15,7 @@ import {
 } from "@earendil-works/pi-durable";
 import type { AgentEvent } from "@earendil-works/pi-durable";
 
-import { TALKER_PROMPT } from "../../worker/src/talker-prompt.ts";
+import { MAIN_PROMPT } from "../../worker/src/main-prompt.ts";
 import type { Spec } from "./job.ts";
 import { createRegistry, resolve, talkerModelRef } from "./models.ts";
 
@@ -52,7 +52,7 @@ export const openTalker = async ({
   registry.install(
     defineExtension({
       name: "talker",
-      sections: [section("preamble", () => TALKER_PROMPT, { tag: false })],
+      sections: [section("preamble", () => MAIN_PROMPT, { tag: false })],
       tools: [
         defineTool({
           description:

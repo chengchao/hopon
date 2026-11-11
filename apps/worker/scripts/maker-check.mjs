@@ -1,9 +1,9 @@
-// The Talker under wrangler (#141): the prototype's evict and snapshot scripts (prototype/talker-framework,
+// The Maker under wrangler (#141, ADR 0005): the prototype's evict and snapshot scripts (prototype/talker-framework,
 // apps/talker-proto/scripts/evict.sh and snap.sh), kept as the upgrade test for PiHarness and pi-durable. Re-run it
 // whenever agents, pi-durable or pi-ai change. It makes real model calls through modelFetch, so it needs
-// CLOUDFLARE_API_KEY in the environment (CI runs it from .github/workflows/talker.yml):
+// CLOUDFLARE_API_KEY in the environment (CI runs it from .github/workflows/maker.yml):
 //
-//   CLOUDFLARE_API_KEY=… node scripts/talker-check.mjs
+//   CLOUDFLARE_API_KEY=… node scripts/maker-check.mjs
 //
 // It starts its own `wrangler dev` on fresh local state, signs its own Clerk tokens, and checks, against a client that
 // keeps its view the way the app will (each snapshot redraws it, batches patch it):
@@ -24,7 +24,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 const PORT = 8799;
 const ORIGIN = `http://127.0.0.1:${PORT}`;
 const API = new URL("..", import.meta.url).pathname;
-const state = mkdtempSync(path.join(tmpdir(), "talker-check-"));
+const state = mkdtempSync(path.join(tmpdir(), "maker-check-"));
 const log = (line) =>
   console.log(`${new Date().toISOString().slice(11, 23)} ${line}`);
 
@@ -332,7 +332,7 @@ try {
 
   // 3. Evict: killed mid-turn, restarted, no requests: the turn finishes by itself. Lifecycle's deadman alarm wakes the
   // object 30 s after the kill, and the turn ends a model call or more later, so the check waits for the D1 row's date,
-  // which the Talker sets at each run's end and GET /api/drafts reads without reaching it.
+  // which the Maker sets at each run's end and GET /api/drafts reads without reaching it.
   client.reconnect = false;
   mark = Date.now();
   await send(client, "And what does the cat chase?");
@@ -345,7 +345,7 @@ try {
   kill();
   client.close();
   await start();
-  log("server back; no requests to the Talker until the row is dated");
+  log("server back; no requests to the Maker until the row is dated");
   const deadline = Date.now() + 120_000;
   // oxlint-disable-next-line no-await-in-loop -- polling D1
   while ((await dated()) === before) {

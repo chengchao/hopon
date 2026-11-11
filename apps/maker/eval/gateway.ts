@@ -11,6 +11,9 @@ import type { CoderRecord } from "./coder.ts";
 
 const MINUTE = 60_000;
 const WORKER = path.join(import.meta.dirname, "../../worker");
+// apps/worker/wrangler.jsonc's account_id. Unset, the query asked for account "undefined" and was refused.
+const ACCOUNT =
+  process.env.CLOUDFLARE_ACCOUNT_ID ?? "51a5a41f7bd8425703a6f1d92f867f4d";
 
 interface Row {
   count: number;
@@ -25,7 +28,7 @@ const coderCalls = async (from: Date, to: Date) => {
     { cwd: WORKER }
   );
   const token = stdout.trim().split("\n").at(-1);
-  const query = `{ viewer { accounts(filter: {accountTag: "${process.env.CLOUDFLARE_ACCOUNT_ID}"}) { aiGatewayRequestsAdaptiveGroups(limit: 10000, filter: {datetime_geq: "${from.toISOString()}", datetime_leq: "${to.toISOString()}"}) { count sum { cost } dimensions { agent: metadataValue(key: "agent") job: metadataValue(key: "jobId") tokensOut } } } } }`;
+  const query = `{ viewer { accounts(filter: {accountTag: "${ACCOUNT}"}) { aiGatewayRequestsAdaptiveGroups(limit: 10000, filter: {datetime_geq: "${from.toISOString()}", datetime_leq: "${to.toISOString()}"}) { count sum { cost } dimensions { agent: metadataValue(key: "agent") job: metadataValue(key: "jobId") tokensOut } } } } }`;
   const response = await fetch("https://api.cloudflare.com/client/v4/graphql", {
     body: JSON.stringify({ query }),
     headers: {

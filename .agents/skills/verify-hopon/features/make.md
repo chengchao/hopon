@@ -28,7 +28,7 @@ Preconditions:
 
 - **Start.** Alice sends her first idea. Run `$S/call.sh "$RUN" draft POST /api/drafts --as user_alice:alice --json '{"text":"A game with a cat"}'`. 201, `{"id":"<64 hex>","message":"<uuid>"}`. Keep the id: `id=$(… | node -pe 'JSON.parse(require("fs").readFileSync(0)).id')`.
 - **List.** Run `$S/call.sh "$RUN" drafts GET /api/drafts --as user_alice:alice`. One Draft with that id, `title:null, description:null`. `--as user_bob:bob` gets `{"drafts":[]}`.
-- **Allowance.** Run `$S/call.sh "$RUN" allowance GET /api/allowance --as user_alice:alice`. `{"left":3000000,"resetsAt":"<next Monday 00:00Z>","weekly":3000000}`, where `weekly` is `MAKER_WEEKLY_TOKENS` in `wrangler.jsonc`. Offline, nothing spends it.
+- **Allowance.** Run `$S/call.sh "$RUN" allowance GET /api/allowance --as user_alice:alice`. `{"left":40000000,"resetsAt":"<next Monday 00:00Z>","weekly":40000000}`, where `weekly` is `MAKER_WEEKLY_TOKENS` in `wrangler.jsonc`. Offline, nothing spends it.
 - **No game yet.** Run `$S/call.sh "$RUN" preview-none GET /api/drafts/$id/preview --as user_alice:alice`. 404 "This Draft has no game yet." Publish (`POST /api/drafts/$id/publish`) is a 409 with the same message.
 - **Seed the Revision.** Run `$S/seed-revision.sh "$RUN" "$id" "Cat Run"`. It prints `Draft <id> has Revision 1 and title 'Cat Run'`, and it's safe to rerun.
 - **Preview.** Run `$S/call.sh "$RUN" preview GET /api/drafts/$id/preview --as user_alice:alice`. `{"url":"$ORIGIN/drafts/<id>/1/<exp>.<sig>/index.html"}`, with `exp` an hour ahead. Fetch the URL's path signed out (`$S/call.sh "$RUN" preview-page GET "<path>"`). 200, the page's HTML.
@@ -40,8 +40,8 @@ Preconditions:
 
 ## Gotchas
 
-- The Maker's replies and builds are out of reach. The Talker's model calls need `CLOUDFLARE_API_KEY`, which this run forces empty, and builds need the Coder's Docker box (`pnpm -F worker dev:coder`). `POST /api/drafts` still returns 201, because the Talker takes the message, but no reply ever streams. Report the chat as unverified. A real build is `pnpm -F worker smoke:coder` against `dev:coder`, which makes real model calls.
-- Preview and publish need a Revision, which the Coder never makes here. `seed-revision.sh` copies Odd Duck's page to R2 `drafts/<id>/1/index.html` and sets the Draft's title, the two things publish checks. Say in the report that the Revision was seeded. The published game plays Odd Duck, not the idea the Draft was started with.
+- The Maker's replies and builds are out of reach. The Maker's model calls need `CLOUDFLARE_API_KEY`, which this run forces empty, and builds need its Docker box (`pnpm -F worker dev:maker`). `POST /api/drafts` still returns 201, because the Maker takes the message, but no reply ever streams. Report the chat as unverified. A real build is `pnpm -F worker smoke:maker` against `dev:maker`, which makes real model calls.
+- Preview and publish need a Revision, which the Maker never makes here. `seed-revision.sh` copies Odd Duck's page to R2 `drafts/<id>/1/index.html` and sets the Draft's title, the two things publish checks. Say in the report that the Revision was seeded. The published game plays Odd Duck, not the idea the Draft was started with.
 - Publish deletes the Draft, so run the Delete steps on a different Draft.
 - A preview link's failure is always a 403 "This link has expired.", whether the signature is wrong or the time has passed. A 404 means the signature was good but the file is missing.
 - Offline, Screening of the message and the publish text is skipped.

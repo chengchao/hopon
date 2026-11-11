@@ -44,27 +44,27 @@ test("deploy:preview migrates the D1 the Previews bind", () => {
 // wrangler resolves a Preview's container paths but not production's images.
 const resolved = (p) => new URL(`../${p}/`, import.meta.url).pathname;
 
-// The Coder's box (#175) is a durable_object-policy container, which wrangler takes only at the top level. A Preview
-// gets the same image as a default-policy app instead (wrangler.jsonc says why).
-test("a Preview's Coder gets production's box image", () => {
+// The Maker's sandbox (#175) is a durable_object-policy container, which wrangler takes only at the top level. A
+// Preview gets the same image as a default-policy app instead (wrangler.jsonc says why).
+test("a Preview's Maker gets production's box image", () => {
   const production = config("wrangler.jsonc");
   assert.deepEqual(production.containers, [
     {
-      class_name: "DraftCoder",
+      class_name: "Maker",
       images: {
         box: {
           build_context: "../maker/image",
           dockerfile: "../maker/image/Dockerfile",
         },
       },
-      name: "hopon-draftcoder",
+      name: "hopon-maker",
       scheduling_policy: "durable_object",
     },
   ]);
   const [preview] = production.previews.containers;
   const { box } = production.containers[0].images;
   assert.equal(production.previews.containers.length, 1);
-  assert.equal(preview.class_name, "DraftCoder");
+  assert.equal(preview.class_name, "Maker");
   assert.equal(`${preview.image}/`, resolved(box.dockerfile));
   assert.equal(`${preview.image_build_context}/`, resolved(box.build_context));
   // standard-3 is 2 vCPU like production's { vcpu: 2, memoryMib: 6144 }, with 8 GiB.

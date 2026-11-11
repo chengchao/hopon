@@ -1,50 +1,71 @@
 // How the Coder does a build job, whatever runs the agent: the job and its events, the prompt, the playtest, the
 // workspace a job starts from and the Revision it ends with. It reaches the box only through `Box`, so a Coder on any
-// box runs it unchanged (#173); the Worker's adapts its Container (jobBox in apps/worker/src/coder-box.ts).
+// box runs it unchanged (#173); the Worker's adapts its Container (jobBox in apps/worker/src/agent-sandbox.ts).
 import { Schema } from "effect";
 
 import { isLittlejsHtml, littlejsHtml, MUSIC } from "../image/page.ts";
 
 export const WORKSPACE = "/workspace";
 
-// What a job needs of its box: run a command in the workspace (its output whatever the exit code), and read and write
-// files at absolute paths. `read` and `readBytes` throw on a missing file; `write` makes the file's parent directories.
+// What a job needs of its box: run a program in the workspace from its argv, with no shell (its output whatever the
+// exit code), and read and write files at absolute paths. `read` and `readBytes` throw on a missing file; `write` makes
+// the file's parent directories. No shell, so nothing a model left in the box (a ~/.bash_profile, a function, a fake
+// `node` on PATH) runs in place of the harness's commands.
 export interface Box {
-  run: (
-    command: string
+  exec: (
+    argv: string[]
   ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
   read: (file: string) => Promise<string>;
   readBytes: (file: string) => Promise<Uint8Array>;
   write: (file: string, text: string) => Promise<void>;
 }
 
-// #116's turn limits. Seconds from the chosen Coder's p95 (Haiku 5.5 at low effort, building from the Talker's specs:
-// 112 s; music builds 142 s), rounded up. Steps are the owner's call, raised from #111's 12 to 20 on 2026-11-03: a p95
-// cap of 10 failed 2 of 72 good builds, and the deadline already bounds the wait. The Talker's abort timer sits 30 s
-// past the deadline (#122).
+// #116's turn limits. Steps are the owner's call, raised from #111's 12 to 20 on 2026-11-03: a p95 cap of 10 failed 2
+// of 72 good builds. The deadline is the owner's call too, raised from 210 s to 5 minutes on 2026-11-09 with the move to
+// Sonnet at high effort. The turn's abort timer sits 30 s past it (#122).
 export const MAX_STEPS = 20;
-export const DEADLINE_MS = 120_000;
-const MUSIC_EXTRA_MS = 30_000;
-export const deadlineFor = (job: { spec: { music: string | null } }) =>
-  DEADLINE_MS + (job.spec.music ? MUSIC_EXTRA_MS : 0);
+export const DEADLINE_MS = 300_000;
+// Harness repairs per build (ADR 0005): a check that fails sends the errors back this many times, then the build fails.
+export const MAX_REPAIRS = 3;
 const MUSIC_MIN_S = 20;
 const MUSIC_MAX_S = 40;
 
-export const SYSTEM_PROMPT = `You are the Coder in hopon, an app where people make small phone games by chatting. You get one build job from the Talker, who talks to the Creator: a new game to make, or a change to the game in the workspace. You build it, playtest it until it is green, and report back to the Talker. You never talk to the Creator.
+export const SYSTEM_PROMPT = `You are the sub agent in hopon, an app where people make small phone games by chatting. You get one build job from the main agent, who talks to the Creator: a new game to make, or a change to the game in the workspace. The brief names the engine and ends with the success criteria under "Done when:". You build it, playtest it until it meets every criterion, and report back to the main agent. You never talk to the Creator.
+
+When the work the user asked for is done and checked, stop and report. Don't add features, tests, files, docs or refactors that weren't asked for. If you think one would help, mention it at the end instead of doing it.
 
 Your tools run in the game's workspace, a sandbox with no network. Follow the project instructions below.`;
+
+// The main agent's tests of a build (ADR 0005): the game values they read, which the sub agent keeps on a
+// top-level `testVars` in game.ts, and the tests the harness runs on every check.
+const TestsSchema = Schema.Struct({
+  expose: Schema.Array(
+    Schema.Struct({ means: Schema.String, name: Schema.String })
+  ),
+  tests: Schema.Array(
+    Schema.Struct({
+      checks: Schema.Array(
+        Schema.Struct({ at: Schema.Number, expect: Schema.String })
+      ),
+      inputs: Schema.Array(Schema.Unknown),
+      name: Schema.String,
+    })
+  ),
+});
+export type Tests = typeof TestsSchema.Type;
 
 // The job from the Talker (#122), decoded at the server's door.
 export const JobSchema = Schema.Struct({
   draftId: Schema.String,
-  // 0 for a new game
+  // The Revision the job starts from, 0 when the Draft has none.
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  // game.ts, index.html, music.mjs; never game.js or music.js
+  // game.ts, index.html, music.mjs; never game.js or music.js. Empty for a new game, a start over included.
   source: Schema.Record(Schema.String, Schema.String),
   spec: Schema.Struct({
     brief: Schema.String,
     // genre and mood when this build writes or rewrites the music, else null
     music: Schema.NullOr(Schema.String),
+    tests: Schema.optional(TestsSchema),
     title: Schema.String,
   }),
 });
@@ -61,6 +82,8 @@ export interface PlaytestResult {
   clock?: number;
   identical?: boolean;
   overAt?: number;
+  // Real ms by phase.
+  timings?: Record<string, number>;
 }
 
 export type CoderEvent =
@@ -74,17 +97,24 @@ export type CoderEvent =
     }
   | { type: "failed"; reason: string };
 
-const playtestCommand = (arg: string) =>
-  `node /opt/hopon/playtest.js '${arg.replaceAll("'", String.raw`'\''`)}'`;
+// The image's binaries by full path, so a program a model put earlier on PATH can't stand in for one.
+const NODE = "/usr/local/bin/node";
+const PLAYTEST = "/opt/hopon/playtest.js";
 
+// What a playtest.js run that printed no result left: its exit code always, since one killed by a signal or by
+// `timeout` prints nothing at all.
+const crashed = (result: Awaited<ReturnType<Box["exec"]>>, line: string) =>
+  `exit ${result.exitCode}: ${(result.stderr || line).slice(0, 500)}`;
+
+// `arg` is the playtest's JSON ({inputs, ms}).
 export const boxPlaytest = async (box: Box, arg: string) => {
-  const result = await box.run(playtestCommand(arg));
+  const result = await box.exec([NODE, PLAYTEST, arg]);
   const line = result.stdout.trim().split("\n").at(-1) ?? "";
   try {
     return JSON.parse(line) as PlaytestResult;
   } catch {
     return {
-      errors: [`playtest crashed: ${(result.stderr || line).slice(0, 500)}`],
+      errors: [`playtest crashed: ${crashed(result, line)}`],
       ok: false,
       typeErrors: [],
     } satisfies PlaytestResult;
@@ -110,25 +140,54 @@ const readText = async (box: Box, file: string) => {
   }
 };
 
-// What the Creator would get: the files a Revision holds (#117), besides music.js.
-const REVISION_FILES = ["index.html", "game.ts", "game.js", "music.mjs"];
+// What a Revision holds of the sub agent's (#117); the harness adds game.js, music.js and a LittleJS game's index.html.
+const SOURCE_FILES = ["index.html", "game.ts", "music.mjs"];
+const HOME = "/home/user";
 
 // music.js: the harness's, from music.wav. GAME_CSP has connect-src 'none', so the Opus loop comes in as a script, in
 // base64, for the runtime to decode in Web Audio (#146).
 export const musicScript = (opus: Uint8Array) =>
   `hopon.music = "${Buffer.from(opus).toString("base64")}";\n`;
 
+// music.mjs to music.opus, or why it failed.
 const renderMusic = async (box: Box) => {
-  const result = await box.run(
-    `node music.mjs >/dev/null && ffprobe -v error -show_entries format=duration -of csv=p=0 music.wav && ffmpeg -y -loglevel error -i music.wav -c:a libopus -b:a 64k music.opus`
-  );
-  const seconds = Number(result.stdout.trim());
-  if (result.exitCode !== 0) {
-    return `music.mjs failed: ${result.stderr.slice(0, 300)}`;
+  const rendered = await box.exec([NODE, `${WORKSPACE}/music.mjs`]);
+  if (rendered.exitCode !== 0) {
+    return `music.mjs failed: ${rendered.stderr.slice(0, 300)}`;
   }
-  return seconds >= MUSIC_MIN_S && seconds <= MUSIC_MAX_S
+  const probed = await box.exec([
+    "/usr/bin/ffprobe",
+    "-v",
+    "error",
+    "-show_entries",
+    "format=duration",
+    "-of",
+    "csv=p=0",
+    `${WORKSPACE}/music.wav`,
+  ]);
+  const seconds = Number(probed.stdout.trim());
+  if (
+    probed.exitCode !== 0 ||
+    !(seconds >= MUSIC_MIN_S && seconds <= MUSIC_MAX_S)
+  ) {
+    return `music.wav is ${probed.stdout.trim() || "missing"} s, not ${MUSIC_MIN_S}–${MUSIC_MAX_S} s`;
+  }
+  const encoded = await box.exec([
+    "/usr/bin/ffmpeg",
+    "-y",
+    "-loglevel",
+    "error",
+    "-i",
+    `${WORKSPACE}/music.wav`,
+    "-c:a",
+    "libopus",
+    "-b:a",
+    "64k",
+    `${WORKSPACE}/music.opus`,
+  ]);
+  return encoded.exitCode === 0
     ? null
-    : `music.wav is ${seconds} s, not ${MUSIC_MIN_S}–${MUSIC_MAX_S} s`;
+    : `music.wav didn't encode: ${encoded.stderr.slice(0, 300)}`;
 };
 
 export const stepLabel = (tool: string, args: Record<string, unknown>) => {
@@ -150,9 +209,29 @@ export const stepLabel = (tool: string, args: Record<string, unknown>) => {
   return tool === "edit" ? "Fixing the game" : "Writing the game";
 };
 
-export const prompt = ({ revision, spec }: Job) =>
+const hasTests = (tests: Tests | undefined): tests is Tests =>
+  (tests?.tests.length ?? 0) > 0;
+
+// The harness's own test, ahead of the main agent's on every check: the game loads, starts and plays a second with no
+// console error. With no test from the main agent it is the whole of "does the game run".
+const RUNS: Tests["tests"][number] = {
+  checks: [{ at: 1000, expect: "state !== undefined" }],
+  inputs: [],
+  name: "the game runs",
+};
+
+const testsPrompt = (tests: Tests) =>
   [
-    revision === 0
+    "",
+    "Tests: the harness runs these on your game and fails the build until every one passes. Keep each value below up to date every frame, from the game's real state, on a top-level object in game.ts: `const testVars: Record<string, number | string | boolean> = {};` (keep it when you change the game).",
+    ...tests.expose.map(({ means, name }) => `- testVars.${name}: ${means}`),
+    "Each test loads the game, taps (180, 320) to start, waits 500 ms, then sends its inputs at their `at` (ms) and evaluates each check's expression at its `at` over `vars` (testVars), `score`, `state` (hopon's) and `prev`, the same three at the check before (`prev.vars`, `prev.score`, `prev.state`). Save the tests below as tests.json and run them with `node /opt/hopon/playtest.js tests`.",
+    JSON.stringify(tests),
+  ].join("\n");
+
+export const prompt = ({ revision, source, spec }: Job) =>
+  [
+    Object.keys(source).length === 0
       ? "Build a new game."
       : `Change the game in the workspace (Revision ${revision}).`,
     `Title: ${spec.title}`,
@@ -160,113 +239,177 @@ export const prompt = ({ revision, spec }: Job) =>
     spec.music
       ? `Music: write music.mjs for this game (${spec.music}) and render music.wav.`
       : "Music: none this turn; leave any existing music.mjs as it is.",
+    ...(hasTests(spec.tests) ? [testsPrompt(spec.tests)] : []),
   ].join("\n");
+
+interface TestsResult {
+  ok: boolean;
+  failures: string[];
+  // Checks whose expression threw: the main agent's mistakes, skipped rather than sent back to the sub agent.
+  testErrors: string[];
+  typeErrors: string[];
+}
+
+const boxTests = async (box: Box, tests: Tests): Promise<TestsResult> => {
+  const result = await box.exec([
+    NODE,
+    PLAYTEST,
+    "tests",
+    JSON.stringify(tests),
+  ]);
+  const line = result.stdout.trim().split("\n").at(-1) ?? "";
+  try {
+    return JSON.parse(line) as TestsResult;
+  } catch {
+    return {
+      failures: [`tests crashed: ${crashed(result, line)}`],
+      ok: false,
+      testErrors: [],
+      typeErrors: [],
+    };
+  }
+};
+
+// What the harness says to the sub agent when its check fails, or the box lost the job's work.
+export const repairPrompt = (errors: readonly string[]) =>
+  [
+    "The harness ran your game and it failed:",
+    ...errors.map((error) => `- ${error}`),
+    "Fix these, playtest again, then give your report.",
+  ].join("\n");
+export const RESTARTED =
+  "The sandbox restarted, and the workspace is back to how it was when the job began: your changes are gone. Make them again, playtest, then give your report.";
 
 // The Revision's changed and deleted files, against the source the job sent. The harness adds its own two: a LittleJS
 // game's index.html, and music.js when the job rendered music. A Revision has music.js when this job rendered it or
 // the last one did and music.mjs is still there; index.html loads it exactly then.
-const diffRevision = async (
-  box: Box,
+const diffRevision = (
+  workspace: Record<string, string | null>,
   source: Job["source"],
-  rendered: boolean
+  opus: Uint8Array | null
 ) => {
-  const texts = await Promise.all(
-    REVISION_FILES.map((file) => readText(box, file))
-  );
-  const workspace = Object.fromEntries(
-    REVISION_FILES.map((file, index) => [file, texts[index] ?? null])
-  );
   const music =
-    rendered || (workspace["music.mjs"] !== null && "music.mjs" in source);
+    opus !== null || (workspace["music.mjs"] !== null && "music.mjs" in source);
+  const revision = { ...workspace };
   // Only a plain-DOM game has index.html in the box: restore keeps the harness's page out.
-  if (workspace["index.html"] === null && workspace["game.ts"] !== null) {
-    workspace["index.html"] = littlejsHtml(music);
+  if (revision["index.html"] === null && revision["game.ts"] !== null) {
+    revision["index.html"] = littlejsHtml(music);
   }
   const files: Record<string, string> = {};
   const deleted: string[] = [];
-  for (const [file, text] of Object.entries(workspace)) {
+  for (const [file, text] of Object.entries(revision)) {
     if (text === null && file in source) {
       deleted.push(file);
     } else if (text !== null && text !== source[file]) {
       files[file] = text;
     }
   }
-  if (rendered) {
-    files[MUSIC] = musicScript(await box.readBytes(`${WORKSPACE}/music.opus`));
+  if (opus) {
+    files[MUSIC] = musicScript(opus);
   } else if (!music && "music.mjs" in source) {
     deleted.push(MUSIC);
   }
   return { deleted, files };
 };
 
-// The workspace holds exactly the job's source, but for a LittleJS game's index.html: the harness's, not the Coder's,
-// and in the box it would make the game look like plain DOM. A box left dirty by a failed or stopped job starts from
-// Revision n.
-export const restore = async (box: Box, source: Job["source"]) => {
-  await box.run(`find ${WORKSPACE} -mindepth 1 -delete`);
+// The workspace and the home directory emptied. Processes a model left are not ended: under the durable_object policy
+// every process has root's capabilities, so kill(-1) could end Cloudflare's own, and a model that means to cheat could
+// rewrite the harness anyway. checkBuild instead reads the source again after running it.
+const sweep = async (box: Box) => {
+  await box.exec([
+    "/usr/bin/find",
+    WORKSPACE,
+    HOME,
+    "-mindepth",
+    "1",
+    "-delete",
+  ]);
+};
+
+const write = async (box: Box, files: Record<string, string | null>) => {
   await Promise.all(
-    Object.entries(source)
-      .filter(([file, text]) => file !== "index.html" || !isLittlejsHtml(text))
-      .map(([file, text]) => box.write(`${WORKSPACE}/${file}`, text))
+    Object.entries(files).flatMap(([file, text]) =>
+      text === null ? [] : [box.write(`${WORKSPACE}/${file}`, text)]
+    )
+  );
+};
+
+// The workspace holds exactly the job's source, but for a LittleJS game's index.html: the harness's, not the sub
+// agent's, and in the box it would make the game look like plain DOM. A box left dirty by a failed or stopped job
+// starts from Revision n.
+export const restore = async (box: Box, source: Job["source"]) => {
+  await sweep(box);
+  await write(
+    box,
+    Object.fromEntries(
+      Object.entries(source).filter(
+        ([file, text]) => file !== "index.html" || !isLittlejsHtml(text)
+      )
+    )
   );
 };
 
 export const pastDeadline = (seconds: number) =>
   `past the ${seconds} s deadline`;
-// Music rendering and reading the files back run after the session; a job that finished them late still fails.
-const overdue = (deadlineAt: number, seconds: number) =>
-  Date.now() > deadlineAt ? pastDeadline(seconds) : undefined;
 
-// A build without a green playtest never becomes a Revision (#122).
-const failure = (stopped: string | undefined, playtests: PlaytestResult[]) => {
-  if (stopped || playtests.at(-1)?.ok === true) {
-    return stopped;
-  }
-  return playtests.length === 0
-    ? "never playtested"
-    : "last playtest not green";
-};
-
-// The job's ending, once the agent has stopped: the reason it failed (stopped, red, music that won't render, late),
-// or the Revision's files, with music.js rendered when the job wrote music.
-export const finishJob = async (
+// The harness's check of a build (ADR 0005), each time the sub agent stops: the music rendered, the source read into
+// memory, the box swept and given back only that source, then the game typechecked, emitted and run through RUNS and
+// the main agent's tests, and the source read again to show nothing rewrote it meanwhile. Its errors, or the
+// Revision's files, which hold exactly what it ran. Whatever the model claims, a game that doesn't run never becomes a
+// Revision (#122), and game.js always comes from game.ts. It replays no playtest and plays no random script: in 46
+// recorded builds those two failed 2, both on a playtest that printed nothing, and caught no broken game.
+export const checkBuild = async (
   box: Box,
-  {
-    job,
-    stopped,
-    playtests,
-    summary,
-    deadlineAt,
-    deadlineMs,
-    replay,
-  }: {
-    job: Job;
-    stopped: string | undefined;
-    playtests: PlaytestResult[];
-    summary: string;
-    deadlineAt: number;
-    deadlineMs: number;
-    // The last playtest's argument, when the workspace may have changed since it ran.
-    replay?: string;
-  }
-) => {
-  // A Revision holds what was played. A box that restarted forgot its playtests, and the run must have played again.
-  const played =
-    replay !== undefined && !stopped && playtests.length > 0
-      ? [...playtests, await boxPlaytest(box, replay)]
-      : playtests;
-  let reason = failure(stopped, played);
-  if (!reason && job.spec.music) {
-    reason = (await renderMusic(box)) ?? reason;
-  }
-  const { deleted, files } = await diffRevision(
-    box,
-    job.source,
-    !reason && Boolean(job.spec.music)
+  { job }: { job: Job }
+): Promise<
+  (
+    | { errors: string[] }
+    | { files: Record<string, string>; deleted: string[] }
+  ) & { testErrors?: string[] }
+> => {
+  const music = job.spec.music ? await renderMusic(box) : null;
+  const texts = await Promise.all(
+    SOURCE_FILES.map((file) => readText(box, file))
   );
-  reason ??= overdue(deadlineAt, deadlineMs / 1000);
-  const event: CoderEvent = reason
-    ? { reason, type: "failed" }
-    : { deleted, files, summary, type: "done" };
-  return { event, files, reason };
+  const source = Object.fromEntries(
+    SOURCE_FILES.map((file, index) => [file, texts[index] ?? null])
+  );
+  const opus =
+    job.spec.music && music === null
+      ? await box.readBytes(`${WORKSPACE}/music.opus`)
+      : null;
+  await sweep(box);
+  await write(box, source);
+  if (music !== null) {
+    return { errors: [music] };
+  }
+  const tested = await boxTests(box, {
+    expose: job.spec.tests?.expose ?? [],
+    tests: [RUNS, ...(job.spec.tests?.tests ?? [])],
+  });
+  const { testErrors } = tested;
+  if (!tested.ok) {
+    return {
+      errors: [...tested.typeErrors, ...tested.failures],
+      testErrors,
+    };
+  }
+  const [emitted, ...after] = await Promise.all(
+    ["game.js", ...SOURCE_FILES].map((file) => readText(box, file))
+  );
+  const changed = SOURCE_FILES.filter(
+    (file, index) => (after[index] ?? null) !== source[file]
+  );
+  if (changed.length > 0) {
+    return {
+      errors: changed.map(
+        (file) =>
+          `${file} changed while the harness ran it: stop whatever process is writing it`
+      ),
+    };
+  }
+  return {
+    ...diffRevision({ ...source, "game.js": emitted }, job.source, opus),
+    testErrors,
+  };
 };

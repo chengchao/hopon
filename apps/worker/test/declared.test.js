@@ -19,9 +19,9 @@ test("every env value the Worker reads is declared in wrangler.jsonc", () => {
         .match(/interface __BaseEnv_Env \{(?<body>[^}]*)\}/u)
         .groups.body.matchAll(/^\s*(?<name>\w+):/gmu),
     ].map((m) => m.groups.name),
-    // Set with `--var` by `pnpm api:offline` and `pnpm -F worker dev:coder`, not by wrangler.jsonc.
+    // Set with `--var` by `pnpm api:offline` and `pnpm -F worker dev:maker`, not by wrangler.jsonc.
     "HOPON_OFFLINE",
-    "CODER_DEV",
+    "MAKER_DEV",
   ]);
   const used = new Set(
     [...source.matchAll(/\benv\.(?<name>[A-Z][A-Z0-9_]*)\b/gu)].map(

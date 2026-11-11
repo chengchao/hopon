@@ -15,20 +15,20 @@ For the Worker itself, `workersInvocationsAdaptive` with `isPreview: 1`.
 
 ## Which namespace is the Preview's
 
-Each Preview has its own Talker and Coder namespaces, so the GraphQL rows mix production's and every Preview's. The Preview's latest deployment names its own at `.result.env.TALKER.namespace_id` and `.result.env.CODER.namespace_id`:
+Each Preview has its own Maker namespace, so the GraphQL rows mix production's and every Preview's. The Preview's latest deployment names its own at `.result.env.MAKER.namespace_id`:
 
 ```bash
 curl -s "https://api.cloudflare.com/client/v4/accounts/$A/workers/workers/hopon/previews/<slug>/deployments/latest" -H "Authorization: Bearer $T"
 ```
 
-## Who holds the Coder's boxes
+## Who holds the Maker's boxes
 
-Production's box app is `hopon-draftcoder` (`durable_object` policy). A Preview's is `hopon_<slug>_DraftCoder`: the same image under the default policy, `standard-3`, capped at `max_instances: 40` (`wrangler.jsonc` says why). Get an app's id from `wrangler containers list`, then:
+Production's box app is `hopon-maker` (`durable_object` policy). A Preview's is `hopon_<slug>_Maker`: the same image under the default policy, `standard-3`, capped at `max_instances: 40` (`wrangler.jsonc` says why). Get an app's id from `wrangler containers list`, then:
 
-- `wrangler containers instances <app id>` lists the running boxes; an instance's id is its Coder's object id. A Preview whose instances are all held fails new builds `busy`.
+- `wrangler containers instances <app id>` lists the running boxes; an instance's id is its Maker's object id. A Preview whose instances are all held fails new builds `busy`.
 - `wrangler containers info <app id>` reports `active` and `assigned` health counts, which don't say whose a box is. Read `instances` for that.
 
-Run both with `CLOUDFLARE_ACCOUNT_ID=$A`. Older Previews' `hopon_<slug>_Coder` apps are the old Container Coder's; delete them with `wrangler containers delete <id>`.
+Run both with `CLOUDFLARE_ACCOUNT_ID=$A`. Older Previews' `hopon_<slug>_Coder` and `hopon_<slug>_DraftCoder` apps are the old Coder's; delete them with `wrangler containers delete <id>`.
 
 ## When the deploy fails `DURABLE_OBJECT_NOT_CONTAINER_ENABLED`
 
