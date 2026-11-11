@@ -89,25 +89,26 @@ const narrowDeclarations = (source: string) => {
     .join("\n");
 };
 
-// Both are cached as immutable, so once people play Games on them (at launch) their bytes must never change: set these
-// to the sha256 of v2.json's and dom-v1.json's strings then, and a changed build fails instead of overwriting them. A
-// change then ships as the next version. (Runtime v1 was #137's, changed by #146 before any Creator's Game used it, so
+// Every scaffold is cached as immutable, and a phone or a published Game may hold it from its first deploy, so each is
+// frozen from then: its sha256 here, and a changed build fails instead of overwriting it. A change ships as the next
+// version. /runtime/v2.js and /dom/v1.js went unfrozen while Games played on them, until 2026-11-11. (Runtime v1 was #137's, changed by #146 before any Creator's Game used it, so
 // it's no longer served.)
-export const V2_SHA256: string | undefined = undefined;
-// Frozen on 2026-11-11, when Game 5 shipped on it.
+export const V2_SHA256 =
+  "62fcf7bebd3e45b654fa5b1607e3a96a0f2cf8d374432a6ec76750681ecd2839";
 export const DOM_V1_SHA256 =
   "d070bfc4ba9b6d36dca6a5daa4e9ebf0002d84c217d97dfe5b2983a584ca96a0";
-export const DOM_V2_SHA256: string | undefined = undefined;
+export const DOM_V2_SHA256 =
+  "e8b4c0d868ab19b3449945937492cf512de074e1e3660a3e8c2bab01e5c81d7f";
 
 const sha256 = (code: string) =>
   createHash("sha256").update(code).digest("hex");
 
 export const assertUnchanged = (
   code: string,
-  frozen: string | undefined,
+  frozen: string,
   route: string
 ) => {
-  if (frozen !== undefined && sha256(code) !== frozen) {
+  if (sha256(code) !== frozen) {
     throw new Error(
       `${route} is frozen and this build differs from it: serve the change as its next version`
     );

@@ -165,7 +165,8 @@ const finalChecks = async (dir: string, files: Record<string, string>) => {
 // One build as the Draft's socket showed it: the `build` call's spec, its step labels and its result.
 interface Build {
   callId: string;
-  spec: Spec;
+  // The `build` call's arguments: the job's spec and whether it changes the game or makes a new one.
+  spec: Spec & { kind?: "new" | "change" };
   startedAt: number;
   endedAt?: number;
   labels: string[];
@@ -459,7 +460,12 @@ export const runPreviewE2E = async ({
   const coderRecord = async (build: Build, index: number) => {
     const buildDir = path.join(dir, `build-${index}`);
     mkdirSync(buildDir, { recursive: true });
-    const kind: CoderJob["kind"] = draft.n > 0 ? "edit" : "build";
+    // A start over on a Draft with a Revision is a new game, judged as one: by its `kind`, not by the Draft.
+    const edit =
+      build.spec.kind === undefined
+        ? draft.n > 0
+        : build.spec.kind === "change";
+    const kind: CoderJob["kind"] = edit ? "edit" : "build";
     const { failed, reason, text } = outcome(build);
     const files = failed || !draftId ? {} : await readRevision(draftId);
     for (const [file, contents] of Object.entries(files)) {
@@ -477,7 +483,7 @@ export const runPreviewE2E = async ({
       ? await judgeCoder({
           end: checked.end,
           files: judged,
-          original: draft.n > 0 ? draft.source : undefined,
+          original: edit ? draft.source : undefined,
           signals: checked.final.random,
           spec: build.spec,
           start: checked.start,
