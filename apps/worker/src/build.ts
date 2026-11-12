@@ -37,7 +37,7 @@ export interface SubAgent {
   ) => Promise<Final>;
 }
 
-// A Revision's files the sub agent makes rather than edits (from game.ts and music.mjs), so the job never carries them.
+// A Revision's files the sub agent makes rather than edits (from game.ts and the music's score), so the job never carries them.
 const BUILT = new Set(["game.js", "music.js"]);
 
 // The title and description are what Publish shows in the feed, within games' limits (schema.ts).

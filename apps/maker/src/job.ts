@@ -59,7 +59,7 @@ export const JobSchema = Schema.Struct({
   draftId: Schema.String,
   // The Revision the job starts from, 0 when the Draft has none.
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  // game.ts, index.html, music.mjs; never game.js or music.js. Empty for a new game, a start over included.
+  // game.ts, index.html, music.mjs or music.py; never game.js or music.js. Empty for a new game, a start over included.
   source: Schema.Record(Schema.String, Schema.String),
   spec: Schema.Struct({
     brief: Schema.String,
@@ -99,6 +99,7 @@ export type CoderEvent =
 
 // The image's binaries by full path, so a program a model put earlier on PATH can't stand in for one.
 const NODE = "/usr/local/bin/node";
+const PYTHON = "/usr/bin/python3";
 const PLAYTEST = "/opt/hopon/playtest.js";
 
 // What a playtest.js run that printed no result left: its exit code always, since one killed by a signal or by
@@ -140,9 +141,19 @@ const readText = async (box: Box, file: string) => {
   }
 };
 
+// A game's music is one score that renders music.wav: music.mjs synthesizes it (the music-synth skill), music.py
+// plays it on recorded instruments (music-sf2). Each runs on its own interpreter, and its error is where that one
+// prints it: a Node error's message comes first, a Python traceback's last.
+const SCORES = {
+  "music.mjs": { error: (stderr: string) => stderr.slice(0, 300), run: NODE },
+  "music.py": { error: (stderr: string) => stderr.slice(-300), run: PYTHON },
+} as const;
+type Score = keyof typeof SCORES;
+const SCORE_FILES = Object.keys(SCORES) as Score[];
+
 // What a Revision holds of the sub agent's (#117); the harness adds game.js, music.js and a LittleJS game's index.html,
 // and a plain-DOM game's index.html gets the music's script from it.
-const SOURCE_FILES = ["index.html", "game.ts", "music.mjs"];
+const SOURCE_FILES = ["index.html", "game.ts", ...SCORE_FILES];
 const HOME = "/home/user";
 
 // music.js: the harness's, from music.wav. GAME_CSP has connect-src 'none', so the Opus loop comes in as a script, in
@@ -150,11 +161,20 @@ const HOME = "/home/user";
 export const musicScript = (opus: Uint8Array) =>
   `hopon.music = "${Buffer.from(opus).toString("base64")}";\n`;
 
-// music.mjs to music.opus, or why it failed.
-const renderMusic = async (box: Box) => {
-  const rendered = await box.exec([NODE, `${WORKSPACE}/music.mjs`]);
+// The workspace's score to music.opus, or why it failed.
+const renderMusic = async (box: Box, source: Record<string, string | null>) => {
+  const scores = SCORE_FILES.filter((file) => source[file] !== null);
+  const [score] = scores;
+  if (score === undefined) {
+    return `no music: write ${SCORE_FILES.join(" or ")}`;
+  }
+  if (scores.length > 1) {
+    return `${scores.join(" and ")} are both there: a game has one music file, so delete the one you aren't using`;
+  }
+  const { error, run } = SCORES[score];
+  const rendered = await box.exec([run, `${WORKSPACE}/${score}`]);
   if (rendered.exitCode !== 0) {
-    return `music.mjs failed: ${rendered.stderr.slice(0, 300)}`;
+    return `${score} failed: ${error(rendered.stderr)}`;
   }
   const probed = await box.exec([
     "/usr/bin/ffprobe",
@@ -238,8 +258,8 @@ export const prompt = ({ revision, source, spec }: Job) =>
     `Title: ${spec.title}`,
     `Brief: ${spec.brief}`,
     spec.music
-      ? `Music: write music.mjs for this game (${spec.music}) and render music.wav.`
-      : "Music: none this turn; leave any existing music.mjs as it is.",
+      ? `Music: write the music for this game (${spec.music}) and render music.wav.`
+      : "Music: none this turn; leave any existing music file as it is.",
     ...(hasTests(spec.tests) ? [testsPrompt(spec.tests)] : []),
   ].join("\n");
 
@@ -283,14 +303,16 @@ export const RESTARTED =
 
 // The Revision's changed and deleted files, against the source the job sent. The harness adds its own two: a LittleJS
 // game's index.html, and music.js when the job rendered music. A Revision has music.js when this job rendered it or
-// the last one did and music.mjs is still there; index.html loads it exactly then.
+// the last one did and its score is still there; index.html loads it exactly then.
 const diffRevision = (
   workspace: Record<string, string | null>,
   source: Job["source"],
   opus: Uint8Array | null
 ) => {
+  const hadMusic = SCORE_FILES.some((file) => file in source);
   const music =
-    opus !== null || (workspace["music.mjs"] !== null && "music.mjs" in source);
+    opus !== null ||
+    SCORE_FILES.some((file) => workspace[file] !== null && file in source);
   const revision = { ...workspace };
   // Only a plain-DOM game has index.html in the box: restore keeps the harness's page out.
   const page = revision["index.html"];
@@ -310,7 +332,7 @@ const diffRevision = (
   }
   if (opus) {
     files[MUSIC] = musicScript(opus);
-  } else if (!music && "music.mjs" in source) {
+  } else if (!music && hadMusic) {
     deleted.push(MUSIC);
   }
   return { deleted, files };
@@ -375,13 +397,13 @@ export const checkBuild = async (
     | { files: Record<string, string>; deleted: string[] }
   ) & { testErrors?: string[] }
 > => {
-  const music = job.spec.music ? await renderMusic(box) : null;
   const texts = await Promise.all(
     SOURCE_FILES.map((file) => readText(box, file))
   );
   const source = Object.fromEntries(
     SOURCE_FILES.map((file, index) => [file, texts[index] ?? null])
   );
+  const music = job.spec.music ? await renderMusic(box, source) : null;
   const opus =
     job.spec.music && music === null
       ? await box.readBytes(`${WORKSPACE}/music.opus`)

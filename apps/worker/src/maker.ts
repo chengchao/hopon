@@ -44,6 +44,7 @@ import {
 import BUILDING_GAMES from "../../maker/agent-home/.agents/skills/building-games/SKILL.md";
 import DOM_GAMES from "../../maker/agent-home/.agents/skills/dom-games/SKILL.md";
 import LITTLEJS from "../../maker/agent-home/.agents/skills/littlejs-api/SKILL.md";
+import MUSIC_SF2 from "../../maker/agent-home/.agents/skills/music-sf2/SKILL.md";
 import MUSIC_SYNTH from "../../maker/agent-home/.agents/skills/music-synth/SKILL.md";
 import ZZFX from "../../maker/agent-home/.agents/skills/zzfx/SKILL.md";
 import AGENTS from "../../maker/agent-home/AGENTS.md";
@@ -142,18 +143,23 @@ const PROJECT = AGENTS.replace(
   .replaceAll("read the `", "load the `");
 
 const SKILLS = fromManifest({
-  fingerprint: "v2",
+  fingerprint: "v3",
   id: "hopon-coder",
-  skills: [BUILDING_GAMES, DOM_GAMES, LITTLEJS, MUSIC_SYNTH, ZZFX].map(
-    (raw) => {
-      const parsed = parseSkillMarkdown(raw);
-      if (!parsed) {
-        throw new Error(`a SKILL.md without frontmatter: ${raw.slice(0, 80)}`);
-      }
-      const { body, description, name } = parsed;
-      return { body, description, name };
+  skills: [
+    BUILDING_GAMES,
+    DOM_GAMES,
+    LITTLEJS,
+    MUSIC_SF2,
+    MUSIC_SYNTH,
+    ZZFX,
+  ].map((raw) => {
+    const parsed = parseSkillMarkdown(raw);
+    if (!parsed) {
+      throw new Error(`a SKILL.md without frontmatter: ${raw.slice(0, 80)}`);
     }
-  ),
+    const { body, description, name } = parsed;
+    return { body, description, name };
+  }),
 });
 
 const Input = Type.Object({

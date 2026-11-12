@@ -30,8 +30,15 @@ import { judgeChat, turnRecord } from "./talker.ts";
 import type { Chat } from "./talker.ts";
 
 // A Revision's files (the Worker's build.ts writes them to R2), and the ones a job carries.
-const REVISION_FILES = ["index.html", "game.ts", "game.js", "music.mjs", MUSIC];
-const SOURCE_FILES = ["game.ts", "index.html", "music.mjs"];
+const REVISION_FILES = [
+  "index.html",
+  "game.ts",
+  "game.js",
+  "music.mjs",
+  "music.py",
+  MUSIC,
+];
+const SOURCE_FILES = ["game.ts", "index.html", "music.mjs", "music.py"];
 const PLAYTEST = path.join(import.meta.dirname, "..", "image", "playtest.js");
 // What the Preview doesn't report. Not 0: a stat leaves these runs out (report.ts).
 const UNKNOWN = null;
