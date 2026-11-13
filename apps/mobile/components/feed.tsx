@@ -1,6 +1,6 @@
 import { useAuth } from "@clerk/expo";
 import type { FeedGame, GamePage } from "@hopon/schemas";
-import { router } from "expo-router";
+import { router, useIsFocused } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
@@ -40,6 +40,7 @@ export const Feed = ({
   measure?: boolean;
 }) => {
   const [games, setGames] = useState<FeedGame[]>([]);
+  const focused = useIsFocused();
   const [active, setActive] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -279,7 +280,7 @@ export const Feed = ({
                     // Keyed by row: a WKWebView moved up a row (when a reported game leaves) paints blank, so it reloads.
                     <GameView
                       key={index}
-                      active={index === active}
+                      active={index === active && focused}
                       muted={muted}
                       uri={gameUrl(item.id)}
                       title={item.title}
