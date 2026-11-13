@@ -36,4 +36,4 @@ Aim for a steady 60 frames a second on a mid-range phone: a frame has about 16 m
 
 ## Music
 
-Every game has music unless the Creator said they don't want it. The job's "Music:" line says what to do this time: when it asks for music, load the `music-synth` skill and write `music.mjs` once the game is green; when it says none, leave any existing `music.mjs` as it is.
+Every game has music unless the Creator said they don't want it. The job's "Music:" line says what to do this time: when it asks for music, write it once the game is green, with the `music-synth` skill (`music.mjs`, chiptune and electronic) or the `music-sf2` skill (`music.py`, recorded instruments) as the style suits; when it says none, leave any existing music file as it is.

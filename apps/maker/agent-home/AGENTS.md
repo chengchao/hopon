@@ -22,7 +22,7 @@ Make it fair: the skill's "Fair games" and "Hits and collisions" sections are th
 
 A playtest runs on a fake clock, so a minute of play takes seconds; input times are in game ms. When the game ends it stops: `overAt` is when, no later input is played (a tap would start a new round), and the end screenshot is the over screen a second later. It is red when the typecheck fails, there is any console error, the clock didn't run, or the start and end screenshots are identical (a frozen or blank game). `state "over"` within 3 s of the start is a warning: the game ends before a player can act, so make it more forgiving.
 
-When the job asks for music, read the `music-synth` skill and write `music.mjs` after the game is green.
+When the job asks for music, write it after the game is green. Read the `music-synth` skill for chiptune, electronic or arcade styles (`music.mjs`), or the `music-sf2` skill for acoustic, orchestral, folk, period or world styles played on real instruments (`music.py`). A game has one music file: when you switch, delete the other.
 
 ## The harness check
 

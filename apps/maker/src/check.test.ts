@@ -301,6 +301,90 @@ test(
   }
 );
 
+const SF2_SKILL = readFileSync(
+  path.join(
+    import.meta.dirname,
+    "../agent-home/.agents/skills/music-sf2/SKILL.md"
+  ),
+  "utf-8"
+);
+const SCORE = `strings = inst("strings", pan=30)
+harp = inst("harp", pan=100)
+flute = inst("flute")
+for bar in range(BARS):
+    strings.note(bar * 4, 57, 4.2, 60)
+    strings.note(bar * 4, 64, 4.2, 55)
+    for k in range(8):
+        harp.note(bar * 4 + k / 2, [45, 52, 57, 60][k % 4], 0.6, 70)
+    flute.note(bar * 4 + 1, 76 + bar % 3, 2, 90)
+    drum(bar * 4, 36)
+    drum(bar * 4 + 2, 54, 60)
+flute.note(LENGTH_BEATS - 1, 81, 3, 100)
+`;
+const MUSIC_PY = (
+  /```python\n(?<code>[\s\S]*?)```/u.exec(SF2_SKILL)?.groups?.code ?? ""
+).replace(
+  "# … write the score: parts, chords, bass, melody, percussion …\n",
+  SCORE
+);
+const WAV_HEADER = 44;
+
+test(
+  "the music-sf2 skeleton renders a stereo loop that wraps without a jump, and a game's music.py becomes its music.js",
+  { skip, timeout: 300_000 },
+  async () => {
+    assert.ok(
+      MUSIC_PY.includes(SCORE),
+      "the skill has a skeleton with a place for the score"
+    );
+    await restore(box, { "game.ts": GAME, "music.py": MUSIC_PY });
+    const rendered = await box.exec(["/usr/bin/python3", "music.py"]);
+    assert.equal(rendered.exitCode, 0, rendered.stderr);
+    const wav = Buffer.from(await box.readBytes(`${WORKSPACE}/music.wav`));
+    assert.equal(wav.readUInt16LE(22), 2);
+    assert.equal(wav.readUInt32LE(24), 44_100);
+    const left = Array.from({ length: (wav.length - WAV_HEADER) / 4 }, (_, i) =>
+      wav.readInt16LE(WAV_HEADER + i * 4)
+    );
+    assert.ok(left.length / 44_100 >= 20 && left.length / 44_100 <= 40);
+    const steps = left
+      .slice(1)
+      .map((v, i) => Math.abs(v - (left[i] ?? 0)))
+      .toSorted((a, b) => a - b);
+    const typical = steps[Math.floor(steps.length * 0.99)] ?? 0;
+    const seam = Math.abs((left[0] ?? 0) - (left.at(-1) ?? 0));
+    assert.ok(seam <= typical, `seam ${seam}, 99th-percentile step ${typical}`);
+
+    const verdict = await checkBuild(box, {
+      job: { ...job, spec: { ...job.spec, music: "a harbour town" } },
+    });
+
+    assert.ok("files" in verdict, JSON.stringify(verdict));
+    assert.equal(verdict.files["music.py"], MUSIC_PY);
+    assert.match(verdict.files["music.js"] ?? "", /^hopon\.music = "T2dnUw/u);
+    assert.equal(verdict.files["index.html"], littlejsHtml(true));
+  }
+);
+
+test(
+  "a game with both music.mjs and music.py fails the check of a music job",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(box, {
+      "game.ts": GAME,
+      "music.mjs": "// a loop",
+      "music.py": MUSIC_PY,
+    });
+
+    const verdict = await checkBuild(box, {
+      job: { ...job, spec: { ...job.spec, music: "a harbour town" } },
+    });
+
+    assert.ok("errors" in verdict);
+    assert.match(verdict.errors.join("\n"), /both there/u);
+  }
+);
+
 const OCEAN = path.join(import.meta.dirname, "../eval/revisions/ocean-memory");
 const ocean = (file: string) => readFileSync(path.join(OCEAN, file), "utf-8");
 
