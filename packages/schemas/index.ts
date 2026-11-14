@@ -7,6 +7,8 @@ export const COMMENT_MAX = 300;
 // A Game's title and description, as the Maker writes them and the games table keeps them.
 export const GAME_TITLE_MAX = 60;
 export const GAME_DESCRIPTION_MAX = 180;
+// Marks a build's output line as a status the sub agent wrote for the Creator, apart from its step labels.
+export const STATUS_MARK = "» ";
 // A Creator's 21st Draft is refused: the API checks it, and the app disables New game.
 export const MAX_DRAFTS = 20;
 

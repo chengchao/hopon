@@ -20,6 +20,7 @@ import type {
   ToolResultMessage,
 } from "@earendil-works/pi-ai";
 import type { AgentEvent } from "@earendil-works/pi-durable";
+import { STATUS_MARK } from "@hopon/schemas";
 
 import { isLittlejsHtml, MUSIC } from "../image/page.ts";
 import type { PlaytestResult, Spec } from "../src/job.ts";
@@ -496,6 +497,9 @@ export const runPreviewE2E = async ({
           start: checked.start,
         }).catch((error: unknown) => ({ error: String(error) }))
       : undefined;
+    const steps = build.labels.filter(
+      (label) => !label.startsWith(STATUS_MARK)
+    );
     const record = {
       agent: "coder",
       cost: UNKNOWN,
@@ -514,14 +518,25 @@ export const runPreviewE2E = async ({
       music: Boolean(build.spec.music),
       outputTokens: UNKNOWN,
       pass: passes(kind, finalGreen, scores),
-      playtests: build.labels.filter((label) => label === "Playtesting").length,
+      playtests: steps.filter((label) => label === "Playtesting").length,
       reason,
       run,
       // From the `build` call's start to its result: the job, plus reading and writing R2.
       seconds: ((build.endedAt ?? Date.now()) - build.startedAt) / 1000,
+      // The sub agent's reports, as the Creator's status line showed them, and when.
+      statuses: build.labels.flatMap((label, at) =>
+        label.startsWith(STATUS_MARK)
+          ? [
+              {
+                seconds: ((build.labelAt[at] ?? 0) - build.startedAt) / 1000,
+                status: label.slice(STATUS_MARK.length),
+              },
+            ]
+          : []
+      ),
       // Seconds from the build's start to each label, in step order.
       stepSeconds: build.labelAt.map((at) => (at - build.startedAt) / 1000),
-      steps: build.labels.length,
+      steps: steps.length,
       summary: failed ? undefined : text,
       thinking: "preview",
       toolCalls: UNKNOWN,

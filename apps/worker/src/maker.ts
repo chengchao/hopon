@@ -25,6 +25,7 @@ import type {
   SubmissionId,
 } from "@earendil-works/pi-durable";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
+import { STATUS_MARK } from "@hopon/schemas";
 import { Agent } from "agents";
 import type { Connection } from "agents";
 import { PiHarness, skills } from "agents/harness/pi";
@@ -362,11 +363,32 @@ export class Maker extends Agent<Env> {
     replay: "safe",
   });
 
-  // #116's step limit: the 21st call is blocked and the job stopped. Each step's label goes to the main agent's status.
+  // The sub agent's own words for the Creator's status line, in the Creator's language.
+  report = defineTool({
+    description:
+      "Show the Creator what you're doing now, until your next report. Under 8 plain words, in the job's Language.",
+    execute: ({ status }) => {
+      const { job } = this;
+      if (job) {
+        this.running
+          .get(job.jobId)
+          ?.step(`${STATUS_MARK}${status.replaceAll("\n", " ").trim()}`);
+      }
+      return Promise.resolve({
+        output: [{ text: "Shown.", type: "text" as const }],
+      });
+    },
+    name: "report",
+    parameters: Type.Object({ status: Type.String({ maxLength: 80 }) }),
+    replay: "safe",
+  });
+
+  // #116's step limit: the 21st call is blocked and the job stopped. Each step's label goes to the build's output,
+  // which the eval counts. A report isn't a step.
   limits = hook(ToolTask, {
     beforeTool: (toolCall) => {
       const { job } = this;
-      if (!job || toolCall.parent) {
+      if (!job || toolCall.parent || toolCall.name === "report") {
         return;
       }
       const steps = job.steps + 1;
@@ -402,7 +424,7 @@ export class Maker extends Agent<Env> {
       { key: "preamble", render: () => SYSTEM_PROMPT, tag: false },
       { key: "project", render: () => PROJECT },
     ],
-    tools: [this.playtest],
+    tools: [this.playtest, this.report],
   });
 
   subSkills: Extension | undefined;

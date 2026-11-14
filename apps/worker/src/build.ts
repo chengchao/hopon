@@ -48,6 +48,10 @@ const Parameters = Type.Object({
     description:
       "new: a new game, a different game, or Start over, built in an empty workspace; change: a change to the current game",
   }),
+  language: Type.String({
+    description:
+      "The Creator's language, which the coder's status updates use: English, 中文, Español…",
+  }),
   music: Type.Union([Type.String(), Type.Null()]),
   tests: Type.Optional(
     Type.Object({
