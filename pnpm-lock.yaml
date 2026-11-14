@@ -208,6 +208,9 @@ importers:
       '@hopon/model-fetch':
         specifier: workspace:*
         version: link:../../packages/model-fetch
+      '@hopon/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
       effect:
         specifier: 4.0.1
         version: 4.0.1

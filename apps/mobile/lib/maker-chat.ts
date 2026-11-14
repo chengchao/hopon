@@ -1,6 +1,7 @@
 // The Make tab's chat (#147): a pure function of the Maker's latest snapshot plus the live batches since it
 // (apps/worker/src/maker.ts sends pi-durable's events), and of the messages this app has sent but the Maker hasn't
 // taken yet. The socket and the screen live in app/create.tsx; this is the part the tests drive.
+import { STATUS_MARK } from "@hopon/schemas";
 import type { DraftSummary } from "@hopon/schemas";
 
 // The slice of pi-durable's types the chat reads.
@@ -336,9 +337,13 @@ const clock = (ms: number) => {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 };
 
-// The build's current step: the last label it passed on. Past steps aren't kept (#119).
-const stepOf = (output: string) =>
-  output.trim().split("\n").at(-1) || "Building";
+// The build's current status: the sub agent's last report, or before its first, the last step label. Past steps
+// aren't kept (#119).
+const stepOf = (output: string) => {
+  const lines = output.trim().split("\n");
+  const status = lines.findLast((line) => line.startsWith(STATUS_MARK));
+  return status?.slice(STATUS_MARK.length) || lines.at(-1) || "Building";
+};
 
 // `now` runs the build's timer.
 // The title each build call gave its game, by call id.

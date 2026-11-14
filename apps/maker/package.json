@@ -13,6 +13,7 @@
     "@earendil-works/pi-ai": "1.4.0",
     "@earendil-works/pi-durable": "1.4.0",
     "@hopon/model-fetch": "workspace:*",
+    "@hopon/schemas": "workspace:*",
     "effect": "4.0.1"
   },
   "devDependencies": {

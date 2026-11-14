@@ -12,6 +12,8 @@ import path from "node:path";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 
+import { STATUS_MARK } from "@hopon/schemas";
+
 const API = new URL("..", import.meta.url).pathname;
 const CONFIG = new URL("maker/wrangler.jsonc", import.meta.url).pathname;
 const state = mkdtempSync(path.join(tmpdir(), "maker-test-"));
@@ -515,6 +517,22 @@ test(
     assert.deepEqual(await fakeJson(draft, "told"), [
       "The harness ran your game and it failed:\n- boom\nFix these, playtest again, then give your report.",
     ]);
+    socket.close();
+  }
+);
+
+test(
+  "report: the sub agent's reports reach the socket marked as statuses, and none is a step",
+  { timeout: 120_000 },
+  async (t) => {
+    await serve(t);
+    const { id: draft } = await json("/api/drafts", { text: "build reported" });
+    const socket = await connect(draft);
+    await socket.until("a report", (frame) =>
+      JSON.stringify(frame).includes(`${STATUS_MARK}Drawing the moon 24`)
+    );
+    await socket.until("the turn's end", over);
+    assert.match(await lastReply(draft), /Built it\./u);
     socket.close();
   }
 );

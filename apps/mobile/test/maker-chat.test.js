@@ -385,6 +385,27 @@ test("while build runs, one status row under the Maker's bubble shows the curren
     ),
     "Writing music · 1:12"
   );
+  // Once the sub agent reports, its last report is the status, over the step labels after it.
+  const reported = [
+    ...trimmed,
+    batch(buildOutput({ append: "» 画出船和海面\nWriting the game\n" })),
+  ];
+  assert.equal(
+    statusOf(chatView(chatOf(...reported), 73_000)),
+    "画出船和海面 · 1:12"
+  );
+  assert.equal(
+    statusOf(
+      chatView(
+        chatOf(
+          ...reported,
+          batch(buildOutput({ append: "» 加入香料买卖\nPlaytesting\n" }))
+        ),
+        73_000
+      )
+    ),
+    "加入香料买卖 · 1:12"
+  );
   // It goes when the build ends.
   const ended = batch({
     toolCallId: "call-1",

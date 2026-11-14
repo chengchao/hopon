@@ -103,6 +103,12 @@ const SCRIPTS: Record<string, readonly Step[] | ((turn: number) => Step)> = {
     { text: "Built it with music." },
   ],
   new: [write, play, { text: "Built Moon Cat." }],
+  // Reports past the step limit before it builds: reports aren't steps.
+  reported: (turn: number) =>
+    [write, play, { sleep: 3000, text: "Built it." }][turn - 25] ?? {
+      input: { status: `Drawing the moon ${turn}` },
+      tool: "report",
+    },
   slow: [
     write,
     play,
@@ -243,6 +249,7 @@ const main = (messages: Message[]) => {
       brief: script,
       description: "Tap to jump from moon to moon.",
       kind: script === "fresh" ? "new" : "change",
+      language: "English",
       music: /music/iu.test(script) ? "chiptune" : null,
       title: "Moon Cat",
     },
