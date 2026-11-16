@@ -144,7 +144,7 @@ const PROJECT = AGENTS.replace(
   .replaceAll("read the `", "load the `");
 
 const SKILLS = fromManifest({
-  fingerprint: "v3",
+  fingerprint: "v4",
   id: "hopon-coder",
   skills: [
     BUILDING_GAMES,
@@ -364,9 +364,9 @@ export class Maker extends Agent<Env> {
   });
 
   // The sub agent's own words for the Creator's status line, in the Creator's language.
-  report = defineTool({
+  reportStatus = defineTool({
     description:
-      "Show the Creator what you're doing now, until your next report. Under 8 plain words, in the job's Language.",
+      "Set the Creator's status line to what you're doing now, until your next call. Under 8 plain words, in the job's Language. The building-games skill says when.",
     execute: ({ status }) => {
       const { job } = this;
       if (job) {
@@ -378,7 +378,7 @@ export class Maker extends Agent<Env> {
         output: [{ text: "Shown.", type: "text" as const }],
       });
     },
-    name: "report",
+    name: "reportStatus",
     parameters: Type.Object({ status: Type.String({ maxLength: 80 }) }),
     replay: "safe",
   });
@@ -388,7 +388,7 @@ export class Maker extends Agent<Env> {
   limits = hook(ToolTask, {
     beforeTool: (toolCall) => {
       const { job } = this;
-      if (!job || toolCall.parent || toolCall.name === "report") {
+      if (!job || toolCall.parent || toolCall.name === "reportStatus") {
         return;
       }
       const steps = job.steps + 1;
@@ -424,7 +424,7 @@ export class Maker extends Agent<Env> {
       { key: "preamble", render: () => SYSTEM_PROMPT, tag: false },
       { key: "project", render: () => PROJECT },
     ],
-    tools: [this.playtest, this.report],
+    tools: [this.playtest, this.reportStatus],
   });
 
   subSkills: Extension | undefined;

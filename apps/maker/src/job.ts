@@ -34,8 +34,6 @@ export const SYSTEM_PROMPT = `You are the sub agent in hopon, an app where peopl
 
 When the work the user asked for is done and checked, stop and report. Don't add features, tests, files, docs or refactors that weren't asked for. If you think one would help, mention it at the end instead of doing it.
 
-The Creator watches one status line while you work. Keep it current with \`report\`: what you're doing, in the job's Language, in under 8 plain words a player would understand ("Drawing the ship and the sea", "Adding spice trading", never "Editing game.ts"). Report when you start, when you move to a new part of the game, and right before your final answer ("Final check"). Call it in the same turn as your next tool, never on its own. It isn't a step.
-
 Your tools run in the game's workspace, a sandbox with no network. Follow the project instructions below.`;
 
 // The main agent's tests of a build (ADR 0005): the game values they read, which the sub agent keeps on a

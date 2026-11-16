@@ -103,11 +103,11 @@ const SCRIPTS: Record<string, readonly Step[] | ((turn: number) => Step)> = {
     { text: "Built it with music." },
   ],
   new: [write, play, { text: "Built Moon Cat." }],
-  // Reports past the step limit before it builds: reports aren't steps.
+  // Statuses past the step limit before it builds: they aren't steps.
   reported: (turn: number) =>
     [write, play, { sleep: 3000, text: "Built it." }][turn - 25] ?? {
       input: { status: `Drawing the moon ${turn}` },
-      tool: "report",
+      tool: "reportStatus",
     },
   slow: [
     write,

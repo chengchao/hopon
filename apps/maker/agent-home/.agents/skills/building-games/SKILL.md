@@ -7,6 +7,18 @@ description: "What a finished hopon game is, whatever the engine: playable and c
 
 Build a **playable, correct** browser game — not a static screenshot. It is played on a phone, in portrait, by touch. The engine's skill (`littlejs-api` or `dom-games`) says how; this one says what done looks like.
 
+## The Creator's status line
+
+The Creator watches one line of status while you build, and `reportStatus` is the only thing that sets it. Call it at each of these points, in the same turn as the tool call it announces:
+
+1. With your first write: what you're making, e.g. `reportStatus({ status: "Drawing the ship and the sea" })`.
+2. With each new part of the game you add or fix: e.g. `"Adding spice trading"`, `"Making the storms fairer"`.
+3. With each `playtest`: what you're trying, e.g. `"Sailing a first voyage"`.
+4. With the music's first write: e.g. `"Writing sea shanty music"`.
+5. Before your final answer, on its own: e.g. `"Final check"`.
+
+Write every status in the job's `Language:`, never in English unless the Language is English: for `Language: 中文`, `"画出船和海面"`, not `"Drawing the ship and the sea"`. Under 8 words a player understands: what the game gains, never files, code or tools.
+
 ## Playable and correct
 
 - **It starts and moves.** The tap that starts the game starts it, and within a second something happens on screen.

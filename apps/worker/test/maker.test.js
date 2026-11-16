@@ -522,7 +522,7 @@ test(
 );
 
 test(
-  "report: the sub agent's reports reach the socket marked as statuses, and none is a step",
+  "reportStatus: the sub agent's statuses reach the socket marked, and none is a step",
   { timeout: 120_000 },
   async (t) => {
     await serve(t);
