@@ -42,7 +42,6 @@ import {
   Semaphore,
 } from "effect";
 
-import BUILDING_GAMES from "../../maker/agent-home/.agents/skills/building-games/SKILL.md";
 import DOM_GAMES from "../../maker/agent-home/.agents/skills/dom-games/SKILL.md";
 import LITTLEJS from "../../maker/agent-home/.agents/skills/littlejs-api/SKILL.md";
 import MUSIC_SF2 from "../../maker/agent-home/.agents/skills/music-sf2/SKILL.md";
@@ -132,28 +131,21 @@ const SILENT_MS = 60_000;
 // AGENTS.md as the sub agent's project section, with its "read the skill" lines pointed at activate_skill: the skills
 // aren't files.
 const READ_SKILL =
-  "Read the `building-games` skill, then the skill for the engine, with the **read tool**. Skills are not in the workspace, so bash can't see them; don't look for them with bash";
+  "Read the skill for the engine with the **read tool**. Skills are not in the workspace, so bash can't see them; don't look for them with bash";
 if (!AGENTS.includes(READ_SKILL)) {
   throw new Error("AGENTS.md no longer says how to read a skill");
 }
 const PROJECT = AGENTS.replace(
   READ_SKILL,
-  "Load the `building-games` skill, then the skill for the engine, with **activate_skill**. Skills are not in the workspace, so bash can't see them; don't look for them with bash"
+  "Load the skill for the engine with **activate_skill**. Skills are not in the workspace, so bash can't see them; don't look for them with bash"
 )
   .replaceAll("Read the `", "Load the `")
   .replaceAll("read the `", "load the `");
 
 const SKILLS = fromManifest({
-  fingerprint: "v4",
+  fingerprint: "v5",
   id: "hopon-coder",
-  skills: [
-    BUILDING_GAMES,
-    DOM_GAMES,
-    LITTLEJS,
-    MUSIC_SF2,
-    MUSIC_SYNTH,
-    ZZFX,
-  ].map((raw) => {
+  skills: [DOM_GAMES, LITTLEJS, MUSIC_SF2, MUSIC_SYNTH, ZZFX].map((raw) => {
     const parsed = parseSkillMarkdown(raw);
     if (!parsed) {
       throw new Error(`a SKILL.md without frontmatter: ${raw.slice(0, 80)}`);
@@ -366,7 +358,7 @@ export class Maker extends Agent<Env> {
   // The sub agent's own words for the Creator's status line, in the Creator's language.
   reportStatus = defineTool({
     description:
-      "Set the Creator's status line to what you're doing now, until your next call. Under 8 plain words, in the job's Language. The building-games skill says when.",
+      "Set the Creator's status line to what you're doing now, until your next call. Under 8 plain words, in the job's Language. The project instructions say when.",
     execute: ({ status }) => {
       const { job } = this;
       if (job) {
