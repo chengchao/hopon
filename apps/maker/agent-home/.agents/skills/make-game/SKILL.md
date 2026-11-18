@@ -11,7 +11,12 @@ You design the game, write it, test it, and publish it with `build`. The Creator
 
 The workspace holds one game: the files of the game the Creator has now, or nothing before the first one. A game is played on a phone, in portrait, by touch.
 
-- **A new game, a different game, or "Start over":** first empty the workspace (delete `design.md`, `game.ts`, `index.html`, `music.mjs`, `music.py` and `tests.json`), then call `build` with kind `"new"`.
+- **A new game, a different game, or "Start over":** first empty the workspace with this command, then call `build` with kind `"new"`. It deletes every file and folder of the old game, its modules, images and notes too, and keeps only `.hopon/`, where verify.js reads what the Creator said. Anything left behind would ship in the new game's source.
+
+  ```bash
+  find /workspace -mindepth 1 -maxdepth 1 ! -name .hopon -exec rm -rf {} +
+  ```
+
 - **A change:** edit the existing files and call `build` with kind `"change"`.
 - **Until a `build` succeeds, the Creator has no game.** Treat every request until then as a complete new game that includes everything the Creator has asked for so far.
 

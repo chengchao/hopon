@@ -78,6 +78,19 @@ const box: Box = {
   },
 };
 
+// The box, and every file the harness read back from it.
+const recording = () => {
+  const read: string[] = [];
+  const recorded: Box = {
+    ...box,
+    readBytes: (file) => {
+      read.push(file);
+      return box.readBytes(file);
+    },
+  };
+  return { box: recorded, read };
+};
+
 const text = (bytes: Uint8Array | undefined) =>
   Buffer.from(bytes ?? []).toString();
 
@@ -547,5 +560,162 @@ test(
 
     assert.ok("errors" in verdict, JSON.stringify(verdict));
     assert.match(verdict.errors.join("\n"), /must not export anything/u);
+  }
+);
+
+// Ends the processes a test left running in the box, by what their command line says.
+const kill = async (marker: string) => {
+  await docker([
+    "exec",
+    container,
+    "/usr/local/bin/node",
+    "-e",
+    `const fs = require('fs'); for (const p of fs.readdirSync('/proc')) { try { if (Number(p) !== process.pid && fs.readFileSync('/proc/' + p + '/cmdline', 'utf-8').includes(${JSON.stringify(marker)})) process.kill(Number(p), 'SIGKILL') } catch {} }`,
+  ]);
+};
+
+test(
+  "a source over 5 MB packed fails the check, and the harness never reads it back",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(box, files({ "game.ts": GAME }));
+    await bash("head -c 6000000 /dev/urandom > noise.bin");
+    const recorder = recording();
+
+    const verdict = await checkBuild(recorder.box, noMusic);
+
+    assert.ok("errors" in verdict, JSON.stringify(verdict));
+    assert.match(
+      verdict.errors.join("\n"),
+      /the workspace's source is 6\.0 MB packed, over 5 MB/u
+    );
+    assert.deepEqual(recorder.read, []);
+  }
+);
+
+test(
+  "a built game over 5 MB fails the check, and the harness reads none of its files",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(
+      box,
+      files({
+        "game.ts": `import big from "./big.svg";\nconst img = new Image();\nimg.src = big;\n${GAME}`,
+      })
+    );
+    await bash(
+      `{ printf '<svg xmlns="http://www.w3.org/2000/svg"><!--'; head -c 6000000 /dev/zero | tr '\\0' a; printf -- '--></svg>'; } > big.svg`
+    );
+    const recorder = recording();
+
+    const verdict = await checkBuild(recorder.box, noMusic);
+
+    assert.ok("errors" in verdict, JSON.stringify(verdict));
+    assert.match(
+      verdict.errors.join("\n"),
+      /the built game is 6\.0 MB, over 5 MB/u
+    );
+    assert.deepEqual(
+      recorder.read.filter((file) => file.startsWith(`${WORKSPACE}/dist/`)),
+      []
+    );
+  }
+);
+
+test(
+  "a LittleJS game from before source.tgz restores without the harness's v3 page, and its change builds on the current one",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(
+      box,
+      files({
+        "design.md": "# Fruit",
+        "game.ts": GAME,
+        "index.html":
+          '<!doctype html><html><head><meta charset="utf-8"></head><body><script src="/runtime/v3.js"></script><script src="music.js"></script><script src="game.js"></script></body></html>',
+      })
+    );
+    const listed = await bash("find . -type f | sort");
+    assert.equal(listed.stdout.toString(), "./design.md\n./game.ts\n");
+    await box.write(`${WORKSPACE}/game.ts`, withLine("const changed = 1;"));
+
+    const verdict = await checkBuild(box, noMusic);
+
+    assert.ok("files" in verdict, JSON.stringify(verdict));
+    assert.equal(text(verdict.files["index.html"]), littlejsHtml());
+    assert.deepEqual(
+      Object.keys(await unpacked(verdict.files[SOURCE_TAR])).toSorted(),
+      ["design.md", "game.ts"]
+    );
+  }
+);
+
+test(
+  "a file that changes while the harness packs it fails the check as a changed workspace",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(box, files({ "game.ts": GAME }));
+    await bash("head -c 3000000 /dev/zero > grows.txt");
+    await docker([
+      "exec",
+      "-d",
+      ...USER,
+      container,
+      "sh",
+      "-c",
+      "cd /workspace; while :; do echo grows >> grows.txt; done",
+    ]);
+
+    try {
+      const verdict = await checkBuild(box, noMusic);
+
+      assert.ok("errors" in verdict, JSON.stringify(verdict));
+      assert.match(
+        verdict.errors.join("\n"),
+        /the workspace changed while the harness ran it/u
+      );
+    } finally {
+      await kill("grows.txt");
+    }
+  }
+);
+
+const MAKE_GAME = readFileSync(
+  path.join(
+    import.meta.dirname,
+    "../agent-home/.agents/skills/make-game/SKILL.md"
+  ),
+  "utf-8"
+);
+
+test(
+  "make-game's Start over empties the workspace of the old game, all but what the Creator said",
+  { skip, timeout: 300_000 },
+  async () => {
+    const command = /Start over.*\n+ *```bash\n *(?<command>.+)\n *```/u.exec(
+      MAKE_GAME
+    )?.groups?.command;
+    assert.ok(command, "make-game gives Start over's command");
+    await restore(
+      box,
+      files({
+        ".hopon/asked.json": '["Start over"]',
+        "balloon.svg": "<svg/>",
+        "design.md": "# Balloons",
+        "game.ts": GAME,
+        "levels/one.ts": "export const one = 1;\n",
+        "notes.txt": "scratch",
+        "style.css": "body {}",
+      })
+    );
+    await bash("mkdir -p dist && echo built > dist/game.js && echo x > .env");
+
+    const ran = await bash(command);
+
+    assert.equal(ran.exitCode, 0, ran.stderr.toString());
+    const listed = await bash("find . -mindepth 1 | sort");
+    assert.equal(listed.stdout.toString(), "./.hopon\n./.hopon/asked.json\n");
+    const asked = await bash("cat .hopon/asked.json");
+    assert.equal(asked.stdout.toString(), '["Start over"]');
   }
 );

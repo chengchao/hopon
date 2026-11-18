@@ -9,7 +9,7 @@
 // - The sandbox: files in the Maker's own storage (so they outlive a restart, as a running box does), every command
 //   logged and answered by fakeExec: the playtest green unless game.ts says BROKEN, the check's tests red on that,
 //   building dist/; music.mjs rendering a fixed track; tar packing the workspace's source into source.tgz as JSON (its
-//   files' text by name) and unpacking it; `rm -f <files>` deleting them; the rest a no-op. As the platform's, a stopped box
+//   files' text by name) and unpacking it; `stat` and `find` giving sizes; `rm -f <files>` deleting them; the rest a no-op. As the platform's, a stopped box
 //   refuses every command and file, and one started again is empty.
 // /__maker/<draftId>/fake/<what> (MAKER_DEV's route) reaches the Draft's Maker: `log` returns the box's commands, and
 // its start, destroy and inactivity timeout; `puts` the start and end of each R2 put; `release` lets a held step answer; `nobox` stops the box and makes its
@@ -482,7 +482,25 @@ export class Maker extends RealMaker {
         put(`/workspace/${name}`, encode(content));
       }
     };
+    const size = (path: string) => kv.get<Uint8Array>(key(path))?.length ?? 0;
+    // What `stat` says of source.tgz and `find` of dist/: sizes in bytes. Null for any other command.
+    const sizes = (command: string) => {
+      if (command.includes(`/usr/bin/stat --format=%s ${PACKED}`)) {
+        return `${size(PACKED)}\n`;
+      }
+      if (!command.includes("/usr/bin/find /workspace/dist")) {
+        return null;
+      }
+      return paths()
+        .filter((p) => p.startsWith("/workspace/dist/"))
+        .map((p) => `${size(p)} ${p.slice("/workspace/dist/".length)}\n`)
+        .join("");
+    };
     const fakeExec = (command: string): Exec => {
+      const listed = sizes(command);
+      if (listed !== null) {
+        return ok(listed);
+      }
       const removed = REMOVE.exec(command)?.groups?.files;
       if (removed) {
         for (const file of removed.split(" ")) {
@@ -492,13 +510,6 @@ export class Maker extends RealMaker {
         pack();
       } else if (command.includes(`/usr/bin/tar --extract --file ${PACKED}`)) {
         unpack();
-      } else if (command.includes("/usr/bin/find /workspace/dist")) {
-        return ok(
-          paths()
-            .filter((p) => p.startsWith("/workspace/dist/"))
-            .map((p) => `${p.slice("/workspace/dist/".length)}\n`)
-            .join("")
-        );
       } else if (command.includes("/usr/bin/find /workspace")) {
         wipe();
       } else if (command.includes("/opt/hopon/playtest.js")) {

@@ -715,6 +715,14 @@ test(
       legacy + 1,
       "let speed = 2;\nfunction gameRender() {}\n",
     ]);
+    assert.deepEqual(await sourceFile(draft, "music.js"), [
+      legacy + 1,
+      undefined,
+    ]);
+    assert.deepEqual(await sourceFile(draft, "game.js"), [
+      legacy + 1,
+      undefined,
+    ]);
     const [, opus] = await revisionFile(draft, "music.opus");
     assert.equal(opus, 200);
     const [, script] = await revisionFile(draft, "music.js");

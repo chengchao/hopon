@@ -77,6 +77,7 @@ const NODE = "/usr/local/bin/node";
 const PYTHON = "/usr/bin/python3";
 const FIND = "/usr/bin/find";
 const TAR = "/usr/bin/tar";
+const STAT = "/usr/bin/stat";
 const PLAYTEST = "/opt/hopon/playtest.js";
 
 // What a playtest.js run that printed no result left: its exit code always, since one killed by a signal or by
@@ -150,6 +151,9 @@ const NOT_SOURCE = [
 ];
 const PACKED = "/tmp/hopon-source.tgz";
 const GZIP = "--use-compress-program=/usr/bin/gzip -n";
+const TAR_CHANGED = 1;
+const CHANGED =
+  "the workspace changed while the harness ran it: stop whatever process is writing to it";
 // What the page loads (the scaffold aside) and the source packed, each: a game's needs are well under these, and a
 // phone loads the first on every swipe to the game.
 const MAX_BUILT_BYTES = 5_000_000;
@@ -293,9 +297,10 @@ const run = async (box: Box, argv: string[]) => {
   return result.stdout;
 };
 
-// The workspace's source as source.tgz's bytes.
-export const packSource = async (box: Box) => {
-  await run(box, [
+// The workspace's source packed into PACKED, in the box: its size in bytes, or null when a file changed while tar read
+// it (tar's exit 1, as when a process the model left is still writing).
+const pack = async (box: Box) => {
+  const packed = await box.exec([
     TAR,
     "--create",
     "--file",
@@ -312,6 +317,20 @@ export const packSource = async (box: Box) => {
     WORKSPACE,
     ".",
   ]);
+  if (packed.exitCode === TAR_CHANGED) {
+    return null;
+  }
+  if (packed.exitCode !== 0) {
+    throw new Error(`${TAR} --create failed: ${packed.stderr.slice(0, 300)}`);
+  }
+  return Number(await run(box, [STAT, "--format=%s", PACKED]));
+};
+
+// The workspace's source as source.tgz's bytes.
+export const packSource = async (box: Box) => {
+  if ((await pack(box)) === null) {
+    throw new Error(CHANGED);
+  }
   return await box.readBytes(PACKED);
 };
 
@@ -358,7 +377,8 @@ export const restore = async (box: Box, source: Source) => {
 const sameBytes = (a: Uint8Array, b: Uint8Array) =>
   a.length === b.length && a.every((byte, index) => byte === b[index]);
 
-// dist/'s files, or why the page can't load them.
+// dist/'s files, or why the page can't load them. Their sizes come from the box first, so an oversized game is never
+// read into the Worker.
 const readBuilt = async (box: Box) => {
   const listed = await run(box, [
     FIND,
@@ -368,23 +388,36 @@ const readBuilt = async (box: Box) => {
     "-type",
     "f",
     "-printf",
-    "%f\\n",
+    "%s %f\\n",
   ]);
-  const names = listed.split("\n").filter(Boolean);
-  const unserved = names.filter((name) => !SERVED_NAME.test(name));
+  const files = listed
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const space = line.indexOf(" ");
+      return {
+        name: line.slice(space + 1),
+        size: Number(line.slice(0, space)),
+      };
+    });
+  const unserved = files
+    .map(({ name }) => name)
+    .filter((name) => !SERVED_NAME.test(name));
   if (unserved.length > 0) {
     return `rename ${unserved.join(", ")}: a game's file names are letters, digits, ".", "-" and "_"`;
   }
-  const built = await Promise.all(
-    names.map(
-      async (name) =>
-        [name, await box.readBytes(`${WORKSPACE}/${DIST}/${name}`)] as const
+  const bytes = files.reduce((total, { size }) => total + size, 0);
+  if (bytes > MAX_BUILT_BYTES) {
+    return `the built game is ${(bytes / 1e6).toFixed(1)} MB, over ${MAX_BUILT_BYTES / 1e6} MB: make its images and sounds smaller`;
+  }
+  return Object.fromEntries(
+    await Promise.all(
+      files.map(
+        async ({ name }) =>
+          [name, await box.readBytes(`${WORKSPACE}/${DIST}/${name}`)] as const
+      )
     )
   );
-  const bytes = built.reduce((total, [, data]) => total + data.length, 0);
-  return bytes > MAX_BUILT_BYTES
-    ? `the built game is ${(bytes / 1e6).toFixed(1)} MB, over ${MAX_BUILT_BYTES / 1e6} MB: make its images and sounds smaller`
-    : Object.fromEntries(built);
 };
 
 // The harness's check of a build (ADR 0006), at each `build` call: the source packed, the box swept and given back only
@@ -401,14 +434,18 @@ export const checkBuild = async (
     testErrors?: string[];
   }
 > => {
-  const tar = await packSource(box);
-  if (tar.length > MAX_SOURCE_BYTES) {
+  const size = await pack(box);
+  if (size === null) {
+    return { errors: [CHANGED] };
+  }
+  if (size > MAX_SOURCE_BYTES) {
     return {
       errors: [
-        `the workspace's source is ${(tar.length / 1e6).toFixed(1)} MB packed, over ${MAX_SOURCE_BYTES / 1e6} MB: delete what the game doesn't use`,
+        `the workspace's source is ${(size / 1e6).toFixed(1)} MB packed, over ${MAX_SOURCE_BYTES / 1e6} MB: delete what the game doesn't use`,
       ],
     };
   }
+  const tar = await box.readBytes(PACKED);
   await unpackSource(box, tar);
   const scores = await Promise.all(
     SCORE_FILES.map((file) => readText(box, file))
@@ -432,13 +469,11 @@ export const checkBuild = async (
   if (!tested.ok) {
     return { errors: [...tested.typeErrors, ...tested.failures], testErrors };
   }
-  if (!sameBytes(await packSource(box), tar)) {
-    return {
-      errors: [
-        "the workspace changed while the harness ran it: stop whatever process is writing to it",
-      ],
-      testErrors,
-    };
+  if (
+    (await pack(box)) !== tar.length ||
+    !sameBytes(await box.readBytes(PACKED), tar)
+  ) {
+    return { errors: [CHANGED], testErrors };
   }
   const built = await readBuilt(box);
   if (typeof built === "string") {
