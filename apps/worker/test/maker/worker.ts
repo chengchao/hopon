@@ -1,25 +1,20 @@
 // The Worker for test/maker.test.js: the real API and Maker (src/maker.ts), with the model and the sandbox faked.
 // - The model: every model call ends at globalThis.fetch, which answers Cloudflare's /ai/v1/messages here, as a
-//   scripted Anthropic stream, from the agent whose conversation sent it (the job prompt in its first message says so).
-//   - The main agent: a message "build <script>" calls `build` with the script's name as the brief (with music when the
-//     name says so); "build twice" builds `new`, then asks for a second build in the same turn. Anything else gets a
-//     text reply that repeats what the model was last sent, a tool's result included. Each call reads 1,000 input
-//     tokens, 1,000 hopon tokens at Haiku 5.5's $0.10 a million, or n after "spend <n>"; "no credits" gets the
-//     gateway's 402.
-//   - The sub agent: the brief names the script (SCRIPTS); each reply is the script's next step, by how many answers
-//     the conversation holds. Each call reads 1 input and writes 1 output token, 6 hopon tokens.
+//   scripted Anthropic stream. A Creator message "build <script>" plays SCRIPTS[script], one tool call per model call
+//   since that message; a script's end, and any other message, gets a text reply that repeats what the model was last
+//   sent, a tool's result included. A step can carry a note: text in the same message as its tool call. Each call
+//   reads 1,000 input tokens, 1,000 hopon tokens at Haiku 5.5's $0.10 a million, or n after "spend <n>"; "no credits"
+//   gets the gateway's 402.
 // - The sandbox: files in the Maker's own storage (so they outlive a restart, as a running box does), every command
-//   logged and answered by fakeExec: the playtest green unless game.ts says BROKEN, the check's tests red on that or
-//   FAILSTEST; music.mjs rendering a fixed track; the rest a no-op. As the platform's, a stopped box refuses every command
-//   and file, and one started again is empty.
-// - The deadline: the "late" scripts' is 1 s, so their case is quick; the reason still names the job's real deadline.
+//   logged and answered by fakeExec: the playtest green unless game.ts says BROKEN, the check's tests red on that;
+//   music.mjs rendering a fixed track; `rm -f <files>` deleting them; the rest a no-op. As the platform's, a stopped box
+//   refuses every command and file, and one started again is empty.
 // /__maker/<draftId>/fake/<what> (MAKER_DEV's route) reaches the Draft's Maker: `log` returns the box's commands, and
 // its start, destroy and inactivity timeout; `release` lets a held step answer; `nobox` stops the box and makes its
 // next start fail; `lose` makes the box stop with the server, as a box on another host would; `stopbox` stops it once;
-// `slowreads/<ms>` and `slowplay/<ms>` slow its reads and its next playtest; `calls` counts the sub agent's model calls,
-// and `told` lists the messages it got after its prompt (the harness's);
-// `mistagged` counts calls whose gateway tag names the wrong agent; `destroyed` says whether the Draft's box was
-// destroyed, and `startsafterdestroy` how often it started after that.
+// `slowplay/<ms>` slows its next playtest; `calls` counts the model calls; `mistagged` counts calls whose gateway tag
+// doesn't name the Maker; `destroyed` says whether the Draft's box was destroyed, and `startsafterdestroy` how often it
+// started after that.
 import { Effect, Layer } from "effect";
 
 import { AgentSandbox, NoBox } from "../../src/agent-sandbox.ts";
@@ -37,79 +32,83 @@ interface Message {
   role: string;
   content: string | Block[];
 }
-type Step =
-  | { tool: string; input: object }
-  | { text: string }
-  // Waits for `release`, then answers `text`.
-  | { hold: true; text: string }
-  // Answers `text` after this many ms: time to kill the server mid-job.
-  | { sleep: number; text: string };
+interface Step {
+  tool: string;
+  input: object;
+  // Text in the same message as the tool call.
+  note?: string;
+  // Waits for `release` before it answers.
+  hold?: true;
+  // Answers after this many ms: time to kill the server mid-run.
+  sleep?: number;
+}
 
 const GAME = "let speed = 1;\nfunction gameRender() {}\n";
-const write = { input: { content: GAME, path: "game.ts" }, tool: "write" };
+const write = (content = GAME) => ({
+  input: { content, path: "game.ts" },
+  tool: "write",
+});
 const play = { input: {}, tool: "playtest" };
 const edit = (to: string) => ({
   input: { edits: [{ newText: to, oldText: "speed = 1" }], path: "game.ts" },
   tool: "edit",
 });
-const late = [{ hold: true, text: "Too late." }] as const;
-// What a sub agent told that the box lost its work does: writes the game again and plays it.
-const again = [write, play, { text: "Wrote it again." }] as const;
-const SCRIPTS: Record<string, readonly Step[] | ((turn: number) => Step)> = {
-  // Breaks the game after a green playtest: the harness check fails it, and the sub agent, which never fixes it, gets
-  // the errors 3 times.
-  breakLate: [write, play, edit("BROKEN"), { text: "Tidied it." }],
-  change: [
-    { input: { path: "game.ts" }, tool: "read" },
-    edit("speed = 2"),
-    play,
-    { text: "Made it faster." },
-  ],
-  // The object resets after the job's state is written and before its prompt is submitted.
-  crashset: [write, play, { text: "Built it after a reset." }],
-  // Green under its own playtest, red under the harness check's tests: the check sends the errors, and it fixes them.
-  crashy: [
-    {
-      input: { content: `${GAME}// FAILSTEST\n`, path: "game.ts" },
-      tool: "write",
-    },
-    play,
-    { text: "Built it." },
+const build = (kind: "new" | "change", music = false) => ({
+  input: {
+    description: "Tap to jump from moon to moon.",
+    kind,
+    music,
+    title: "Moon Cat",
+  },
+  tool: "build",
+});
+const SCRIPTS: Record<string, readonly Step[]> = {
+  // Reads what the Creator has said, from the file the Maker keeps in the box.
+  asked: [{ input: { path: ".hopon/asked.txt" }, tool: "read" }],
+  // Green under its own playtest, red under build's check.
+  broken: [write(`${GAME}// BROKEN\n`), play, build("change")],
+  change: [edit("speed = 2"), play, build("change")],
+  // Builds 5 times: the build limit's case.
+  five: [write(), ...Array.from({ length: 5 }, () => build("change"))],
+  // Fails build, fixes the game, and builds it.
+  fix: [write(`${GAME}// BROKEN\n`), build("change"), write(), build("change")],
+  // A start over: empties the workspace, then writes a new game without music.
+  fresh: [
     {
       input: {
-        edits: [{ newText: "", oldText: "// FAILSTEST\n" }],
-        path: "game.ts",
+        command:
+          "rm -f design.md game.ts index.html music.mjs music.py tests.json",
       },
-      tool: "edit",
+      tool: "bash",
     },
+    write(),
     play,
-    { text: "Fixed it." },
+    build("new"),
   ],
-  // Changes the game after a green playtest and stops: the ending must play what it ships.
-  editLate: [write, play, edit("speed = 3"), { text: "Made it faster." }],
-  // A start over: reports its prompt's first line, which says whether it was asked for a new game.
-  fresh: [write, play, { text: "{prompt}" }],
   // Runs a command until it's stopped.
   hang: [{ input: { command: "sleep 600" }, tool: "bash" }],
-  // Never answers: the deadline's case.
-  late,
-  // Writes forever: the step limit's case.
-  loop: () => write,
+  // Writes 21 times: the step limit's case.
+  loop: Array.from({ length: 21 }, () => write()),
+  // A first game with music.
   music: [
-    write,
+    write(),
     { input: { content: "// a track", path: "music.mjs" }, tool: "write" },
-    { input: { command: "node music.mjs" }, tool: "bash" },
     play,
-    { text: "Built it with music." },
+    build("new", true),
   ],
-  new: [write, play, { text: "Built Moon Cat." }],
-  slow: [
-    write,
-    play,
-    { sleep: 2000, text: "Built it after a restart." },
-    ...again,
+  new: [write(), play, build("new")],
+  // Writes a note to itself before it builds.
+  noted: [
+    write(),
+    { ...play, note: "Note to self: the jump checks out." },
+    build("change"),
   ],
-  wait: [write, play, { hold: true, text: "Built it after a wait." }, ...again],
+  // One tool call.
+  one: [write()],
+  // Changes the game, then builds after 2 s.
+  slow: [edit("speed = 3"), play, { ...build("change"), sleep: 2000 }],
+  // Changes the game, then builds once released.
+  wait: [edit("speed = 3"), play, { ...build("change"), hold: true }],
 };
 
 const sse = (events: object[]) =>
@@ -123,11 +122,11 @@ const sse = (events: object[]) =>
     { headers: { "content-type": "text/event-stream" } }
   );
 
+// One assistant message of these content blocks, each with its one delta.
 const reply = (
-  block: object,
-  delta: object,
+  blocks: readonly { block: object; delta: object }[],
   stop: string,
-  usage: { input: number; output: number }
+  input: number
 ) =>
   sse([
     {
@@ -138,44 +137,49 @@ const reply = (
         role: "assistant",
         stop_reason: null,
         type: "message",
-        usage: { input_tokens: usage.input, output_tokens: 0 },
+        usage: { input_tokens: input, output_tokens: 0 },
       },
       type: "message_start",
     },
-    { content_block: block, index: 0, type: "content_block_start" },
-    { delta, index: 0, type: "content_block_delta" },
-    { index: 0, type: "content_block_stop" },
+    ...blocks.flatMap(({ block, delta }, index) => [
+      { content_block: block, index, type: "content_block_start" },
+      { delta, index, type: "content_block_delta" },
+      { index, type: "content_block_stop" },
+    ]),
     {
       delta: { stop_reason: stop, stop_sequence: null },
       type: "message_delta",
-      usage: { output_tokens: usage.output },
+      usage: { output_tokens: 0 },
     },
     { type: "message_stop" },
   ]);
 
-const toolCall = (
-  name: string,
-  input: object,
-  usage: { input: number; output: number }
-) =>
+const text = (said: string) => ({
+  block: { text: "", type: "text" },
+  delta: { text: said, type: "text_delta" },
+});
+const toolCall = ({ input, note, tool }: Step, tokens: number) =>
   reply(
-    {
-      id: `toolu_${crypto.randomUUID().replaceAll("-", "")}`,
-      input: {},
-      name,
-      type: "tool_use",
-    },
-    { partial_json: JSON.stringify(input), type: "input_json_delta" },
+    [
+      ...(note === undefined ? [] : [text(note)]),
+      {
+        block: {
+          id: `toolu_${crypto.randomUUID().replaceAll("-", "")}`,
+          input: {},
+          name: tool,
+          type: "tool_use",
+        },
+        delta: {
+          partial_json: JSON.stringify(input),
+          type: "input_json_delta",
+        },
+      },
+    ],
     "tool_use",
-    usage
+    tokens
   );
-const say = (text: string, usage: { input: number; output: number }) =>
-  reply(
-    { text: "", type: "text" },
-    { text, type: "text_delta" },
-    "end_turn",
-    usage
-  );
+const say = (said: string, tokens: number) =>
+  reply([text(said)], "end_turn", tokens);
 
 const texts = (content: string | Block[] | undefined): string[] => {
   if (typeof content === "string") {
@@ -193,19 +197,23 @@ const gate = (draftId: string) => {
   gates.set(draftId, found);
   return found;
 };
-const subCalls = new Map<string, number>();
-const told = new Map<string, string[]>();
+const calls = new Map<string, number>();
+const mistagged = new Map<string, number>();
 // The Drafts whose box was destroyed, outside the Maker's storage, which a Delete removes.
 const destroyed = new Set<string>();
-// Box starts after a Draft's box was destroyed, and main agent calls tagged as the sub agent's (or the reverse).
 const startsAfterDestroy = new Map<string, number>();
-const mistagged = new Map<string, number>();
-const crashed = new Set<string>();
 
-const MAIN = { input: 1000, output: 0 };
-const SUB = { input: 1, output: 1 };
+const TOKENS = 1000;
 
-const main = (messages: Message[]) => {
+const model = async (request: Request) => {
+  const { agent, draftId } = JSON.parse(
+    request.headers.get("cf-aig-metadata") ?? "{}"
+  ) as { agent: string; draftId: string };
+  calls.set(draftId, (calls.get(draftId) ?? 0) + 1);
+  if (agent !== "maker") {
+    mistagged.set(draftId, (mistagged.get(draftId) ?? 0) + 1);
+  }
+  const { messages } = await request.json<{ messages: Message[] }>();
   const said = texts(messages.at(-1)?.content);
   if (said.includes("no credits")) {
     return Response.json(
@@ -215,70 +223,28 @@ const main = (messages: Message[]) => {
       { status: 402 }
     );
   }
-  // "build twice" asks for a second build once the first has answered, as a model could in one turn.
   const asked = messages.findLastIndex(
     ({ content, role }) =>
       role === "user" &&
       (typeof content === "string" ||
         content.every((block) => block.type !== "tool_result"))
   );
-  const twice = texts(messages[asked]?.content).includes("build twice");
-  const builds = messages
+  const name = texts(messages[asked]?.content)
+    .find((line) => line.startsWith("build "))
+    ?.slice(6);
+  const script = SCRIPTS[name ?? ""];
+  const turn = messages
     .slice(asked)
     .filter(({ role }) => role === "assistant").length;
-  const script =
-    twice && builds < 2
-      ? "new"
-      : said.find((text) => text.startsWith("build "))?.slice(6);
-  if (script === undefined) {
-    const spend = said.find((text) => text.startsWith("spend "))?.slice(6);
-    return say(`said: ${said.join(" | ")}`, {
-      ...MAIN,
-      input: spend === undefined ? MAIN.input : Number(spend),
-    });
+  const step = script?.[turn];
+  if (!step) {
+    const spend = said.find((line) => line.startsWith("spend "))?.slice(6);
+    return say(
+      `said: ${said.join(" | ")}`,
+      spend === undefined ? TOKENS : Number(spend)
+    );
   }
-  return toolCall(
-    "build",
-    {
-      brief: script,
-      description: "Tap to jump from moon to moon.",
-      kind: script === "fresh" ? "new" : "change",
-      music: /music/iu.test(script) ? "chiptune" : null,
-      title: "Moon Cat",
-    },
-    MAIN
-  );
-};
-
-const sub = async (request: Request, draftId: string, messages: Message[]) => {
-  subCalls.set(draftId, (subCalls.get(draftId) ?? 0) + 1);
-  told.set(
-    draftId,
-    messages
-      .slice(1)
-      .filter(
-        ({ content, role }) =>
-          role === "user" &&
-          (typeof content === "string" ||
-            content.every((block) => block.type !== "tool_result"))
-      )
-      .flatMap(({ content }) => texts(content))
-  );
-  const name = /Brief: (?<name>\w+)/u.exec(JSON.stringify(messages[0]))?.groups
-    ?.name;
-  const script = SCRIPTS[name ?? ""];
-  if (!script) {
-    return new Response(`no script for the brief ${name}`, { status: 400 });
-  }
-  const turn = messages.filter((m) => m.role === "assistant").length;
-  const step =
-    typeof script === "function"
-      ? script(turn)
-      : (script[turn] ?? { text: "Out of script." });
-  if ("tool" in step) {
-    return toolCall(step.tool, step.input, SUB);
-  }
-  if ("hold" in step) {
+  if (step.hold) {
     // An aborted run's model call ends, as a real one does.
     const aborted = Promise.withResolvers<undefined>();
     request.signal.addEventListener("abort", () =>
@@ -287,25 +253,10 @@ const sub = async (request: Request, draftId: string, messages: Message[]) => {
     await Promise.race([gate(draftId).promise, aborted.promise]);
     gates.delete(draftId);
   }
-  if ("sleep" in step) {
+  if (step.sleep) {
     await scheduler.wait(step.sleep);
   }
-  const [prompt = ""] = texts(messages[0]?.content).join("\n").split("\n");
-  return say(step.text.replace("{prompt}", prompt), SUB);
-};
-
-// Calls go to the agent whose conversation sent them, which the job prompt in the first message shows, and a gateway
-// tag that says otherwise is counted.
-const model = async (request: Request) => {
-  const { agent, draftId } = JSON.parse(
-    request.headers.get("cf-aig-metadata") ?? "{}"
-  ) as { agent: string; draftId: string };
-  const { messages } = await request.json<{ messages: Message[] }>();
-  const isSub = /Brief: \w+/u.test(JSON.stringify(messages[0]));
-  if (isSub !== (agent === "coder")) {
-    mistagged.set(draftId, (mistagged.get(draftId) ?? 0) + 1);
-  }
-  return isSub ? await sub(request, draftId, messages) : main(messages);
+  return toolCall(step, TOKENS);
 };
 
 const upstream = globalThis.fetch;
@@ -316,12 +267,13 @@ globalThis.fetch = (input, init) => {
     : upstream(request);
 };
 
-const encode = (text: string) => new TextEncoder().encode(text);
+const encode = (value: string) => new TextEncoder().encode(value);
 const GREEN = JSON.stringify({ errors: [], ok: true, typeErrors: [] });
 const RED = JSON.stringify({ errors: ["boom"], ok: false, typeErrors: [] });
 // A PNG's first bytes are enough for a screenshot nobody looks at.
 const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 const OPUS = new Uint8Array([79, 103, 103, 83]);
+const REMOVE = /\brm -f (?<files>[\w. ]+)$/u;
 
 // The box's files and running flag live under this prefix in the Maker's storage.
 const key = (path: string) => `fakebox:${path}`;
@@ -339,6 +291,9 @@ const fileError = (code: string, operation: string, path: string) =>
     operation,
     path,
   });
+
+const answer = (body: unknown) => Promise.resolve(Response.json(body));
+const done = () => Promise.resolve(new Response(null, { status: 204 }));
 
 export class Maker extends RealMaker {
   override sandboxLayer() {
@@ -396,7 +351,12 @@ export class Maker extends RealMaker {
     const log = (command: string) =>
       kv.put("fakelog", [...(kv.get<string[]>("fakelog") ?? []), command]);
     const fakeExec = (command: string): Exec => {
-      if (command.includes("/usr/bin/find /workspace")) {
+      const removed = REMOVE.exec(command)?.groups?.files;
+      if (removed) {
+        for (const file of removed.split(" ")) {
+          kv.delete(key(`/workspace/${file}`));
+        }
+      } else if (command.includes("/usr/bin/find /workspace")) {
         wipe();
       } else if (command.includes("/opt/hopon/playtest.js")) {
         const game = new TextDecoder().decode(
@@ -409,7 +369,7 @@ export class Maker extends RealMaker {
         put("/workspace/playtest-start.png", PNG);
         put("/workspace/playtest-end.png", PNG);
         if (command.includes("/opt/hopon/playtest.js tests ")) {
-          const red = game.includes("BROKEN") || game.includes("FAILSTEST");
+          const red = game.includes("BROKEN");
           return ok(
             `${JSON.stringify({ failures: red ? ["boom"] : [], ok: !red, testErrors: [], typeErrors: [] })}\n`
           );
@@ -477,14 +437,8 @@ export class Maker extends RealMaker {
             }))
           );
         },
-        // A slow box answers reads after `fakebox:slowreads` ms.
-        readFile: async (path) => {
-          const slow = kv.get<number>("fakebox:slowreads");
-          if (slow) {
-            await scheduler.wait(slow);
-          }
-          return new Response(get(path, "readFile"));
-        },
+        readFile: (path) =>
+          Promise.resolve(new Response(get(path, "readFile"))),
         remove: (path) => {
           live();
           for (const p of paths()) {
@@ -527,95 +481,53 @@ export class Maker extends RealMaker {
     });
   }
 
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env);
-    // The "crashset" job: the object resets after the job's state is written and before pi takes its prompt.
-    const harness = this.harness as unknown as {
-      enqueue: (...args: unknown[]) => Promise<unknown>;
-    };
-    const enqueue = harness.enqueue.bind(harness);
-    harness.enqueue = async (...args: unknown[]) => {
-      if (
-        JSON.stringify(args[1]).includes("Brief: crashset") &&
-        !crashed.has(this.name)
-      ) {
-        crashed.add(this.name);
-        await this.ctx.storage.sync();
-        console.info(`Maker ${this.name}: reset before the submit`);
-        this.ctx.abort("reset before the submit");
-      }
-      return await enqueue(...args);
-    };
-  }
-
-  // The restart test waits for this line: a job pi finished with nobody connected.
-  override settle(...args: Parameters<RealMaker["settle"]>) {
-    const [, event] = args;
-    console.info(
-      `Maker ${this.name}: job ${this.job?.job.spec.brief} ${event.type}`,
-      event.type === "failed" ? event.reason : ""
-    );
-    return super.settle(...args);
-  }
-
-  override armDeadline(...args: Parameters<RealMaker["armDeadline"]>) {
-    const [state] = args;
-    if (state.job.spec.brief.startsWith("late")) {
-      const deadlineAt = Math.min(state.deadlineAt, Date.now() + 1000);
-      return super.armDeadline({ ...state, deadlineAt });
-    }
-    return super.armDeadline(state);
-  }
-
   override onRequest(request: Request) {
     const { pathname } = new URL(request.url);
     const { kv } = this.ctx.storage;
-    if (pathname === "/fake/log") {
-      return Promise.resolve(Response.json(kv.get("fakelog") ?? []));
+    switch (pathname) {
+      case "/fake/log": {
+        return answer(kv.get("fakelog") ?? []);
+      }
+      case "/fake/calls": {
+        return answer(calls.get(this.name) ?? 0);
+      }
+      case "/fake/mistagged": {
+        return answer(mistagged.get(this.name) ?? 0);
+      }
+      case "/fake/destroyed": {
+        return answer(destroyed.has(this.name));
+      }
+      case "/fake/startsafterdestroy": {
+        return answer(startsAfterDestroy.get(this.name) ?? 0);
+      }
+      case "/fake/release": {
+        gate(this.name).resolve();
+        return done();
+      }
+      // The box stops, as an idle or crashed one does; the next start works.
+      case "/fake/stopbox": {
+        kv.put("fakebox:running", false);
+        return done();
+      }
+      // The box stops (idle), and the next start fails.
+      case "/fake/nobox": {
+        kv.put("fakebox:running", false);
+        kv.put("fakebox:nobox", true);
+        return done();
+      }
+      case "/fake/lose": {
+        kv.put("fakebox:lose", true);
+        return done();
+      }
+      default: {
+        break;
+      }
     }
-    if (pathname === "/fake/destroyed") {
-      return Promise.resolve(Response.json(destroyed.has(this.name)));
-    }
-    if (pathname === "/fake/startsafterdestroy") {
-      return Promise.resolve(
-        Response.json(startsAfterDestroy.get(this.name) ?? 0)
-      );
-    }
-    if (pathname === "/fake/mistagged") {
-      return Promise.resolve(Response.json(mistagged.get(this.name) ?? 0));
-    }
-    // The box's reads or its next playtest take this many ms: /fake/slowreads/<ms>, /fake/slowplay/<ms>.
-    const slow = /^\/fake\/(?<what>slowreads|slowplay)\/(?<ms>\d+)$/u.exec(
-      pathname
-    )?.groups;
-    if (slow?.what && slow.ms) {
-      kv.put(`fakebox:${slow.what}`, Number(slow.ms));
-      return Promise.resolve(new Response(null, { status: 204 }));
-    }
-    // The box stops, as an idle or crashed one does; the next start works.
-    if (pathname === "/fake/stopbox") {
-      kv.put("fakebox:running", false);
-      return Promise.resolve(new Response(null, { status: 204 }));
-    }
-    if (pathname === "/fake/told") {
-      return Promise.resolve(Response.json(told.get(this.name) ?? []));
-    }
-    if (pathname === "/fake/calls") {
-      return Promise.resolve(Response.json(subCalls.get(this.name) ?? 0));
-    }
-    if (pathname === "/fake/release") {
-      gate(this.name).resolve();
-      return Promise.resolve(new Response(null, { status: 204 }));
-    }
-    // The box stops (idle), and the next start fails.
-    if (pathname === "/fake/nobox") {
-      kv.put("fakebox:running", false);
-      kv.put("fakebox:nobox", true);
-      return Promise.resolve(new Response(null, { status: 204 }));
-    }
-    if (pathname === "/fake/lose") {
-      kv.put("fakebox:lose", true);
-      return Promise.resolve(new Response(null, { status: 204 }));
+    // The next playtest takes this many ms: /fake/slowplay/<ms>.
+    const slow = /^\/fake\/slowplay\/(?<ms>\d+)$/u.exec(pathname)?.groups?.ms;
+    if (slow) {
+      kv.put("fakebox:slowplay", Number(slow));
+      return done();
     }
     return super.onRequest(request);
   }

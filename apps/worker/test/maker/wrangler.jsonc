@@ -1,6 +1,6 @@
 // test/maker.test.js runs `wrangler dev` with this: the Worker's bindings, with test/maker/worker.ts's fake sandbox in
-// place of the Container and its scripted model in place of the gateway, a 30 s abort timer for builds (60 s with
-// music), and an Allowance of 100 main agent calls. No Docker, no key, no model call.
+// place of the Container and its scripted model in place of the gateway, a 30 s abort timer for a run, and an
+// Allowance of 100 model calls. No Docker, no key, no model call.
 {
   "name": "hopon-maker-test",
   "main": "worker.ts",
