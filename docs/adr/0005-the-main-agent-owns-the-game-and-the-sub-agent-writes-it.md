@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed, amended on 2026-11-10 (see "The main agent's tests replace its review"). Changes the Maker of ADR 0003 in two ways: who does what, and how many Durable Objects it takes. It also raises the Allowance of ADR 0004. The rule that the agent writing code never reads the Creator's words stays.
+Superseded by [ADR 0006](0006-the-maker-is-one-agent-that-loads-game-making-as-a-skill.md). Proposed, amended on 2026-11-10 (see "The main agent's tests replace its review"). Changes the Maker of ADR 0003 in two ways: who does what, and how many Durable Objects it takes. It also raises the Allowance of ADR 0004. The rule that the agent writing code never reads the Creator's words stays.
 
 The Talker becomes the **main agent** and the Coder becomes the **sub agent**. Both run inside one Durable Object, `Maker`, the name Creators already know. The box becomes the **sandbox**.
 

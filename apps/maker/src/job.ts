@@ -134,7 +134,7 @@ const SCORES = {
 type Score = keyof typeof SCORES;
 const SCORE_FILES = Object.keys(SCORES) as Score[];
 
-// What a Revision holds of the sub agent's (#117); the harness adds game.js, music.js and a LittleJS game's index.html,
+// What a Revision holds of the agent's (#117); the harness adds game.js, music.js and a LittleJS game's index.html,
 // and a plain-DOM game's index.html gets the music's script from it.
 const SOURCE_FILES = ["index.html", "game.ts", ...SCORE_FILES];
 const HOME = "/home/user";
@@ -198,7 +198,7 @@ export const stepLabel = (tool: string, args: Record<string, unknown>) => {
   if (tool === "playtest") {
     return "Playtesting";
   }
-  // pi-durable's Coder loads skills with activate_skill; pi-coding-agent's reads their SKILL.md.
+  // pi-durable's agents load skills with activate_skill; pi-coding-agent's read their SKILL.md.
   if (tool === "activate_skill") {
     return "Reading the docs";
   }
@@ -213,8 +213,8 @@ export const stepLabel = (tool: string, args: Record<string, unknown>) => {
   return tool === "edit" ? "Fixing the game" : "Writing the game";
 };
 
-// The harness's own test, ahead of the main agent's on every check: the game loads, starts and plays a second with no
-// console error. With no test from the main agent it is the whole of "does the game run".
+// The harness's own test, ahead of the agent's tests.json on every check: the game loads, starts and plays a second
+// with no console error. With no other test it is the whole of "does the game run".
 const RUNS: Tests["tests"][number] = {
   checks: [{ at: 1000, expect: "state !== undefined" }],
   inputs: [],
@@ -224,7 +224,7 @@ const RUNS: Tests["tests"][number] = {
 interface TestsResult {
   ok: boolean;
   failures: string[];
-  // Checks whose expression threw: the main agent's mistakes, skipped rather than sent back to the sub agent.
+  // Checks whose expression threw: mistakes in tests.json, skipped rather than failing the game.
   testErrors: string[];
   typeErrors: string[];
 }
@@ -308,7 +308,7 @@ const write = async (box: Box, files: Record<string, string | null>) => {
   );
 };
 
-// The workspace holds exactly the job's source, but for index.html. A LittleJS game's is the harness's, not the sub
+// The workspace holds exactly the job's source, but for index.html. A LittleJS game's is the harness's, not the
 // agent's, and in the box it would make the game look like plain DOM. A plain-DOM game's goes in on the current
 // scaffold and without the music's script, which the harness adds back. A box left dirty by a failed or stopped job
 // starts from Revision n.
@@ -327,9 +327,9 @@ export const restore = async (box: Box, source: Job["source"]) => {
   );
 };
 
-// The harness's check of a build (ADR 0005), each time the sub agent stops: the music rendered, the source read into
+// The harness's check of a build (ADR 0006), at each `build` call: the music rendered, the source read into
 // memory, the box swept and given back only that source, then the game typechecked, emitted and run through RUNS and
-// the main agent's tests, and the source read again to show nothing rewrote it meanwhile. Its errors, or the
+// the agent's tests, and the source read again to show nothing rewrote it meanwhile. Its errors, or the
 // Revision's files, which hold exactly what it ran. Whatever the model claims, a game that doesn't run never becomes a
 // Revision (#122), and game.js always comes from game.ts. It replays no playtest and plays no random script: in 46
 // recorded builds those two failed 2, both on a playtest that printed nothing, and caught no broken game.
