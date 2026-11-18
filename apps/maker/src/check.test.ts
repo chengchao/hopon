@@ -10,7 +10,8 @@ import path from "node:path";
 import { buffer } from "node:stream/consumers";
 import { after, before, test } from "node:test";
 
-import { DOM_SRC, littlejsHtml } from "../image/page.ts";
+import { DOM_SRC, GAME_CSP, littlejsHtml } from "../image/page.ts";
+import { FROZEN, servedPath, vendorPaths } from "../vendor/build.ts";
 import {
   boxPlaytest,
   checkBuild,
@@ -717,5 +718,156 @@ test(
     assert.equal(listed.stdout.toString(), "./.hopon\n./.hopon/asked.json\n");
     const asked = await bash("cat .hopon/asked.json");
     assert.equal(asked.stdout.toString(), '["Start over"]');
+  }
+);
+
+// Vite games (ADR 0007): one fixture per engine, built in the box with no network, its libraries left as imports of
+// the Worker's vendor files, then loaded with those files under the game CSP.
+const VITE = path.join(import.meta.dirname, "../fixtures/vite");
+const VITE_CONFIG = `import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+
+const paths = ${JSON.stringify(vendorPaths())};
+
+export default defineConfig({
+  base: "./",
+  build: { rolldownOptions: { external: Object.keys(paths), output: { paths } } },
+  plugins: [react()],
+});
+`;
+const VITE_TSCONFIG = JSON.stringify({
+  compilerOptions: {
+    jsx: "react-jsx",
+    lib: ["es2022", "dom"],
+    module: "esnext",
+    moduleResolution: "bundler",
+    noEmit: true,
+    skipLibCheck: true,
+    strict: true,
+    target: "es2022",
+    types: [],
+  },
+  include: ["src", "/opt/hopon/hopon-v1.d.ts"],
+});
+// A built game's own files, gzipped, stay under this (the plan's rule): the libraries aren't in them.
+const OWN_GZIP_BYTES = 10_000;
+
+interface Loaded {
+  after: { overlay: string; state: string; testVars: Record<string, unknown> };
+  before: { origin: string; overlay: string; state: string };
+  errors: string[];
+  loaded: boolean;
+  ownGzipBytes: number;
+  requested: string[];
+}
+
+const writeVite = async () => {
+  for (const { route } of FROZEN) {
+    // oxlint-disable-next-line no-await-in-loop -- one file at a time
+    await box.write(
+      `/tmp${route}`,
+      JSON.parse(readFileSync(servedPath(route), "utf-8"))
+    );
+  }
+  await box.write(
+    "/tmp/load.mjs",
+    readFileSync(path.join(VITE, "load.mjs"), "utf-8")
+  );
+};
+
+const buildVite = async (engine: string) => {
+  const dir = `/tmp/vite/${engine}`;
+  const fixture = path.join(VITE, engine);
+  for (const file of readdirSync(fixture, {
+    recursive: true,
+    withFileTypes: true,
+  })) {
+    if (file.isFile()) {
+      const local = path.join(file.parentPath, file.name);
+      // oxlint-disable-next-line no-await-in-loop -- one file at a time
+      await box.write(
+        `${dir}/${path.relative(fixture, local)}`,
+        readFileSync(local, "utf-8")
+      );
+    }
+  }
+  await box.write(`${dir}/vite.config.ts`, VITE_CONFIG);
+  await box.write(`${dir}/tsconfig.json`, VITE_TSCONFIG);
+  return { built: await bash(`cd ${dir} && tsc -p . && vite build`), dir };
+};
+
+const loadVite = async (dir: string, ...flags: string[]) => {
+  const result = await box.exec([
+    "/usr/local/bin/node",
+    "/tmp/load.mjs",
+    `${dir}/dist`,
+    "/tmp/vendor",
+    GAME_CSP,
+    ...flags,
+  ]);
+  assert.equal(result.exitCode, 0, result.stderr);
+  return JSON.parse(result.stdout) as Loaded;
+};
+
+for (const [engine, libs] of [
+  ["quiz", ["react", "react-dom"]],
+  ["phaser", ["phaser"]],
+  ["r3f", ["r3f", "react", "react-dom", "three"]],
+] as const) {
+  test(
+    `a ${engine} game builds offline on the vendor files, and plays on them under the game CSP`,
+    { skip, timeout: 300_000 },
+    async () => {
+      await writeVite();
+
+      const { built, dir } = await buildVite(engine);
+
+      assert.equal(built.exitCode, 0, `${built.stdout}${built.stderr}`);
+      const page = await loadVite(dir);
+      assert.deepEqual(page.errors, []);
+      assert.ok(page.loaded, "the game called hopon.ready()");
+      assert.equal(page.before.origin, "null", "the CSP sandboxes the page");
+      assert.equal(page.before.state, "start");
+      assert.equal(page.before.overlay, "flex");
+      assert.equal(page.after.state, "play");
+      assert.equal(page.after.overlay, "none");
+      assert.ok(
+        page.ownGzipBytes < OWN_GZIP_BYTES,
+        `own files ${page.ownGzipBytes} B gzip`
+      );
+      assert.deepEqual(
+        page.requested
+          .filter((requested) => requested.startsWith("/vendor/"))
+          .map((requested) =>
+            requested.replace(/^\/vendor\/(?<lib>.+)-[\d.]+\.js$/u, "$<lib>")
+          )
+          .toSorted(),
+        libs,
+        "each library once, from its vendor file"
+      );
+      if (engine === "quiz") {
+        assert.equal(page.after.testVars.question, "2 + 2");
+      } else {
+        assert.ok(
+          Number(page.after.testVars.frames) > 0,
+          "the engine's loop ran"
+        );
+      }
+    }
+  );
+}
+
+test(
+  "a sandboxed game's page can't load the vendor files without Access-Control-Allow-Origin",
+  { skip, timeout: 300_000 },
+  async () => {
+    await writeVite();
+    const { built, dir } = await buildVite("quiz");
+    assert.equal(built.exitCode, 0, `${built.stdout}${built.stderr}`);
+
+    const page = await loadVite(dir, "--no-cors");
+
+    assert.equal(page.loaded, false);
+    assert.match(page.errors.join("\n"), /CORS|Access-Control-Allow-Origin/u);
   }
 );

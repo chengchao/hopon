@@ -13,13 +13,17 @@ import {
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { DOM_SRC, domHtml, littlejsHtml, RUNTIME_SRC } from "./page.ts";
+import {
+  DOM_SRC,
+  domHtml,
+  GAME_CSP,
+  HOPON_SRC,
+  littlejsHtml,
+  RUNTIME_SRC,
+} from "./page.ts";
 
 const here = import.meta.dirname;
 
-// The served-runtime CSP: scripts, styles, images, fonts, media and fetches from the game's own origin only.
-const GAME_CSP =
-  "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts";
 const ORIGIN = "http://game.hopon";
 const VIEWPORT = { height: 640, width: 360 };
 const START = { x: 180, y: 320 };
@@ -146,6 +150,7 @@ const emitErrors = (error) =>
 const servedFiles = () => {
   const files = {
     [DOM_SRC]: readFileSync(path.join(here, "dom.js")),
+    [HOPON_SRC]: readFileSync(path.join(here, "hopon.js")),
     [RUNTIME_SRC]: readFileSync(path.join(here, "runtime.js")),
   };
   for (const name of readdirSync(DIST)) {

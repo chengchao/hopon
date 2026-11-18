@@ -10,6 +10,9 @@ import {
   DOM_V4_SHA256,
   domScaffold,
   FROZEN,
+  HOPON_SERVED_PATH,
+  HOPON_V1_SHA256,
+  hoponScaffold,
   SERVED_PATH,
   V4_SHA256,
 } from "./runtime.ts";
@@ -27,6 +30,12 @@ test("the Worker serves the plain-DOM scaffold the box serves", () => {
   const served = JSON.parse(readFileSync(DOM_SERVED_PATH, "utf-8"));
   assertUnchanged(served, DOM_V4_SHA256, "/dom/v4.js");
   assert.equal(served, domScaffold(), `${DOM_SERVED_PATH} ${STALE}`);
+});
+
+test("the Worker serves the Vite games' scaffold the box serves", () => {
+  const served = JSON.parse(readFileSync(HOPON_SERVED_PATH, "utf-8"));
+  assertUnchanged(served, HOPON_V1_SHA256, "/hopon/v1.js");
+  assert.equal(served, hoponScaffold(), `${HOPON_SERVED_PATH} ${STALE}`);
 });
 
 test("the Worker still serves each older scaffold as it shipped", () => {

@@ -2350,6 +2350,63 @@ test("runtime: /runtime/v4.js and /dom/v4.js are the maker's scaffolds, the olde
   }
 });
 
+test("vendor: each /vendor/ file and /hopon/v1.js load as a sandboxed game's modules, long-cached and gzipped", async (t) => {
+  const { env } = await setup(t);
+  // A module script from a page whose origin is opaque, as the WebView fetches it.
+  const get = (route) =>
+    worker.fetch(
+      new Request(`https://hopon.test${route}`, {
+        headers: { "Accept-Encoding": "gzip, deflate, br", Origin: "null" },
+      }),
+      env,
+      { passThroughOnException: () => {}, waitUntil: () => {} }
+    );
+  const vendor = new URL("../src/vendor/", import.meta.url);
+  const files = [
+    ["/hopon/v1.js", new URL("../src/runtime/hopon-v1.json", import.meta.url)],
+    ...readdirSync(vendor).map((file) => [
+      `/vendor/${file.replace(/\.json$/u, ".js")}`,
+      new URL(file, vendor),
+    ]),
+  ];
+  assert.deepEqual(files.map(([route]) => route).toSorted(), [
+    "/hopon/v1.js",
+    "/vendor/phaser-4.2.1.js",
+    "/vendor/r3f-9.8.2.js",
+    "/vendor/react-19.3.1.js",
+    "/vendor/react-dom-19.3.1.js",
+    "/vendor/three-0.187.0.js",
+  ]);
+  for (const [route, file] of files) {
+    // oxlint-disable-next-line no-await-in-loop -- one request each
+    const response = await get(route);
+    assert.equal(response.status, 200, route);
+    assert.match(
+      response.headers.get("Content-Type"),
+      /^text\/javascript/u,
+      route
+    );
+    assert.equal(
+      response.headers.get("Cache-Control"),
+      "public, max-age=31536000, immutable",
+      route
+    );
+    assert.equal(
+      response.headers.get("Access-Control-Allow-Origin"),
+      "*",
+      route
+    );
+    assert.equal(response.headers.get("Content-Encoding"), "gzip", route);
+    assert.equal(
+      // oxlint-disable-next-line no-await-in-loop -- one body each
+      await response.text(),
+      JSON.parse(readFileSync(file, "utf-8")),
+      route
+    );
+  }
+  assert.equal(await status(get("/vendor/react-19.3.0.js")), 404);
+});
+
 test("pages: /terms has the Rules, /support the contact address and /privacy the policy, signed out", async (t) => {
   const { call } = await setup(t);
   const terms = await call("/terms", { user: "" });
