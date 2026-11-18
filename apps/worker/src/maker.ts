@@ -54,6 +54,7 @@ import {
   screenshots,
 } from "../../maker/src/job.ts";
 import MAKER from "../prompts/maker.md";
+import { ADVISOR_PROVIDER, askAdvisor } from "./advisor.ts";
 import {
   AgentSandbox,
   BoxStartFailed,
@@ -123,7 +124,7 @@ const SILENT_MS = 60_000;
 const PROMPT = renderPrompt(MAKER, MAKER_VALUES);
 
 const SKILLS = fromManifest({
-  fingerprint: "v7",
+  fingerprint: "v10",
   id: "hopon-maker",
   skills: [MAKE_GAME, DOM_GAMES, LITTLEJS, MUSIC_SF2, MUSIC_SYNTH, ZZFX].map(
     (raw) => {
@@ -268,25 +269,28 @@ export class Maker extends Agent<Env> {
   // box up, and the workspace restored to the current Revision unless it holds it. Undefined, or why it can't begin.
   // Each later call of the run brings the box up too, so one that stopped since is restarted, and the run told, before
   // the call runs on what's left.
+  // Whether the Draft's owner has any Allowance left.
+  async allowed() {
+    const db = drizzle(this.env.DB);
+    const draft = await db
+      .select({ owner: drafts.owner })
+      .from(drafts)
+      .where(eq(drafts.id, this.name))
+      .get();
+    return (
+      !!draft &&
+      (await allowanceLeft(
+        db,
+        draft.owner,
+        Number(this.env.MAKER_WEEKLY_TOKENS)
+      )) > 0
+    );
+  }
+
   async begin(run: string, from: number): Promise<string | undefined> {
     const begun = this.runState?.run === run;
-    if (!begun) {
-      const db = drizzle(this.env.DB);
-      const draft = await db
-        .select({ owner: drafts.owner })
-        .from(drafts)
-        .where(eq(drafts.id, this.name))
-        .get();
-      const allowed =
-        !!draft &&
-        (await allowanceLeft(
-          db,
-          draft.owner,
-          Number(this.env.MAKER_WEEKLY_TOKENS)
-        )) > 0;
-      if (!allowed) {
-        return toolResult("used-up", { USED_UP });
-      }
+    if (!begun && !(await this.allowed())) {
+      return toolResult("used-up", { USED_UP });
     }
     const up = await this.sandbox.runPromise(
       this.up.pipe(
@@ -431,11 +435,18 @@ export class Maker extends Agent<Env> {
     },
   });
 
+  advisor = askAdvisor(
+    this.env,
+    () => this.name,
+    () => this.allowed(),
+    () => this.harness.pi()
+  );
+
   maker = defineExtension({
     hooks: [this.limits, metered(this.env, () => this.name)],
     name: "maker",
     sections: [{ key: "preamble", render: () => PROMPT, tag: false }],
-    tools: [this.playtest, this.build],
+    tools: [this.playtest, this.build, this.advisor],
   });
 
   harness = new PiHarness({
@@ -445,6 +456,7 @@ export class Maker extends Agent<Env> {
     },
     harness: async ({ storage, context, onWake }) => {
       const skilled = await skills([SKILLS]);
+      const metadata = () => ({ agent: "maker" as const, draftId: this.name });
       const registry = createRegistry();
       for (const extension of [CodingTools, this.maker, skilled]) {
         registry.install(extension);
@@ -456,10 +468,11 @@ export class Maker extends Agent<Env> {
         {
           env: () => boxEnv(this.box, `box:${this.name}`),
           models: piModels(this.env, [
+            { metadata, model: this.env.MAKER_MODEL, provider: PROVIDER },
             {
-              metadata: () => ({ agent: "maker", draftId: this.name }),
-              model: this.env.MAKER_MODEL,
-              provider: PROVIDER,
+              metadata,
+              model: this.env.MAKER_ADVISOR_MODEL,
+              provider: ADVISOR_PROVIDER,
             },
           ]),
           onWake,

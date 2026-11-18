@@ -55,3 +55,7 @@ These checks threw and were skipped; fix them in tests.json: {{ERRORS}}
 ## published
 
 Published: the Creator now has Revision {{N}}.{{SKIPPED}}
+
+## no-advice
+
+The advisor {{WHY}}. Go on without its advice: finish the work, and call `build` when the game is ready.

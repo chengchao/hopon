@@ -183,7 +183,8 @@ interface Build {
   // the previous tool's run plus the model writing the next call.
   labelAt: number[];
   result?: ToolResultMessage;
-  // The single agent's: its model calls' dollars and output tokens, from the run's own messages.
+  // The single agent's: its model calls' dollars, the advisor's included, and its output tokens, from the run's own
+  // messages.
   cost?: number;
   outputTokens?: number;
 }
@@ -272,6 +273,20 @@ const scheduleSteer = (turn: Turn) => {
   }
 };
 
+// A tool's own model call (ask_advisor's) has its usage on the tool's result, not on an assistant message. Its dollars
+// count with the run's; its output tokens aren't the agent's, so they don't.
+const toolCost = (
+  turn: Turn,
+  result: ToolResultMessage | undefined,
+  at: number
+) => {
+  const cost = result?.usage?.cost.total ?? 0;
+  if (cost > 0) {
+    turn.cost += cost;
+    turn.messages.push({ at, cost, output: 0, run: turn.run });
+  }
+};
+
 const toolEvent = (turn: Turn, event: AgentEvent, at: number) => {
   if (event.type === "tool_execution_start") {
     turn.tools.set(event.toolCallId, {
@@ -317,15 +332,17 @@ const toolEvent = (turn: Turn, event: AgentEvent, at: number) => {
       ];
     }
   } else if (event.type === "tool_execution_end") {
+    const result = event.entry?.model?.[0] as ToolResultMessage | undefined;
+    toolCost(turn, result, at);
     const tool = turn.tools.get(event.toolCallId);
     if (tool) {
       tool.endedAt = at;
-      tool.result = event.entry?.model?.[0] as ToolResultMessage | undefined;
+      tool.result = result;
     }
     const build = turn.builds.get(event.toolCallId);
     if (build) {
       build.endedAt = at;
-      build.result = event.entry?.model?.[0] as ToolResultMessage | undefined;
+      build.result = result;
     }
   }
 };

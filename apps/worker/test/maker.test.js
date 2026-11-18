@@ -47,11 +47,12 @@ const token = async (sub) => {
   );
   return `${body}.${Buffer.from(signature).toString("base64url")}`;
 };
+const VARS = `CLERK_JWT_KEY="${pem}"\nPREVIEW_SECRET="test-preview-secret-of-32-chars!!"\n`;
 const vars = path.join(state, "vars.env");
-writeFileSync(
-  vars,
-  `CLERK_JWT_KEY="${pem}"\nPREVIEW_SECRET="test-preview-secret-of-32-chars!!"\n`
-);
+writeFileSync(vars, VARS);
+// The same, with an advisor model pi-ai doesn't know.
+const noAdvisorVars = path.join(state, "no-advisor.env");
+writeFileSync(noAdvisorVars, `${VARS}MAKER_ADVISOR_MODEL="claude-nope-1"\n`);
 
 const wrangler = (args, options) =>
   spawn("npx", ["wrangler", ...args, "--config", CONFIG], {
@@ -71,7 +72,7 @@ const ORIGIN = `http://127.0.0.1:${port}`;
 let server;
 // The server's output, printed only if the test fails.
 const serverLog = [];
-const start = async () => {
+const start = async (envFile = vars) => {
   server = wrangler(
     [
       "dev",
@@ -81,7 +82,7 @@ const start = async () => {
       "--persist-to",
       state,
       "--env-file",
-      vars,
+      envFile,
     ],
     { detached: true, stdio: ["ignore", "pipe", "pipe"] }
   );
@@ -706,6 +707,85 @@ test(
   }
 );
 
+test(
+  "ask_advisor: the advisor gets the conversation and the question with no tools, its advice is the tool's result, and a failed advisor doesn't end the run",
+  { timeout: 120_000 },
+  async (t) => {
+    await serve(t);
+    const { left: before } = await json("/api/allowance");
+    const { id: draft } = await json("/api/drafts", { text: "build advised" });
+    const socket = await connect(draft);
+    await socket.until("the advised turn's end", over);
+    assert.match(
+      await lastReply(draft),
+      /said: advice: keep the levels in their own file\./u
+    );
+    // The agent's 3 calls and the advisor's, 1,000 hopon tokens each.
+    const { left: after } = await json("/api/allowance");
+    assert.equal(before - after, 4000);
+    const [request, ...more] = await fakeJson(draft, "advisor");
+    assert.equal(more.length, 0);
+    assert.ok(!("tools" in request), "the advisor's request has no tools");
+    assert.match(JSON.stringify(request.system), /You only advise/u);
+    assert.equal(request.messages.length, 1);
+    const [{ content }] = request.messages;
+    const sent = JSON.stringify(content);
+    assert.match(sent, /USER:\\nbuild advised/u, "the Creator's message");
+    assert.match(sent, /\[calls write \{/u, "the agent's tool call");
+    assert.match(
+      sent,
+      /The Maker's question:\\nShould the level data live apart from the physics\?/u
+    );
+    assert.doesNotMatch(
+      sent,
+      /history ends before this call/u,
+      "no stand-in result for the ask_advisor call itself"
+    );
+    assert.doesNotMatch(
+      JSON.stringify(request),
+      /cache_control/u,
+      "the advisor's one-off request writes no cache"
+    );
+
+    // A failed advisor, and one that answers nothing, each tell the agent to go on, and it does.
+    for (const [script, said] of [
+      ["advisorfails", /The advisor couldn't answer: .*the advisor is down/u],
+      ["advisorsilent", /The advisor gave no advice: it stopped on length\./u],
+    ]) {
+      // oxlint-disable-next-line no-await-in-loop -- one turn after another
+      assert.equal(await socket.turn(`build ${script}`), "turn_done");
+      // oxlint-disable-next-line no-await-in-loop -- one turn after another
+      const tools = await toolsCalled(draft);
+      assert.deepEqual(tools.slice(-2), ["ask_advisor", "write"]);
+      // oxlint-disable-next-line no-await-in-loop -- one turn after another
+      const entries = await transcript(draft);
+      assert.ok(
+        entries.some(
+          ({ text }) =>
+            said.test(text) && text.includes("Go on without its advice")
+        ),
+        `${script}: the agent is told to go on`
+      );
+    }
+    socket.close();
+
+    // An advisor model pi-ai doesn't know fails only ask_advisor: the Maker still runs, and the agent is told to go on.
+    kill();
+    await start(noAdvisorVars);
+    const { id: unknown } = await json("/api/drafts", {
+      text: "build advised",
+    });
+    const fallback = await connect(unknown);
+    await fallback.until("the unknown advisor's turn's end", over);
+    assert.match(
+      await lastReply(unknown),
+      /said: The advisor is unavailable: no model claude-nope-1\. Go on without its advice/u
+    );
+    assert.deepEqual(await fakeJson(unknown, "advisor"), []);
+    fallback.close();
+  }
+);
+
 // A message the Allowance refuses before any model call.
 const refused = async (route, text) => {
   const response = await call(route, { text });
@@ -758,25 +838,28 @@ test("allowance: each model call is charged to its Creator's week; a run's work 
   assert.equal(await modelCalls(draft), calls);
   socket.close();
 
-  // A new week: this one's bucket becomes last week's, and the Allowance is full again.
-  kill();
-  const moved = wrangler(
-    [
-      "d1",
-      "execute",
-      "DB",
-      "--local",
-      "--persist-to",
-      state,
-      "--command",
-      "UPDATE generation_limits SET bucket = 'user_maker:2026-W01' WHERE bucket LIKE 'user_maker:%'",
-    ],
-    { stdio: "ignore" }
-  );
-  const [code] = await once(moved, "exit");
-  assert.equal(code, 0);
-  await start();
-  assert.equal(await left(), 200_000);
+  // A new week: this one's bucket becomes an old week's, and the Allowance is full again.
+  const newWeek = async (old) => {
+    kill();
+    const moved = wrangler(
+      [
+        "d1",
+        "execute",
+        "DB",
+        "--local",
+        "--persist-to",
+        state,
+        "--command",
+        `UPDATE generation_limits SET bucket = 'user_maker:${old}' WHERE bucket LIKE 'user_maker:%' AND bucket NOT LIKE 'user_maker:2026-W0%'`,
+      ],
+      { stdio: "ignore" }
+    );
+    const [code] = await once(moved, "exit");
+    assert.equal(code, 0);
+    await start();
+    assert.equal(await left(), 200_000);
+  };
+  await newWeek("2026-W01");
 
   // 1,500 left: the run's first call leaves 500, so its work starts, and it finishes though its later calls overshoot:
   // 3 tool calls and the reply.
@@ -788,5 +871,23 @@ test("allowance: each model call is charged to its Creator's week; a run's work 
   assert.equal(await again.turn("build new"), "turn_done");
   assert.equal(await revisionOf(draft), 1);
   assert.equal(await left(), 1500 - 4000);
+
+  // 1,500 left again: the run's first call leaves 500, so its work starts; its third leaves -1,500, so the done check
+  // asks no advisor and tells the agent to go on, and the run still builds the Revision the Creator paid for.
   again.close();
+  await newWeek("2026-W02");
+  const advised = await connect(draft);
+  await advised.turn("spend 99250");
+  await advised.turn("spend 99250");
+  assert.equal(await advised.turn("build advisedbuild"), "turn_done");
+  assert.deepEqual(await fakeJson(draft, "advisor"), []);
+  const advisedEntries = await transcript(draft);
+  const [told, ...more] = advisedEntries.filter(({ text }) =>
+    text.includes("The advisor wasn't asked")
+  );
+  assert.equal(more.length, 0);
+  assert.match(told.text, /Go on without its advice/u);
+  assert.doesNotMatch(told.text, /Allowance is used up/u);
+  assert.equal(await lastReply(draft), published(2));
+  advised.close();
 });
