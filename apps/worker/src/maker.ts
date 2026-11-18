@@ -14,6 +14,7 @@ import {
   defineTool,
   Harness,
   hook,
+  InboxDoc,
   LiveDoc,
   ToolTask,
 } from "@earendil-works/pi-durable";
@@ -155,6 +156,10 @@ interface RunState {
   builds: number;
   // The box started again mid-run, from the current Revision, and the agent hasn't yet been told.
   restarted?: boolean;
+  // Where the run's messages begin in `asked`.
+  from: number;
+  // How many of the Creator's messages the agent had seen when the run's last `build` began: not those still queued.
+  seen?: number;
 }
 
 const PROVIDER = "anthropic";
@@ -189,7 +194,7 @@ export class Maker extends Agent<Env> {
       );
       yield* Effect.promise(async () => {
         await restore(jobBox(box), source);
-        await writeAsked(jobBox(box), this.askedSinceNew);
+        await writeAsked(jobBox(box), this.askedSinceNew());
       });
       this.workspace = n;
       const state = this.runState;
@@ -238,10 +243,12 @@ export class Maker extends Agent<Env> {
     this.ctx.storage.kv.put("asked", messages);
   }
 
-  // What they've said since the last new game was published (a start over is one), which verify.js reads for its
-  // `Music: none` quote (publish.ts's writeAsked): what they asked of an earlier game doesn't hold for the next one.
-  get askedSinceNew() {
-    return this.asked.slice(this.ctx.storage.kv.get<number>("askedFrom") ?? 0);
+  // What verify.js reads for its `Music: none` quote (publish.ts's writeAsked): what the Creator asked of an earlier
+  // game doesn't hold for the next one. A published new game (a start over is one) cuts at the messages its agent had
+  // seen when it built, so one sent during the build counts for the change after it; the run in flight keeps its own.
+  askedSinceNew(run = this.runState) {
+    const cut = this.ctx.storage.kv.get<number>("askedFrom") ?? 0;
+    return this.asked.slice(Math.min(cut, run?.from ?? cut));
   }
 
   // The Revision the workspace holds, undefined once a run has changed it.
@@ -261,7 +268,7 @@ export class Maker extends Agent<Env> {
   // box up, and the workspace restored to the current Revision unless it holds it. Undefined, or why it can't begin.
   // Each later call of the run brings the box up too, so one that stopped since is restarted, and the run told, before
   // the call runs on what's left.
-  async begin(run: string): Promise<string | undefined> {
+  async begin(run: string, from: number): Promise<string | undefined> {
     const begun = this.runState?.run === run;
     if (!begun) {
       const db = drizzle(this.env.DB);
@@ -304,13 +311,15 @@ export class Maker extends Agent<Env> {
       await restore(jobBox(this.box), source);
       this.workspace = n;
     }
-    await writeAsked(jobBox(this.box), this.askedSinceNew);
-    this.runState = {
+    const state = {
       builds: 0,
       deadlineAt: Date.now() + DEADLINE_MS,
+      from,
       run,
       steps: 0,
     };
+    await writeAsked(jobBox(this.box), this.askedSinceNew(state));
+    this.runState = state;
     clearTimeout(this.abortTimer);
     this.abortTimer = setTimeout(
       () => {
@@ -358,12 +367,15 @@ export class Maker extends Agent<Env> {
     this.env,
     this.name,
     (signal) => jobBox(this.box, signal),
-    () => this.askedSinceNew,
+    () => this.askedSinceNew(),
     () => this.tellRestart(),
     (n, kind) => {
       this.workspace = n;
       if (kind === "new") {
-        this.ctx.storage.kv.put("askedFrom", this.asked.length);
+        this.ctx.storage.kv.put(
+          "askedFrom",
+          this.runState?.seen ?? this.asked.length
+        );
       }
     }
   );
@@ -376,9 +388,16 @@ export class Maker extends Agent<Env> {
         return;
       }
       const live = await api.snapshot(LiveDoc, api.conversationId, context);
-      const run = String(live?.run?.inputs[0]);
+      const inputs = live?.run?.inputs ?? [];
+      const run = String(inputs[0]);
+      const inbox = await api.snapshot(InboxDoc, api.conversationId, context);
+      const seen =
+        this.asked.length -
+        (inbox?.items ?? []).filter((item) => item.mode !== "write").length;
       const refused = await this.sandbox.runPromise(
-        this.beginning.withPermit(Effect.promise(() => this.begin(run)))
+        this.beginning.withPermit(
+          Effect.promise(() => this.begin(run, seen - inputs.length))
+        )
       );
       const state = this.runState;
       if (refused || state?.run !== run) {
@@ -391,6 +410,7 @@ export class Maker extends Agent<Env> {
       const next = {
         ...state,
         builds: state.builds + (building ? 1 : 0),
+        ...(building && { seen }),
         steps: state.steps + (building ? 0 : 1),
       };
       this.runState = next;
@@ -641,8 +661,9 @@ export class Maker extends Agent<Env> {
           const { text: message } = yield* Effect.promise(() =>
             request.json<{ text: string }>()
           );
-          this.asked = [...this.asked, message];
           const id = yield* pi.send(message);
+          // After pi queues it, so a message counted here is in pi's inbox or a run (the limits hook's `seen`).
+          this.asked = [...this.asked, message];
           return Response.json({ id }, { status: 202 });
         }
         if (action === "stop") {
