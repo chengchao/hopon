@@ -26,6 +26,7 @@ curl -s "https://api.cloudflare.com/client/v4/accounts/$A/workers/workers/hopon/
 Production's box app is `hopon-maker` (`durable_object` policy). A Preview's is `hopon_<slug>_Maker`: the same image under the default policy, `standard-3`, capped at `max_instances: 40` (`wrangler.jsonc` says why). Get an app's id from `wrangler containers list`, then:
 
 - `wrangler containers instances <app id>` lists the running boxes; an instance's id is its Maker's object id. A Preview whose instances are all held fails new builds `busy`.
+- `wrangler containers info <app id>`'s `instances` is the app's pool of ready boxes, 5 for a new Preview. A box past the pool waits for Cloudflare to grow it, longer than the Maker's 60 s start, so that Draft's build fails `busy`; its Maker never gets a box. GraphQL `containersMetricsAdaptiveGroups` (filter `applicationId`, dimensions `durableObjectId`, `datetimeMinute`) shows which Makers had one.
 - `wrangler containers info <app id>` reports `active` and `assigned` health counts, which don't say whose a box is. Read `instances` for that.
 
 Run both with `CLOUDFLARE_ACCOUNT_ID=$A`. Older Previews' `hopon_<slug>_Coder` and `hopon_<slug>_DraftCoder` apps are the old Coder's; delete them with `wrangler containers delete <id>`.

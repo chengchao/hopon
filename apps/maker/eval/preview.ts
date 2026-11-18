@@ -219,6 +219,7 @@ interface Turn {
   run: number;
   // The largest snapshot frame the socket got during the turn, in bytes.
   snapshotBytes?: number;
+  // When the socket whose first snapshot came during the turn was asked for: its snapshot is from after then.
   snapshotAt?: number;
   steer?: () => void;
 }
@@ -527,13 +528,22 @@ export const runPreviewE2E = async ({
   let socket: WebSocket | undefined;
   let turn: Turn | undefined;
 
-  const onFrame = (frame: Frame, bytes: number) => {
+  // `requestedAt` is when the frame's socket was asked for, and `first` whether this is its first frame. A later
+  // snapshot on the same socket is the Maker's after it woke from hibernation (its onStart), taken before the message
+  // that woke it was queued, so it can't stand in for that message's outcome.
+  const onFrame = (
+    frame: Frame,
+    bytes: number,
+    socketAt: { requestedAt: number; first: boolean }
+  ) => {
     const at = Date.now();
     if (frame.type === "snapshot") {
       view.running = Boolean(frame.data.run);
       view.inbox = frame.data.inbox.length;
       if (turn) {
-        turn.snapshotAt = at;
+        if (socketAt.first) {
+          turn.snapshotAt = socketAt.requestedAt;
+        }
         turn.snapshotBytes = Math.max(turn.snapshotBytes ?? 0, bytes);
       }
     }
@@ -559,6 +569,7 @@ export const runPreviewE2E = async ({
 
   // The app's socket (#126): a one-time ticket, "ping" every 20 s, and a new socket when one drops.
   const connect = async (id: string) => {
+    const socketAt = { first: true, requestedAt: Date.now() };
     const { json } = await api(`/api/drafts/${id}/ws-ticket`, "POST", {});
     const url = new URL(`/api/drafts/${id}/ws`, base);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
@@ -569,7 +580,8 @@ export const runPreviewE2E = async ({
     ws.addEventListener("message", ({ data }) => {
       if (data !== "pong") {
         const text = String(data);
-        onFrame(JSON.parse(text) as Frame, Buffer.byteLength(text));
+        onFrame(JSON.parse(text) as Frame, Buffer.byteLength(text), socketAt);
+        socketAt.first = false;
       }
     });
     const reconnect = async ({ code, reason }: CloseEvent) => {
@@ -608,16 +620,17 @@ export const runPreviewE2E = async ({
     return { id: String(json.message ?? json.id) };
   };
 
-  // Settled: no run, nothing queued, and every message sent this turn answered. A snapshot taken after the Worker
-  // accepted them (the first message's Draft is made before its socket opens) stands in for outcomes the socket didn't
-  // see. One taken while a message was still in flight, by a socket that reconnected then, shows neither it nor its run.
+  // Settled: no run, nothing queued, and every message sent this turn answered. The first snapshot of a socket asked
+  // for after the Worker accepted them (the first message's Draft is made before its socket opens) stands in for
+  // outcomes the socket didn't see. Any other snapshot may predate a message: one from a socket asked for while it was
+  // in flight, or the Maker's own on waking, which reaches the socket after the message's 202 when it is large.
   const settled = async (current: Turn) => {
     const deadline = Date.now() + TURN_MS;
     const done = () =>
       !view.running &&
       view.inbox === 0 &&
       (current.sent.every((id) => current.answered.has(id)) ||
-        (current.snapshotAt ?? 0) > (current.acceptedAt ?? Infinity));
+        (current.snapshotAt ?? 0) >= (current.acceptedAt ?? Infinity));
     while (!done()) {
       if (Date.now() > deadline) {
         throw new Error(

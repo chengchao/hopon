@@ -117,8 +117,10 @@
     // durable_object-policy container here ("configured only in the top-level containers array"), and custom sizes are
     // Enterprise-only under default. exec(), setInactivityTimeout() and destroy() work the same; start() takes neither
     // image nor size (src/agent-sandbox.ts). test/previews.test.js keeps it in step with production's box. ponytail: a
-    // default-policy app caps instances, and each Draft's box idles 5 min after its build; raise it if `eval e2e
-    // --concurrency` builds fail `busy`.
+    // default-policy app keeps a pool of ready instances (`instances` in `wrangler containers info`, 5 for a new
+    // Preview), and a box past the pool waits for Cloudflare to grow it, which took over a minute on 2026-11-18, past
+    // the start's 60 s: that Draft's build fails `busy`. Each box idles 5 min after its build, so keep `eval e2e
+    // --concurrency` at or under the pool.
     "containers": [
       {
         "class_name": "Maker",
