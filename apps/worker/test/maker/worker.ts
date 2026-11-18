@@ -128,8 +128,14 @@ const SCRIPTS: Record<string, readonly Step[]> = {
   readdesign: [{ input: { path: "design.md" }, tool: "read" }],
   // Changes the game, then builds after 2 s.
   slow: [edit("speed = 3"), play, { ...build("change"), sleep: 2000 }],
+  // Builds two new games in one run, then reads what the Creator has said.
+  twice: [write(), build("new"), build("new"), READ_ASKED],
   // Changes the game, then builds once released.
   wait: [edit("speed = 3"), play, { ...build("change"), hold: true }],
+  // Writes a new game, then builds it once released.
+  waitnew: [write(), play, { ...build("new"), hold: true }],
+  // Writes once released.
+  waitwrite: [{ ...write(), hold: true }],
 };
 
 const sse = (events: object[]) =>

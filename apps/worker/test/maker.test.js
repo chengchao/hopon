@@ -673,6 +673,35 @@ test(
     for (const put of others) {
       assert.ok(writes.indexOf(put) < indexAt, JSON.stringify(writes));
     }
+
+    // A second new game in one run still has the message that asked for it.
+    assert.equal(await socket.turn("build twice"), "turn_done");
+    assert.match(await lastReply(draft), /\["build twice"\]/u);
+
+    // A message sent while a new game builds is about that game: it counts for the change after it. The run's first
+    // tool waits until a message queued before it (which the fake plays as the next script) has reached pi, so the
+    // cut counts only what pi has placed in the run.
+    const started = socket.after("the run's start", (frame) =>
+      JSON.stringify(frame).includes('"run_start"')
+    );
+    const building = socket.turn("build waitwrite");
+    await started();
+    const early = socket.after("the early steer", steered);
+    await send(draft, "build waitnew");
+    await early();
+    const step = socket.after("the playtest", played);
+    await fake(draft, "release");
+    await step();
+    const late = socket.after("the late steer", steered);
+    await send(draft, "No music at all.");
+    await late();
+    await fake(draft, "release");
+    assert.equal(await building, "turn_done");
+    assert.equal(await socket.turn("build asked"), "turn_done");
+    assert.match(
+      await lastReply(draft),
+      /\["No music at all\.",\s*"build asked"\]/u
+    );
     socket.close();
   }
 );
