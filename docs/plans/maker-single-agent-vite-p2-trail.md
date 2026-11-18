@@ -19,3 +19,9 @@ The decisions behind P2 of `maker-single-agent-vite.md`, in order. Each names wh
 
 - `apps/worker/test/maker.test.js` "ask_advisor": the fake gateway sees one advisor request with no `tools`, the system prompt, the Creator's message, the agent's `write` call and the question. The advice is the tool result, and the run cost 4,000 hopon tokens, the agent's three calls and the advisor's. A 400 from the advisor returns `advisor-failed` and the agent's next `write` runs.
 - The allowance test gains a third week: with 1,500 left, the run starts, the advisor call finds the Allowance below zero, the reply is the used-up line, and the gateway sees no advisor request.
+
+## Verify, live
+
+- **Preview.** `https://claude-p2-ask-advisor-hopon.calendeam.workers.dev`, deployed at `2491d3d`. CI green.
+- **Lane 2, saves.** Draft `94bb6233…`. The agent declined saves kindly without a build and without the advisor: `maker.md` already rules saves out, and the skill, where the advisor's moments live, loads only for a build. On "Yes, build it." it built Coin Cart (Revision 1, a shop of in-run upgrades) with no advisor call. Fails the lane's letter (no advisor call), meets its intent (a kind decline, no saves).
+- **Draft room.** The eval user is at 20 of 20 Drafts, so the other lanes wait for the operator's room.
