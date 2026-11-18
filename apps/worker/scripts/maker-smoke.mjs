@@ -1,6 +1,6 @@
 // `pnpm -F worker smoke:maker [--music]`, with `pnpm -F worker dev:maker` running: one build for a new Draft, through
-// a real Maker (both agents on their real models) and a real sandbox in Docker, by the dev route. It adds the Draft's
-// row to the local D1, asks the main agent for a game, prints the sub agent's steps and the turn's end as they come,
+// a real Maker (its one agent on its real model) and a real sandbox in Docker, by the dev route. It adds the Draft's row
+// to the local D1, asks the Maker for a game, prints its tools' results, build's steps and its messages as they come,
 // then deletes the Draft, which destroys its box. About a minute and a cent.
 import { spawnSync } from "node:child_process";
 
@@ -75,7 +75,7 @@ socket.addEventListener("message", ({ data }) => {
       const text = event.entry.model[0].content.flatMap((block) =>
         block.type === "text" ? [block.text] : []
       );
-      console.log(seconds(), "main agent:", text.join(""));
+      console.log(seconds(), "maker:", text.join(""));
     }
   }
 });

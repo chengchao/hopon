@@ -145,6 +145,10 @@ test("a change keeps the game's music as it is, none included", () => {
     verify(silent, ["make it faster"], "new").failures.join("\n"),
     /No music/u
   );
+  assert.deepEqual(
+    verify(noMusic("- **Music:** none"), ["make it faster"], "change"),
+    { failures: [], ok: true }
+  );
 });
 
 test("verify needs to know whether the build is new or a change", () => {

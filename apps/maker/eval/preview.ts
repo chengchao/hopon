@@ -723,6 +723,8 @@ export const runPreviewE2E = async ({
   };
 
   let asked: string[] = [];
+  // Whether a sub agent built any of the chat's games (ADR 0005), rather than the one agent (ADR 0006).
+  let subAgent = false;
   const playTurn = async (script: Chat["turns"][number]) => {
     const current: Turn = {
       answered: new Map(),
@@ -755,6 +757,7 @@ export const runPreviewE2E = async ({
     }
     turn = undefined;
     ({ asked } = current);
+    subAgent ||= current.builds.size > 0;
     const built =
       current.builds.size > 0
         ? [...current.builds.values()]
@@ -829,6 +832,7 @@ export const runPreviewE2E = async ({
     }
   }
   const talker = await judgeChat({
+    agents: subAgent ? 2 : 1,
     chat,
     dir,
     modelId: "preview",

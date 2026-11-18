@@ -41,7 +41,7 @@ apps/worker/   Cloudflare Worker API（D1 + Drizzle、Workers AI、Clerk JWT 校
    echo 'OPERATOR_PASSWORD=...' >> apps/worker/.dev.vars
    ```
 
-7. Maker 是 Worker 里每个 Draft 一个的 Durable Object（`apps/worker/src/maker.ts`），里面跑两个 agent：main agent 和 Creator 聊天，sub agent 写游戏。它的沙盒是它自己启动的 Cloudflare Container（`apps/maker/image/Dockerfile`），沙盒里没有网络，也没有任何密钥。两个 agent 的模型请求都在 Worker 里经 `modelFetch` 发出，要用 `CLOUDFLARE_API_KEY`（需 AI Gateway Run 和 Workers AI 权限）。它列在 `secrets.required` 里，值与 `apps/maker/.env` 中的相同，写入 `apps/worker/.dev.vars`：
+7. Maker 是 Worker 里每个 Draft 一个的 Durable Object（`apps/worker/src/maker.ts`），里面跑一个 agent：它和 Creator 聊天，Creator 要游戏或改游戏时，它加载 `make-game` skill，自己写游戏。它的沙盒是它自己启动的 Cloudflare Container（`apps/maker/image/Dockerfile`），沙盒里没有网络，也没有任何密钥。它的模型请求在 Worker 里经 `modelFetch` 发出，要用 `CLOUDFLARE_API_KEY`（需 AI Gateway Run 和 Workers AI 权限）。它列在 `secrets.required` 里，值与 `apps/maker/.env` 中的相同，写入 `apps/worker/.dev.vars`：
 
    ```sh
    grep -E '^CLOUDFLARE_API_KEY=' apps/maker/.env >> apps/worker/.dev.vars

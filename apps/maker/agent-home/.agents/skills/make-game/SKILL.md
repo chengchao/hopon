@@ -31,7 +31,7 @@ Skills are not in the workspace, so bash can't see them. Load them with `activat
 4. **Playtest.** Call `playtest` with `inputs` that play the game the way a player would: taps where the buttons, cards or targets are, swipes for swipe controls, timed so the game gets going. It typechecks first, and type errors come back with no screenshots.
 5. **Fix.** Look at both screenshots. Fix every error and anything that looks wrong or unreadable, then playtest again. Screenshots show how the game looks. Your tests and the playtest's `state`, `score` and `overAt` show what the game does (it ends, the score goes up, a swipe moves the player), so don't replay a game only to see that in a screenshot.
 6. **Music.** Once the playtest is green, write the music (see Music).
-7. **Verify.** Run `node /opt/hopon/verify.js` in the workspace. It checks that `design.md`, `tests.json`, the game and the music are all there. Fix everything it lists.
+7. **Verify.** In the workspace, run `node /opt/hopon/verify.js new` for a new game, or `node /opt/hopon/verify.js change` for a change. It checks that `design.md`, `tests.json`, the game and, for a new game, the music are all there. Fix everything it lists.
 8. **Build.** When verify passes and the game does what the Creator asked, call `build` with the game's title, a one-line description for the feed (what the game is and how to play it), kind, and whether it has music. `build` runs verify again, typechecks the game, renders the music, plays the game for a second and runs `tests.json`. If it fails, fix what it lists, playtest, and call `build` again.
 9. **Reply.** When `build` succeeds, stop working and write your one reply to the Creator. Don't add features, files or refactors that weren't asked for.
 
@@ -46,10 +46,10 @@ Before you write any code, write `design.md`: the complete game design, in Engli
 - **Fairness:** the first threat comes after about 2 seconds. Every danger can be seen and avoided. Hit areas for dangers are a bit smaller than they look, and for targets a bit bigger. Targets are finger-sized.
 - **Look:** the setting, characters, palette and mood, and what happens on a hit, a point and the end.
 - **Language:** the language of the on-screen text. When the Creator writes in another language, the on-screen text is in that language.
-- **Music:** the genre, mood and tempo that fit the game. Write `Music: none` only when the Creator asked for no music, and quote their words: `Music: none ("no music please")`. verify checks that the quote is in one of the Creator's messages.
+- **Music:** the genre, mood and tempo that fit the game. Write `Music: none` only when the Creator asked for no music or for silence, and quote their words: `Music: none ("no music please")`. For a new game, verify checks that the quote is one of the Creator's messages, or at least three words of one, word for word.
 - **Done when:** 2 to 5 success criteria, one per line, each something a short playtest can show ("Tapping the left half moves the basket left.", "The game ends after 3 misses.").
 
-For a change, update `design.md` first: say exactly what changes, with numbers where it matters, then write "Keep everything else.", and give Done-when criteria for the change. Change exactly that, and keep everything else. If `design.md` is missing, write it from the game's code first.
+For a change, update `design.md` first: say exactly what changes, with numbers where it matters, then write "Keep everything else.", and give Done-when criteria for the change. Change exactly that, and keep everything else. An older game may have no `design.md`: write it from the game's code first, with its music as the game has it (`Music: none` with no quote when it has none).
 
 ## Tests
 
@@ -102,6 +102,8 @@ Aim for a steady 60 frames a second on a mid-range phone. A frame has about 16 m
 
 ## Music
 
-Every new game has music unless the Creator asked for none. Pick a genre, mood and tempo that fit the game. For a change, touch the music only when the Creator asks for music or a change to it.
+Every new game has music unless the Creator asked for none. Pick a genre, mood and tempo that fit the game. For a change, touch the music only when the Creator asks for music or a change to it: a game without music stays without it.
+
+When the Creator asks for silence ("silent", "no sound", "mute", "quiet"), the game has no music and no sound effects either: no `Sound` and no ZzFX. When they only say no music, sound effects are fine.
 
 Write it once the game is green. Load the `music-synth` skill for chiptune, electronic or arcade styles (`music.mjs`), or the `music-sf2` skill for acoustic, orchestral, folk, period or world styles played on real instruments (`music.py`). A game has one music file, so when you switch, delete the other. `build` renders it whenever there is one.

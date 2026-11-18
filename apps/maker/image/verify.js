@@ -1,6 +1,7 @@
 // `node /opt/hopon/verify.js new|change` in the workspace: is everything a published game needs here? The agent runs it
 // before `build`, and `build` runs it again with the build's kind. Prints {ok, failures} and exits 1 when something is
-// missing. A new game needs music; a change keeps whatever music the game has, none included.
+// missing. A new game needs music; a change keeps whatever music the game has, none included, so only a new game's
+// `Music: none` is checked.
 //
 // `Music: none` passes only with a quote from one of the Creator's own messages, which the Worker writes to
 // .hopon/asked.json (a JSON array) before each run: the model alone can't decide a game goes without music. The quote is
@@ -80,7 +81,7 @@ if (!design.trim()) {
 
 const music = part(design, "music");
 const noMusic = music !== null && /^none\b/iu.test(music);
-if (noMusic) {
+if (noMusic && kind === "new") {
   const quote = /"(?<quote>[^"]+)"/u.exec(music)?.groups?.quote;
   if (!quote) {
     failures.push(

@@ -73,8 +73,32 @@ export const turnRecord = ({
 });
 type TurnRecord = ReturnType<typeof turnRecord>;
 
+// Whether the judge's scores pass a chat: every turn understood, and with two agents every build's brief a good spec.
+// With one agent (ADR 0006) a build has no brief, and the "spec" item grades the Creator's own words, so it is recorded
+// but not part of a pass.
+export const scoresPass = (
+  agents: 1 | 2,
+  judged:
+    | readonly {
+        understood: { score: number };
+        spec: { score: number } | null;
+      }[]
+    | undefined,
+  turns: readonly { builds: readonly unknown[] }[]
+) =>
+  judged !== undefined &&
+  judged.length === turns.length &&
+  judged.every(
+    (turn, index) =>
+      turn.understood.score >= 4 &&
+      (agents === 1 ||
+        turns[index]?.builds.length === 0 ||
+        (turn.spec?.score ?? 0) >= 4)
+  );
+
 // The chat judged and scored, into result.json.
 export const judgeChat = async ({
+  agents,
   chat,
   dir,
   modelId,
@@ -82,6 +106,7 @@ export const judgeChat = async ({
   thinking,
   turns,
 }: {
+  agents: 1 | 2;
   chat: Chat;
   dir: string;
   modelId: string;
@@ -108,16 +133,10 @@ export const judgeChat = async ({
       turn.builds.length === turn.buildsExpected &&
       turn.mentionOk
   );
-  const scoresOk =
-    judged !== undefined &&
-    judged.length === turns.length &&
-    judged.every(
-      (turn, index) =>
-        turn.understood.score >= 4 &&
-        (turns[index]?.builds.length === 0 || (turn.spec?.score ?? 0) >= 4)
-    );
+  const scoresOk = scoresPass(agents, judged, turns);
   const record = {
     agent: "talker",
+    agents,
     behaviourOk,
     brevityOk,
     chat: chat.id,
