@@ -124,7 +124,7 @@ const SILENT_MS = 60_000;
 const PROMPT = renderPrompt(MAKER, MAKER_VALUES);
 
 const SKILLS = fromManifest({
-  fingerprint: "v8",
+  fingerprint: "v9",
   id: "hopon-maker",
   skills: [MAKE_GAME, DOM_GAMES, LITTLEJS, MUSIC_SF2, MUSIC_SYNTH, ZZFX].map(
     (raw) => {

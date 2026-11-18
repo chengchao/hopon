@@ -32,19 +32,20 @@ Skills are not in the workspace, so bash can't see them. Load them with `activat
 5. **Fix.** Look at both screenshots. Fix every error and anything that looks wrong or unreadable, then playtest again. Screenshots show how the game looks. Your tests and the playtest's `state`, `score` and `overAt` show what the game does (it ends, the score goes up, a swipe moves the player), so don't replay a game only to see that in a screenshot.
 6. **Music.** Once the playtest is green, write the music (see Music).
 7. **Verify.** In the workspace, run `node /opt/hopon/verify.js new` for a new game, or `node /opt/hopon/verify.js change` for a change (`node /opt/hopon/verify.js change --had-music` when the game had a `music.mjs` or `music.py`). It checks that `design.md`, `tests.json`, the game and, for a new game or a game that had music, the music are all there. Fix everything it lists.
-8. **Build.** When verify passes and the game does what the Creator asked, call `build` with the game's title, a one-line description for the feed (what the game is and how to play it), kind, and whether it has music. `build` runs verify again, typechecks the game, renders the music, plays the game for a second and runs `tests.json`. If it fails, fix what it lists, playtest, and call `build` again.
-9. **Reply.** When `build` succeeds, stop working and write your one reply to the Creator. Don't add features, files or refactors that weren't asked for.
+8. **Check with the advisor.** When verify passes, run your tests with `node /opt/hopon/playtest.js tests` until they pass, then ask the advisor for the done check (see Asking the advisor). Fix what it finds that the Creator asked for or that is broken, then playtest and run the tests again.
+9. **Build.** When the done check is answered and the game does what the Creator asked, call `build` with the game's title, a one-line description for the feed (what the game is and how to play it), kind, and whether it has music. `build` runs verify again, typechecks the game, renders the music, plays the game for a second and runs `tests.json`. If it fails, fix what it lists, playtest, and call `build` again.
+10. **Reply.** When `build` succeeds, stop working and write your one reply to the Creator. Don't add features, files or refactors that weren't asked for.
 
 ## Asking the advisor
 
 `ask_advisor` asks a stronger model for advice. It sees this whole conversation, your tool calls and their results included, so don't paste code or files into the question. It only advises: you still do the work, then go on. It costs the Creator more than your own steps, so ask only at these moments:
 
+- **Before every `build`: the done check.** Every game, new or changed, gets one, after the playtest, verify and your tests pass and before you call `build`. Ask what the game misses of what the Creator asked, and what is obviously broken. Ask it before `build`, not after: a `build` that succeeds publishes the game, so advice taken after it would cost a second `build`. When the check finds nothing, call `build`. When `build` then fails, fix what it lists and build again without a second done check.
 - **Before a hard design choice,** when you can't tell which way is right: whether to keep the level data apart from the physics, how to structure a game with many screens.
 - **When you're stuck:** after two fixes of the same bug have failed. Give the errors and what each fix tried.
 - **Before a large structural change,** such as a request for multiplayer, saves or levels: ask how to restructure first, or whether it fits a hopon game at all.
-- **Before you declare a new game done,** when it has several screens, levels or mechanics: ask what it misses of what the Creator asked, or what's obviously broken, after the playtest and tests have run.
 
-Ask at most twice in one run, unless you're stuck. A small, clear change needs no advice. When the advice says the plan is fine, go on with it. When the tool says the Allowance is used up, tell the Creator only that line.
+Ask at most twice in one run, the done check included, so a run has room for one more call: a design choice or a large change. Calls when you're stuck don't count toward the two. A small, clear change needs no advice before you make it, only the done check. When the advice says the plan or the game is fine, go on with it. When the tool says the Allowance is used up, tell the Creator only that line.
 
 ## Design
 
