@@ -20,6 +20,9 @@ const GAME = "let speed = 1;\nfunction gameRender() {}\n";
 // test/maker/worker.ts's music.opus, in base64.
 const MUSIC = 'hopon.music = "T2dnUw==";\n';
 const NOTE = "Note to self: the jump checks out.";
+// test/maker/worker.ts's design.md and tests.json.
+const DESIGN = "# Moon Cat design\n";
+const TESTS = '{"expose": [], "tests": []}';
 const RESTARTED = /The sandbox restarted/u;
 
 const keys = await crypto.subtle.generateKey(
@@ -252,6 +255,9 @@ const noRevision = async (draft) => {
   assert.equal(preview.status, 404);
 };
 const published = (n) => `said: Published: the Creator now has Revision ${n}.`;
+// Whether the box's log has `build`'s verify run for a build of `kind`.
+const verified = (log, kind) =>
+  log.some((command) => command.endsWith(`/opt/hopon/verify.js ${kind}`));
 
 const migrate = async () => {
   const migrating = wrangler(
@@ -300,7 +306,7 @@ test(
 
     // Before its first tool runs, the box holds everything the Creator has said in this chat.
     assert.equal(await socket.turn("build asked"), "turn_done");
-    assert.match(await lastReply(draft), /hello\s+build asked/u);
+    assert.match(await lastReply(draft), /"hello",\s*"build asked"/u);
 
     // A new game with music writes 1/, and the D1 row gets the title.
     assert.equal(await socket.turn("build music"), "turn_done");
@@ -356,7 +362,7 @@ test(
 
     // A game the check fails: build's result is the errors, and the Revision stays.
     assert.equal(await socket.turn("build broken"), "turn_done");
-    assert.match(await lastReply(draft), /The harness check failed:\n- boom/u);
+    assert.match(await lastReply(draft), /The harness check failed:\s+- boom/u);
     assert.equal(await revisionOf(draft), 3);
 
     // A failed build, a fix, and 4/.
@@ -600,6 +606,53 @@ test(
   }
 );
 
+test(
+  "Revisions: they keep the agent's design and tests; a box restart mid-build and a write cut short publish nothing",
+  { timeout: 120_000 },
+  async (t) => {
+    await serve(t);
+    const { id: draft } = await json("/api/drafts", {
+      text: "build designed",
+    });
+    const socket = await connect(draft);
+    await socket.until("the first build's end", over);
+    assert.equal(await lastReply(draft), published(1));
+    assert.deepEqual(await revisionFile(draft, "design.md"), [1, 200, DESIGN]);
+    assert.deepEqual(await revisionFile(draft, "tests.json"), [1, 200, TESTS]);
+    assert.ok(verified(await boxLog(draft), "new"));
+
+    // The box idles out: the next run starts from the Revision, with the design and tests in it.
+    await fake(draft, "stopbox");
+    assert.equal(await socket.turn("build readdesign"), "turn_done");
+    assert.match(await lastReply(draft), /Moon Cat design/u);
+
+    // A change is verified as one, so a game without music can stay without it.
+    assert.equal(await socket.turn("build change"), "turn_done");
+    assert.equal(await lastReply(draft), published(2));
+    assert.ok(verified(await boxLog(draft), "change"));
+
+    // After a failed check, what the Creator has said is still in the box for the agent's own verify run.
+    assert.equal(await socket.turn("build checkedasked"), "turn_done");
+    assert.match(await lastReply(draft), /"build checkedasked"/u);
+
+    // The box stops during build, and starts again from Revision 2: the check passes that old game, which must not
+    // become Revision 3.
+    await fake(draft, "stopatverify");
+    assert.equal(await socket.turn("build change"), "turn_done");
+    assert.match(await lastReply(draft), RESTARTED);
+    assert.equal(await revisionOf(draft), 2);
+
+    // An eviction cut Revision 3 short: it isn't current, and the next build writes 3/ whole, without its leftovers.
+    await fake(draft, "partial");
+    assert.equal(await revisionOf(draft), 2);
+    assert.equal(await socket.turn("build change"), "turn_done");
+    assert.equal(await lastReply(draft), published(3));
+    const [, stale] = await revisionFile(draft, "stale.js");
+    assert.equal(stale, 404);
+    socket.close();
+  }
+);
+
 // A message the Allowance refuses before any model call.
 const refused = async (route, text) => {
   const response = await call(route, { text });
@@ -608,7 +661,7 @@ const refused = async (route, text) => {
   assert.equal(code, "allowance_used");
 };
 
-// The Allowance (ADR 0004) is 100,000 hopon tokens here (test/maker/wrangler.jsonc), and each fake model call reads
+// The Allowance (ADR 0004) is 200,000 hopon tokens here (test/maker/wrangler.jsonc), and each fake model call reads
 // 1,000 input tokens unless told to spend more, so its calls are 1,000 hopon tokens each.
 test("allowance: each model call is charged to its Creator's week; a run's work starts only above zero, and one that starts finishes below it; then the Maker refuses until the week resets", async (t) => {
   await serve(t);
@@ -670,12 +723,14 @@ test("allowance: each model call is charged to its Creator's week; a run's work 
   const [code] = await once(moved, "exit");
   assert.equal(code, 0);
   await start();
-  assert.equal(await left(), 100_000);
+  assert.equal(await left(), 200_000);
 
   // 1,500 left: the run's first call leaves 500, so its work starts, and it finishes though its later calls overshoot:
   // 3 tool calls and the reply.
   const again = await connect(draft);
-  await again.turn("spend 98500");
+  // Two calls: one of 198,500 input tokens would overflow the model's context.
+  await again.turn("spend 99250");
+  await again.turn("spend 99250");
   assert.equal(await left(), 1500);
   assert.equal(await again.turn("build new"), "turn_done");
   assert.equal(await revisionOf(draft), 1);

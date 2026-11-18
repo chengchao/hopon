@@ -20,18 +20,23 @@ const READY = {
   "tests.json": '{"expose": [], "tests": []}',
 };
 
-// verify.js's verdict on a workspace of `files`, with the Creator's messages in .hopon/asked.txt.
-const verify = (files, asked = "make me a game") => {
+// verify.js's verdict on a workspace of `files`, for a build of `kind`, with the Creator's messages in
+// .hopon/asked.json.
+const verify = (files, asked = ["make me a game"], kind = "new") => {
   const dir = mkdtempSync(path.join(tmpdir(), "verify-"));
   mkdirSync(path.join(dir, ".hopon"));
-  writeFileSync(path.join(dir, ".hopon", "asked.txt"), asked);
+  writeFileSync(path.join(dir, ".hopon", "asked.json"), JSON.stringify(asked));
   for (const [file, text] of Object.entries(files)) {
     if (text !== undefined) {
       writeFileSync(path.join(dir, file), text);
     }
   }
   try {
-    return JSON.parse(execFileSync(process.execPath, [VERIFY], { cwd: dir }));
+    return JSON.parse(
+      execFileSync(process.execPath, [VERIFY, ...(kind ? [kind] : [])], {
+        cwd: dir,
+      })
+    );
   } catch (error) {
     assert.equal(error.status, 1);
     return JSON.parse(String(error.stdout));
@@ -73,7 +78,7 @@ test("Music: none fails when no message of the Creator's asks for it", () => {
     /without the Creator's words/u
   );
   assert.match(
-    verify(noMusic('- **Music:** none ("no music please")'), "a frog game")
+    verify(noMusic('- **Music:** none ("no music please")'), ["a frog game"])
       .failures[0],
     /none of the Creator's messages says that/u
   );
@@ -81,17 +86,67 @@ test("Music: none fails when no message of the Creator's asks for it", () => {
 
 test("Music: none passes with the Creator's own words, in any case and spacing", () => {
   assert.deepEqual(
-    verify(
-      noMusic("**Music**: none (“sin música”)"),
-      "Haz un juego de ranas, SIN   música por favor"
-    ),
+    verify(noMusic("**Music**: none (“sin música por favor”)"), [
+      "Haz un juego de ranas, SIN   música por favor",
+    ]),
     { failures: [], ok: true }
   );
   assert.deepEqual(
-    verify(
-      noMusic('## Music\nNone ("keep it silent")'),
-      "A frog game.\nKeep it silent, I play on the bus."
-    ),
+    verify(noMusic('## Music\nNone ("keep it silent")'), [
+      "A frog game.\nKeep it silent, I play on the bus.",
+    ]),
     { failures: [], ok: true }
   );
+});
+
+test("Music: none passes with the phone's curly quotes on either side", () => {
+  assert.deepEqual(
+    verify(noMusic("- **Music:** none (“don’t add any music”)"), [
+      "A frog game. Don’t add any music, I’m on the bus.",
+    ]),
+    { failures: [], ok: true }
+  );
+  assert.deepEqual(
+    verify(noMusic('- **Music:** none ("don\'t add any music")'), [
+      "A frog game. Don’t add any music.",
+    ]),
+    { failures: [], ok: true }
+  );
+});
+
+test("Music: none fails on a scrap of a message or words across two", () => {
+  const asked = ["A frog game with no music please", "make it green"];
+  for (const quote of [
+    "music",
+    "no",
+    "no music",
+    "frog ga",
+    "please make it",
+  ]) {
+    assert.match(
+      verify(noMusic(`- **Music:** none ("${quote}")`), asked).failures[0],
+      /none of the Creator's messages says that/u,
+      quote
+    );
+  }
+  assert.deepEqual(
+    verify(noMusic('- **Music:** none ("No music.")'), ["no music"]),
+    { failures: [], ok: true }
+  );
+});
+
+test("a change keeps the game's music as it is, none included", () => {
+  const silent = { ...READY, "music.mjs": undefined };
+  assert.deepEqual(verify(silent, ["make it faster"], "change"), {
+    failures: [],
+    ok: true,
+  });
+  assert.match(
+    verify(silent, ["make it faster"], "new").failures.join("\n"),
+    /No music/u
+  );
+});
+
+test("verify needs to know whether the build is new or a change", () => {
+  assert.match(verify(READY, undefined, null).failures[0], /verify\.js new/u);
 });

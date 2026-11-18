@@ -67,6 +67,7 @@ import { publishTool, revisionSource, writeAsked } from "./publish.ts";
 import { creatorView } from "./reply.ts";
 import { drafts, now } from "./schema.ts";
 import { allowanceLeft } from "./storage.ts";
+import { toolResult } from "./tool-results.ts";
 
 class PiError extends Data.TaggedError("PiError")<{
   readonly cause: unknown;
@@ -159,9 +160,6 @@ interface RunState {
 const PROVIDER = "anthropic";
 // Tools that change the workspace, after which it no longer holds the Revision it was restored to.
 const WRITES = new Set(["bash", "edit", "write"]);
-const GIVE_UP = "Tell the Creator you couldn't make it work this time.";
-const RESTARTED =
-  "The sandbox restarted, and the workspace is back to the Creator's current game: your changes since are gone. Make them again, playtest, then call build.";
 
 export class Maker extends Agent<Env> {
   // Overridden by the Maker test's fake sandbox (test/maker/worker.ts).
@@ -189,7 +187,10 @@ export class Maker extends Agent<Env> {
       const { n, source } = yield* Effect.promise(() =>
         revisionSource(this.env.FILES, this.name)
       );
-      yield* Effect.promise(() => restore(jobBox(box), source));
+      yield* Effect.promise(async () => {
+        await restore(jobBox(box), source);
+        await writeAsked(jobBox(box), this.asked);
+      });
       this.workspace = n;
       const state = this.runState;
       if (state) {
@@ -261,7 +262,7 @@ export class Maker extends Agent<Env> {
           Number(this.env.MAKER_WEEKLY_TOKENS)
         )) > 0;
       if (!allowed) {
-        return `The weekly Allowance is used up. Tell the Creator: "${USED_UP}"`;
+        return toolResult("used-up", { USED_UP });
       }
     }
     const up = await this.sandbox.runPromise(
@@ -277,7 +278,7 @@ export class Maker extends Agent<Env> {
       )
     );
     if (!up) {
-      return `The Maker is busy. Tell the Creator: "${BUSY}"`;
+      return toolResult("busy", { BUSY });
     }
     if (begun) {
       return;
@@ -342,6 +343,14 @@ export class Maker extends Agent<Env> {
     this.name,
     (signal) => jobBox(this.box, signal),
     () => this.asked,
+    () => {
+      const state = this.runState;
+      if (!state?.restarted) {
+        return false;
+      }
+      this.runState = { ...state, restarted: false };
+      return true;
+    },
     (n) => {
       this.workspace = n;
     }
@@ -361,11 +370,11 @@ export class Maker extends Agent<Env> {
       );
       const state = this.runState;
       if (refused || state?.run !== run) {
-        return { block: refused ?? "The run ended." };
+        return { block: refused ?? toolResult("run-ended") };
       }
       if (state.restarted) {
         this.runState = { ...state, restarted: false };
-        return { block: RESTARTED };
+        return { block: toolResult("restarted") };
       }
       const building = toolCall.name === "build";
       const next = {
@@ -375,14 +384,14 @@ export class Maker extends Agent<Env> {
       };
       this.runState = next;
       if (next.steps > MAX_STEPS) {
-        return { block: `Over the ${MAX_STEPS}-step limit. ${GIVE_UP}` };
+        return { block: toolResult("steps", { MAX_STEPS }) };
       }
       if (next.builds > MAX_BUILDS) {
-        return { block: `Over the ${MAX_BUILDS}-build limit. ${GIVE_UP}` };
+        return { block: toolResult("builds", { MAX_BUILDS }) };
       }
       if (Date.now() > state.deadlineAt) {
         return {
-          block: `Past the ${DEADLINE_MS / 1000} s deadline. ${GIVE_UP}`,
+          block: toolResult("deadline", { SECONDS: DEADLINE_MS / 1000 }),
         };
       }
       if (WRITES.has(toolCall.name)) {

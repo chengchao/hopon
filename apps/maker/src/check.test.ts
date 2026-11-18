@@ -95,7 +95,7 @@ const job: Job = {
   draftId: "check",
   revision: 0,
   source: {},
-  spec: { brief: "", music: null, title: "Fruit" },
+  spec: { music: null, title: "Fruit" },
 };
 
 const processes = async () => {

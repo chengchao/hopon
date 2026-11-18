@@ -12,7 +12,8 @@
 // /__maker/<draftId>/fake/<what> (MAKER_DEV's route) reaches the Draft's Maker: `log` returns the box's commands, and
 // its start, destroy and inactivity timeout; `release` lets a held step answer; `nobox` stops the box and makes its
 // next start fail; `lose` makes the box stop with the server, as a box on another host would; `stopbox` stops it once;
-// `slowplay/<ms>` slows its next playtest; `calls` counts the model calls; `mistagged` counts calls whose gateway tag
+// `slowplay/<ms>` slows its next playtest; `stopatverify` stops the box once `build`'s verify has answered;
+// `partial` leaves the next Revision half-written in R2, as an eviction mid-build would; `calls` counts the model calls; `mistagged` counts calls whose gateway tag
 // doesn't name the Maker; `destroyed` says whether the Draft's box was destroyed, and `startsafterdestroy` how often it
 // started after that.
 import { Effect, Layer } from "effect";
@@ -20,6 +21,7 @@ import { Effect, Layer } from "effect";
 import { AgentSandbox, NoBox } from "../../src/agent-sandbox.ts";
 import type { Exec } from "../../src/agent-sandbox.ts";
 import { Maker as RealMaker } from "../../src/maker.ts";
+import { currentRevision, revisionFiles } from "../../src/storage.ts";
 
 export { default, DraftCoder, Talker } from "../../src/index.ts";
 
@@ -62,12 +64,25 @@ const build = (kind: "new" | "change", music = false) => ({
   },
   tool: "build",
 });
+const READ_ASKED = { input: { path: ".hopon/asked.json" }, tool: "read" };
+const DESIGN = "# Moon Cat design\n";
+const TESTS = '{"expose": [], "tests": []}';
 const SCRIPTS: Record<string, readonly Step[]> = {
   // Reads what the Creator has said, from the file the Maker keeps in the box.
-  asked: [{ input: { path: ".hopon/asked.txt" }, tool: "read" }],
+  asked: [READ_ASKED],
   // Green under its own playtest, red under build's check.
   broken: [write(`${GAME}// BROKEN\n`), play, build("change")],
   change: [edit("speed = 2"), play, build("change")],
+  // Fails build's check, then reads what the Creator has said.
+  checkedasked: [write(`${GAME}// BROKEN\n`), build("change"), READ_ASKED],
+  // A first game with its design and tests.
+  designed: [
+    write(),
+    { input: { content: DESIGN, path: "design.md" }, tool: "write" },
+    { input: { content: TESTS, path: "tests.json" }, tool: "write" },
+    play,
+    build("new"),
+  ],
   // Builds 5 times: the build limit's case.
   five: [write(), ...Array.from({ length: 5 }, () => build("change"))],
   // Fails build, fixes the game, and builds it.
@@ -105,6 +120,8 @@ const SCRIPTS: Record<string, readonly Step[]> = {
   ],
   // One tool call.
   one: [write()],
+  // Reads the game's design.
+  readdesign: [{ input: { path: "design.md" }, tool: "read" }],
   // Changes the game, then builds after 2 s.
   slow: [edit("speed = 3"), play, { ...build("change"), sleep: 2000 }],
   // Changes the game, then builds once released.
@@ -375,6 +392,12 @@ export class Maker extends RealMaker {
           );
         }
         return ok(`${game.includes("BROKEN") ? RED : GREEN}\n`);
+      } else if (
+        command.includes("/opt/hopon/verify.js") &&
+        kv.get("fakebox:stopatverify") === true
+      ) {
+        kv.delete("fakebox:stopatverify");
+        setRunning(false);
       } else if (command.includes("ffprobe")) {
         return ok("30.0\n");
       } else if (command.includes("ffmpeg")) {
@@ -514,6 +537,19 @@ export class Maker extends RealMaker {
         kv.put("fakebox:running", false);
         kv.put("fakebox:nobox", true);
         return done();
+      }
+      case "/fake/stopatverify": {
+        kv.put("fakebox:stopatverify", true);
+        return done();
+      }
+      // Revision n+1 cut short: some files, no index.html.
+      case "/fake/partial": {
+        return currentRevision(this.env.FILES, this.name).then(async (n) => {
+          const next = revisionFiles(this.name, n + 1);
+          await this.env.FILES.put(`${next}game.ts`, "// half");
+          await this.env.FILES.put(`${next}stale.js`, "// half");
+          return new Response(null, { status: 204 });
+        });
       }
       case "/fake/lose": {
         kv.put("fakebox:lose", true);

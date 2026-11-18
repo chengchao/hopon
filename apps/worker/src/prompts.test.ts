@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { MAKER_VALUES, renderPrompt } from "./prompts.ts";
+import { MAKER_VALUES, renderPrompt, toolResults } from "./prompts.ts";
 
 const MAKER = readFileSync(
   new URL("../prompts/maker.md", import.meta.url),
@@ -14,6 +14,32 @@ test("maker.md renders with every placeholder filled", () => {
   assert.doesNotMatch(rendered, /\{\{|\}\}/u);
   assert.ok(rendered.includes(MAKER_VALUES.USED_UP));
   assert.ok(rendered.includes(`${MAKER_VALUES.MAX_STEPS} tool calls`));
+});
+
+test("tool-results.md has every tool result the Maker gives, each with the values it's given", () => {
+  const toolResult = toolResults(
+    readFileSync(
+      new URL("../prompts/tool-results.md", import.meta.url),
+      "utf-8"
+    )
+  );
+  assert.match(
+    toolResult("steps", { MAX_STEPS: 20 }),
+    /^Over the 20-step limit\. Tell the Creator/u
+  );
+  assert.match(
+    toolResult("check-failed", { ERRORS: "- boom", SKIPPED: "" }),
+    /^The harness check failed:\s+- boom\s+Fix these/u
+  );
+  assert.equal(
+    toolResult("published", { N: 3, SKIPPED: "" }),
+    "Published: the Creator now has Revision 3."
+  );
+  assert.throws(() => toolResult("published", { N: 3 }), /SKIPPED/u);
+  assert.throws(
+    () => toolResults("## steps\n\nOver.\n\n## nonsense\n\nHi."),
+    /unknown nonsense/u
+  );
 });
 
 test("an unfilled placeholder throws", () => {

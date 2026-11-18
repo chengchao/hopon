@@ -1,12 +1,27 @@
-// `node /opt/hopon/verify.js` in the workspace: is everything a published game needs here? The agent runs it before
-// `build`, and `build` runs it again. Prints {ok, failures} and exits 1 when something is missing.
+// `node /opt/hopon/verify.js new|change` in the workspace: is everything a published game needs here? The agent runs it
+// before `build`, and `build` runs it again with the build's kind. Prints {ok, failures} and exits 1 when something is
+// missing. A new game needs music; a change keeps whatever music the game has, none included.
 //
-// `Music: none` passes only with a quote from the Creator's own messages, which the Worker writes to .hopon/asked.txt
-// before each run: the model alone can't decide a game goes without music.
+// `Music: none` passes only with a quote from one of the Creator's own messages, which the Worker writes to
+// .hopon/asked.json (a JSON array) before each run: the model alone can't decide a game goes without music. The quote is
+// a whole message, or whole words of one message, at least QUOTE_WORDS words or QUOTE_MIN characters, so a stray "no"
+// or "music" doesn't pass.
 import { existsSync, readFileSync } from "node:fs";
 
+const QUOTE_MIN = 12;
+const QUOTE_WORDS = 3;
+const KINDS = new Set(["new", "change"]);
+
 const read = (file) => (existsSync(file) ? readFileSync(file, "utf-8") : null);
-const plain = (text) => text.toLowerCase().replaceAll(/\s+/gu, " ").trim();
+// What a quote and a message are compared by: their words, in lower case, whatever the punctuation.
+const words = (text) =>
+  text
+    .toLowerCase()
+    .replaceAll(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+// The phone's curly quotes as straight ones.
+const straight = (text) =>
+  text.replaceAll(/[“”]/gu, '"').replaceAll(/[‘’]/gu, "'");
 // design.md's lines without Markdown's heading, list and bold marks.
 const lines = (text) =>
   text
@@ -25,10 +40,38 @@ const part = (text, name) => {
   const rest = all[at].replace(new RegExp(`^${name}\\b\\s*:?\\s*`, "iu"), "");
   return rest || all[at + 1] || "";
 };
+const asked = () => {
+  try {
+    const messages = JSON.parse(read(".hopon/asked.json") ?? "[]");
+    return Array.isArray(messages) ? messages.map(String) : [];
+  } catch {
+    return [];
+  }
+};
+// Whether one of the Creator's messages says `quote`.
+const said = (quote) => {
+  const wanted = words(quote);
+  return asked().some((message) => {
+    const heard = words(message);
+    return (
+      wanted === heard ||
+      ((wanted.length >= QUOTE_MIN ||
+        wanted.split(" ").length >= QUOTE_WORDS) &&
+        ` ${heard} `.includes(` ${wanted} `))
+    );
+  });
+};
 
 const failures = [];
 
-const design = read("design.md") ?? "";
+const [kind] = process.argv.slice(2);
+if (!KINDS.has(kind)) {
+  failures.push(
+    "Run it as `node /opt/hopon/verify.js new` for a new game, or `node /opt/hopon/verify.js change` for a change to the current game."
+  );
+}
+
+const design = straight(read("design.md") ?? "");
 if (!design.trim()) {
   failures.push("design.md is missing: write the game's design first.");
 } else if (part(design, "done[ -]when") === null) {
@@ -38,15 +81,14 @@ if (!design.trim()) {
 const music = part(design, "music");
 const noMusic = music !== null && /^none\b/iu.test(music);
 if (noMusic) {
-  const quote = /["“”](?<quote>[^"“”]+)["“”]/u.exec(music)?.groups?.quote;
-  const asked = plain(read(".hopon/asked.txt") ?? "");
+  const quote = /"(?<quote>[^"]+)"/u.exec(music)?.groups?.quote;
   if (!quote) {
     failures.push(
       'design.md says "Music: none" without the Creator\'s words: quote the message that asks for no music, as Music: none ("no music please"). If the Creator never asked, the game needs music.'
     );
-  } else if (!asked.includes(plain(quote))) {
+  } else if (!said(quote)) {
     failures.push(
-      `design.md quotes "${quote}" for "Music: none", but none of the Creator's messages says that. If the Creator never asked for no music, the game needs music.`
+      `design.md quotes "${quote}" for "Music: none", but none of the Creator's messages says that. Quote their whole message, or at least ${QUOTE_WORDS} words of it, word for word. If the Creator never asked for no music, the game needs music.`
     );
   }
 }
@@ -72,7 +114,7 @@ if (!existsSync("game.ts")) {
 const scores = ["music.mjs", "music.py"].filter((file) => existsSync(file));
 if (scores.length > 1) {
   failures.push("music.mjs and music.py are both here: keep one.");
-} else if (scores.length === 0 && !noMusic) {
+} else if (scores.length === 0 && kind === "new" && !noMusic) {
   failures.push(
     'No music: write music.mjs (music-synth skill) or music.py (music-sf2 skill). Only when the Creator asked for no music, write Music: none ("their words") in design.md instead.'
   );

@@ -23,7 +23,7 @@
     "CLOUDFLARE_GATEWAY_ID": "default",
     "HOPON_OFFLINE": "1",
     "MAKER_BUILD_ABORT_S": "30",
-    "MAKER_WEEKLY_TOKENS": "100000",
+    "MAKER_WEEKLY_TOKENS": "200000",
     // /__maker/<draftId>/<path> reaches the Draft's Maker, as under dev:maker.
     "MAKER_DEV": "1",
   },

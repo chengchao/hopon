@@ -56,7 +56,6 @@ const JobSchema = Schema.Struct({
   // game.ts, index.html, music.mjs or music.py; never game.js or music.js. Empty for a new game, a start over included.
   source: Schema.Record(Schema.String, Schema.String),
   spec: Schema.Struct({
-    brief: Schema.String,
     // genre and mood when this build writes or rewrites the music, else null
     music: Schema.NullOr(Schema.String),
     tests: Schema.optional(TestsSchema),
@@ -64,7 +63,8 @@ const JobSchema = Schema.Struct({
   }),
 });
 export type Job = typeof JobSchema.Type;
-export type Spec = Job["spec"];
+// The eval's build spec: a job's, and what the judge grades the game against.
+export type Spec = Job["spec"] & { brief: string };
 
 export interface PlaytestResult {
   ok: boolean;

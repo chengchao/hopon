@@ -1,4 +1,4 @@
-// What the routes (api.ts) and the build tool (build.ts) both keep: Drafts' and Games' files in R2, whose layout lives
+// What the routes (api.ts) and the build tool (publish.ts) both keep: Drafts' and Games' files in R2, whose layout lives
 // only here, the per-account daily quotas and the Maker's weekly Allowance (ADR 0004) in D1.
 import { and, eq, notLike, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
@@ -20,16 +20,23 @@ export const removeFiles = async (files: R2Bucket, prefix: string) => {
   }
 };
 
-// A Draft's current Revision n, 0 before its first: the highest `<n>/` in R2.
+// A Draft's current Revision n, 0 before its first: the highest `<n>/` in R2 with its index.html, which `build` writes
+// last (publish.ts). One without it is a write an eviction cut short.
 export const currentRevision = async (files: R2Bucket, id: string) => {
   const { delimitedPrefixes } = await files.list({
     delimiter: "/",
     prefix: draftFiles(id),
   });
-  return Math.max(
-    0,
-    ...delimitedPrefixes.map((prefix) => Number(prefix.split("/")[2]))
-  );
+  const newestFirst = delimitedPrefixes
+    .map((prefix) => Number(prefix.split("/")[2]))
+    .toSorted((a, b) => b - a);
+  for (const n of newestFirst) {
+    // oxlint-disable-next-line no-await-in-loop -- the newest is almost always whole, so this is one head
+    if (await files.head(`${revisionFiles(id, n)}index.html`)) {
+      return n;
+    }
+  }
+  return 0;
 };
 
 // The UTC day `at` falls in, "2026-10-30".
