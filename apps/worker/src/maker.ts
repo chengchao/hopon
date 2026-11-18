@@ -219,6 +219,16 @@ export class Maker extends Agent<Env> {
     this.ctx.storage.kv.put("run", state);
   }
 
+  // Whether the box restarted since the agent was last told, which it is now.
+  tellRestart() {
+    const state = this.runState;
+    if (!state?.restarted) {
+      return false;
+    }
+    this.runState = { ...state, restarted: false };
+    return true;
+  }
+
   // Everything the Creator has said in this chat, which verify.js reads (publish.ts's writeAsked).
   get asked() {
     return this.ctx.storage.kv.get<string[]>("asked") ?? [];
@@ -343,14 +353,7 @@ export class Maker extends Agent<Env> {
     this.name,
     (signal) => jobBox(this.box, signal),
     () => this.asked,
-    () => {
-      const state = this.runState;
-      if (!state?.restarted) {
-        return false;
-      }
-      this.runState = { ...state, restarted: false };
-      return true;
-    },
+    () => this.tellRestart(),
     (n) => {
       this.workspace = n;
     }
@@ -372,8 +375,7 @@ export class Maker extends Agent<Env> {
       if (refused || state?.run !== run) {
         return { block: refused ?? toolResult("run-ended") };
       }
-      if (state.restarted) {
-        this.runState = { ...state, restarted: false };
+      if (this.tellRestart()) {
         return { block: toolResult("restarted") };
       }
       const building = toolCall.name === "build";
