@@ -22,7 +22,12 @@ const READY = {
 
 // verify.js's verdict on a workspace of `files`, for a build of `kind`, with the Creator's messages in
 // .hopon/asked.json.
-const verify = (files, asked = ["make me a game"], kind = "new") => {
+const verify = (
+  files,
+  asked = ["make me a game"],
+  kind = "new",
+  flags = []
+) => {
   const dir = mkdtempSync(path.join(tmpdir(), "verify-"));
   mkdirSync(path.join(dir, ".hopon"));
   writeFileSync(path.join(dir, ".hopon", "asked.json"), JSON.stringify(asked));
@@ -33,9 +38,13 @@ const verify = (files, asked = ["make me a game"], kind = "new") => {
   }
   try {
     return JSON.parse(
-      execFileSync(process.execPath, [VERIFY, ...(kind ? [kind] : [])], {
-        cwd: dir,
-      })
+      execFileSync(
+        process.execPath,
+        [VERIFY, ...(kind ? [kind] : []), ...flags],
+        {
+          cwd: dir,
+        }
+      )
     );
   } catch (error) {
     assert.equal(error.status, 1);
@@ -122,6 +131,8 @@ test("Music: none fails on a scrap of a message or words across two", () => {
     "no music",
     "frog ga",
     "please make it",
+    "og game with no music",
+    "game with no music plea",
   ]) {
     assert.match(
       verify(noMusic(`- **Music:** none ("${quote}")`), asked).failures[0],
@@ -153,4 +164,39 @@ test("a change keeps the game's music as it is, none included", () => {
 
 test("verify needs to know whether the build is new or a change", () => {
   assert.match(verify(READY, undefined, null).failures[0], /verify\.js new/u);
+});
+
+test("a change to a game that had music keeps it, unless the Creator asked to drop it", () => {
+  const silent = { ...READY, "music.mjs": undefined };
+  assert.match(
+    verify(silent, ["make it faster"], "change", ["--had-music"]).failures.join(
+      "\n"
+    ),
+    /No music/u
+  );
+  assert.deepEqual(
+    verify(READY, ["make it faster"], "change", ["--had-music"]),
+    {
+      failures: [],
+      ok: true,
+    }
+  );
+  assert.match(
+    verify(
+      noMusic('- **Music:** none ("no music please")'),
+      ["make it faster"],
+      "change",
+      ["--had-music"]
+    ).failures[0],
+    /none of the Creator's messages says that/u
+  );
+  assert.deepEqual(
+    verify(
+      noMusic('- **Music:** none ("drop the music please")'),
+      ["make it faster", "Drop the music, please."],
+      "change",
+      ["--had-music"]
+    ),
+    { failures: [], ok: true }
+  );
 });

@@ -308,6 +308,11 @@ test(
     assert.equal(await socket.turn("build asked"), "turn_done");
     assert.match(await lastReply(draft), /"hello",\s*"build asked"/u);
 
+    // A change needs a game to change: with no Revision, build refuses it, and nothing is written.
+    assert.equal(await socket.turn("build change"), "turn_done");
+    assert.match(await lastReply(draft), /There's no game yet/u);
+    await noRevision(draft);
+
     // A new game with music writes 1/, and the D1 row gets the title.
     assert.equal(await socket.turn("build music"), "turn_done");
     assert.equal(await lastReply(draft), published(1));
@@ -334,9 +339,15 @@ test(
     const { drafts } = await json("/api/drafts");
     assert.equal(drafts[0].title, "Moon Cat");
 
-    // A change, in the workspace as the last run left it: 2/ carries the music over, and 1/ is gone.
+    // After a new game, what the Creator said for the games before it no longer counts for verify's quotes.
+    assert.equal(await socket.turn("build asked"), "turn_done");
+    assert.match(await lastReply(draft), /\["build asked"\]/u);
+
+    // A change, in the workspace as the last run left it: 2/ carries the music over, and 1/ is gone. Verify knows the
+    // game had music.
     const first = await previewUrl(draft);
     assert.equal(await socket.turn("build change"), "turn_done");
+    assert.ok(verified(await boxLog(draft), "change --had-music"));
     assert.deepEqual(await revisionFile(draft, "game.ts"), [
       2,
       200,
@@ -645,10 +656,23 @@ test(
     // An eviction cut Revision 3 short: it isn't current, and the next build writes 3/ whole, without its leftovers.
     await fake(draft, "partial");
     assert.equal(await revisionOf(draft), 2);
+    const { length: putsBefore } = await fakeJson(draft, "puts");
     assert.equal(await socket.turn("build change"), "turn_done");
     assert.equal(await lastReply(draft), published(3));
     const [, stale] = await revisionFile(draft, "stale.js");
     assert.equal(stale, 404);
+
+    // index.html, the mark of a whole Revision, is written only once every other file of it is.
+    const allPuts = await fakeJson(draft, "puts");
+    const writes = allPuts
+      .slice(putsBefore)
+      .filter((put) => put.includes(`drafts/${draft}/3/`));
+    const indexAt = writes.indexOf(`start drafts/${draft}/3/index.html`);
+    const others = writes.filter((put) => !put.endsWith("/index.html"));
+    assert.ok(others.length > 0 && indexAt > 0, JSON.stringify(writes));
+    for (const put of others) {
+      assert.ok(writes.indexOf(put) < indexAt, JSON.stringify(writes));
+    }
     socket.close();
   }
 );

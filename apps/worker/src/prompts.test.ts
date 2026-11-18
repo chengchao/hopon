@@ -53,6 +53,26 @@ test("an unfilled placeholder throws", () => {
   );
 });
 
+test("braces in a value are the value's text, not a placeholder", () => {
+  const toolResult = toolResults(
+    readFileSync(
+      new URL("../prompts/tool-results.md", import.meta.url),
+      "utf-8"
+    )
+  );
+  assert.equal(
+    renderPrompt("Error: {{ERROR}}", { ERROR: "{{score}} is undefined" }),
+    "Error: {{score}} is undefined"
+  );
+  assert.match(
+    toolResult("check-failed", {
+      ERRORS: "- tests.json: {{score}} is not a number",
+      SKIPPED: "",
+    }),
+    /- tests\.json: \{\{score\}\} is not a number/u
+  );
+});
+
 test("a value no placeholder uses throws", () => {
   assert.throws(
     () => renderPrompt("No numbers here.", { MAX_STEPS: 20 }),

@@ -10,7 +10,7 @@
 //   music.mjs rendering a fixed track; `rm -f <files>` deleting them; the rest a no-op. As the platform's, a stopped box
 //   refuses every command and file, and one started again is empty.
 // /__maker/<draftId>/fake/<what> (MAKER_DEV's route) reaches the Draft's Maker: `log` returns the box's commands, and
-// its start, destroy and inactivity timeout; `release` lets a held step answer; `nobox` stops the box and makes its
+// its start, destroy and inactivity timeout; `puts` the start and end of each R2 put; `release` lets a held step answer; `nobox` stops the box and makes its
 // next start fail; `lose` makes the box stop with the server, as a box on another host would; `stopbox` stops it once;
 // `slowplay/<ms>` slows its next playtest; `stopatverify` stops the box once `build`'s verify has answered;
 // `partial` leaves the next Revision half-written in R2, as an eviction mid-build would; `calls` counts the model calls; `mistagged` counts calls whose gateway tag
@@ -84,7 +84,11 @@ const SCRIPTS: Record<string, readonly Step[]> = {
     build("new"),
   ],
   // Builds 5 times: the build limit's case.
-  five: [write(), ...Array.from({ length: 5 }, () => build("change"))],
+  five: [
+    write(),
+    build("new"),
+    ...Array.from({ length: 4 }, () => build("change")),
+  ],
   // Fails build, fixes the game, and builds it.
   fix: [write(`${GAME}// BROKEN\n`), build("change"), write(), build("change")],
   // A start over: empties the workspace, then writes a new game without music.
@@ -309,10 +313,39 @@ const fileError = (code: string, operation: string, path: string) =>
     path,
   });
 
+// Each R2 put's start and end, in order, per Draft: when each of a Revision's files was written.
+const puts = new Map<string, string[]>();
+const recording = (files: R2Bucket, draftId: () => string): R2Bucket =>
+  new Proxy(files, {
+    get: (target, name) => {
+      const value = Reflect.get(target, name) as unknown;
+      if (name !== "put" || typeof value !== "function") {
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+      return async (...args: Parameters<R2Bucket["put"]>) => {
+        const log = puts.get(draftId()) ?? [];
+        puts.set(draftId(), log);
+        log.push(`start ${args[0]}`);
+        const put = await target.put(...args);
+        log.push(`end ${args[0]}`);
+        return put;
+      };
+    },
+  });
+
 const answer = (body: unknown) => Promise.resolve(Response.json(body));
 const done = () => Promise.resolve(new Response(null, { status: 204 }));
 
 export class Maker extends RealMaker {
+  constructor(ctx: DurableObjectState, env: Env) {
+    const self: { maker?: Maker } = {};
+    super(ctx, {
+      ...env,
+      FILES: recording(env.FILES, () => self.maker?.name ?? ""),
+    });
+    self.maker = this;
+  }
+
   override sandboxLayer() {
     const { kv } = this.ctx.storage;
     const paths = () =>
@@ -507,22 +540,19 @@ export class Maker extends RealMaker {
   override onRequest(request: Request) {
     const { pathname } = new URL(request.url);
     const { kv } = this.ctx.storage;
+    const reads: Record<string, () => unknown> = {
+      "/fake/calls": () => calls.get(this.name) ?? 0,
+      "/fake/destroyed": () => destroyed.has(this.name),
+      "/fake/log": () => kv.get("fakelog") ?? [],
+      "/fake/mistagged": () => mistagged.get(this.name) ?? 0,
+      "/fake/puts": () => puts.get(this.name) ?? [],
+      "/fake/startsafterdestroy": () => startsAfterDestroy.get(this.name) ?? 0,
+    };
+    const read = reads[pathname];
+    if (read) {
+      return answer(read());
+    }
     switch (pathname) {
-      case "/fake/log": {
-        return answer(kv.get("fakelog") ?? []);
-      }
-      case "/fake/calls": {
-        return answer(calls.get(this.name) ?? 0);
-      }
-      case "/fake/mistagged": {
-        return answer(mistagged.get(this.name) ?? 0);
-      }
-      case "/fake/destroyed": {
-        return answer(destroyed.has(this.name));
-      }
-      case "/fake/startsafterdestroy": {
-        return answer(startsAfterDestroy.get(this.name) ?? 0);
-      }
       case "/fake/release": {
         gate(this.name).resolve();
         return done();

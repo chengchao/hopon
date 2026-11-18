@@ -159,14 +159,21 @@ const ended = (id, stopReason, text) => ({
   type: "message_end",
 });
 
-test("a reply cut off by Stop shows nothing; a finished one shows", () => {
+test("a reply cut off by Stop or an error shows nothing; a finished one shows", () => {
   const half = "Now let me fix the collision";
   const chat = play([
     ended(1, "aborted", half),
-    ended(2, "length", half),
-    ended(3, "error", half),
-    ended(4, "stop", "Here's Moon Cat!"),
+    ended(2, "error", half),
+    ended(3, "stop", "Here's Moon Cat!"),
   ]);
   const texts = chatView(chat, 0).rows.map((row) => row.text);
   assert.deepEqual(texts, ["Here's Moon Cat!"]);
+});
+
+test("a reply cut by the length limit shows what it said", () => {
+  const cut = "Here's Moon Cat! Tap to jump over the";
+  const texts = chatView(play([ended(1, "length", cut)]), 0).rows.map(
+    (row) => row.text
+  );
+  assert.deepEqual(texts, [cut]);
 });
