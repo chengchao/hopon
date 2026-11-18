@@ -8,7 +8,6 @@ import type { Harness } from "@earendil-works/pi-durable";
 
 import ADVISOR from "../prompts/advisor.md";
 import { chargeCall } from "./pi-models.ts";
-import { USED_UP } from "./prompts.ts";
 import { toolResult } from "./tool-results.ts";
 
 export const ADVISOR_PROVIDER = "advisor";
@@ -50,6 +49,13 @@ const render = (messages: readonly Message[]) =>
           return [`MAKER:\n${texts(message.content)}`];
         }
         case "toolResult": {
+          // pi stands in an error result for a call still running, this ask_advisor call's own.
+          if (
+            (message.details as { reason?: string } | undefined)?.reason ===
+            "missing_result"
+          ) {
+            return [];
+          }
           const status = message.isError ? " (error)" : "";
           return [
             `RESULT of ${message.toolName}${status}:\n${clip(texts(message.content))}`,
@@ -64,6 +70,20 @@ const render = (messages: readonly Message[]) =>
 
 const text = (said: string) => [{ text: said, type: "text" as const }];
 
+// The agent gets no advice, and why, and goes on to build: a run the Creator pays for still ends in a Revision.
+const noAdvice = (why: string) => ({
+  isError: true,
+  output: text(toolResult("no-advice", { WHY: why.replace(/\.$/u, "") })),
+});
+
+// The model sees this with the tool every turn, the make-game skill loaded or not.
+const DESCRIPTION = `Ask a stronger model for advice. It sees this whole conversation, your tool calls and their results included, plus your question. It only advises: it can't read or change files, run anything, or see screenshots. Ask it:
+- Before every build, as the done check: once the playtest, verify and your tests pass, ask what the game misses of what the Creator asked and what is obviously broken.
+- Before a hard design choice you can't settle.
+- When you're stuck after two failed fixes of the same bug: give the errors and what each fix tried.
+- Before a large structural change, such as multiplayer, saves or levels.
+At most twice a run, the done check included; calls when stuck don't count. Don't paste code it can already see.`;
+
 export const askAdvisor = (
   env: Env,
   draftId: () => string,
@@ -73,18 +93,23 @@ export const askAdvisor = (
   pi: () => Promise<Harness>
 ) =>
   defineTool({
-    description:
-      "Ask a stronger model for advice. It sees this whole conversation, your tool calls and their results included, plus your question, and answers with advice only: it can't read or change files or run anything. Say what you need decided, the errors and what you tried; don't paste code it can already see.",
+    description: DESCRIPTION,
     execute: async ({ question }, api, call) => {
+      // ADR 0004 lets started work finish, so a run that crossed zero skips the advice, not the build.
       if (!(await allowed())) {
-        return { output: text(toolResult("used-up", { USED_UP })) };
+        return noAdvice(
+          "wasn't asked: the Creator's Allowance has none left for it"
+        );
       }
       const model = api.models.getModel(
         ADVISOR_PROVIDER,
         env.MAKER_ADVISOR_MODEL
       );
       if (!model) {
-        throw new Error(`no advisor model ${env.MAKER_ADVISOR_MODEL}`);
+        console.error(
+          `Draft ${draftId()}: no advisor model ${env.MAKER_ADVISOR_MODEL}`
+        );
+        return noAdvice(`is unavailable: no model ${env.MAKER_ADVISOR_MODEL}`);
       }
       const opened = await pi();
       const conversation = await opened.conversation(api.conversationId, call);
@@ -103,21 +128,32 @@ export const askAdvisor = (
           ],
           systemPrompt: ADVISOR,
         },
-        { maxTokens: 16_000, reasoning: "medium", signal: call?.abortSignal }
+        // One call with nothing after it to read a cache, so writing one only costs more.
+        {
+          cacheRetention: "none",
+          maxTokens: 16_000,
+          reasoning: "medium",
+          signal: call?.abortSignal,
+        }
       );
       await chargeCall(env, draftId(), answer.usage.cost.total);
+      // A refusal is pi's "error"; one cut at max tokens can come back with thinking and no text.
+      const advice = texts(answer.content).trim();
       if (answer.stopReason === "error" || answer.stopReason === "aborted") {
         return {
-          isError: true,
-          output: text(
-            toolResult("advisor-failed", {
-              ERROR: answer.errorMessage ?? answer.stopReason,
-            })
+          ...noAdvice(
+            `couldn't answer: ${answer.errorMessage ?? answer.stopReason}`
           ),
           usage: answer.usage,
         };
       }
-      return { output: text(texts(answer.content)), usage: answer.usage };
+      if (!advice) {
+        return {
+          ...noAdvice(`gave no advice: it stopped on ${answer.stopReason}`),
+          usage: answer.usage,
+        };
+      }
+      return { output: text(advice), usage: answer.usage };
     },
     name: "ask_advisor",
     parameters: Type.Object({

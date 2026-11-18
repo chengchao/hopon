@@ -38,14 +38,12 @@ Skills are not in the workspace, so bash can't see them. Load them with `activat
 
 ## Asking the advisor
 
-`ask_advisor` asks a stronger model for advice. It sees this whole conversation, your tool calls and their results included, so don't paste code or files into the question. It only advises: you still do the work, then go on. It costs the Creator more than your own steps, so ask only at these moments:
+`ask_advisor`'s description names the four moments to ask and the limit of two calls a run. It costs the Creator more than your own steps, so ask at those moments only. What the description leaves out:
 
-- **Before every `build`: the done check.** Every game, new or changed, gets one, after the playtest, verify and your tests pass and before you call `build`. Ask what the game misses of what the Creator asked, and what is obviously broken. Ask it before `build`, not after: a `build` that succeeds publishes the game, so advice taken after it would cost a second `build`. When the check finds nothing, call `build`. When `build` then fails, fix what it lists and build again without a second done check.
-- **Before a hard design choice,** when you can't tell which way is right: whether to keep the level data apart from the physics, how to structure a game with many screens.
-- **When you're stuck:** after two fixes of the same bug have failed. Give the errors and what each fix tried.
-- **Before a large structural change,** such as a request for multiplayer, saves or levels: ask how to restructure first, or whether it fits a hopon game at all.
-
-Ask at most twice in one run, the done check included, so a run has room for one more call: a design choice or a large change. Calls when you're stuck don't count toward the two. A small, clear change needs no advice before you make it, only the done check. When the advice says the plan or the game is fine, go on with it. When the tool says the Allowance is used up, tell the Creator only that line.
+- **The done check goes before `build`, not after.** A `build` that succeeds publishes the game, so advice taken after it would cost a second `build`. When the check finds nothing, call `build`. When `build` then fails, fix what it lists and build again without a second done check.
+- **A hard design choice** is one where you can't tell which way is right, such as whether to keep the level data apart from the physics. **A large structural change** is a request such as multiplayer, saves or levels: ask how to restructure first, or whether it fits a hopon game at all.
+- **A small, clear change** needs no advice before you make it, only the done check.
+- **Follow the advice,** then go on. When it says the plan or the game is fine, go on with it. When the tool says you get no advice, go on without it and call `build` when the game is ready.
 
 ## Design
 

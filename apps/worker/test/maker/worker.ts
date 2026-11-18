@@ -4,8 +4,8 @@
 //   since that message; a script's end, and any other message, gets a text reply that repeats what the model was last
 //   sent, a tool's result included. A step can carry a note: text in the same message as its tool call. Each call
 //   reads 1,000 input tokens, 1,000 hopon tokens at Haiku 5.5's $0.10 a million, or n after "spend <n>"; "no credits"
-//   gets the gateway's 402. A call with no tools is the advisor's (src/advisor.ts): it gets fixed advice, or a 400 for
-//   the question "advisor fails", and isn't counted in `calls`.
+//   gets the gateway's 402. A call with no tools is the advisor's (src/advisor.ts): it gets fixed advice, a 400 for the
+//   question "advisor fails", or an empty answer cut at max_tokens for "advisor silent", and isn't counted in `calls`.
 // - The sandbox: files in the Maker's own storage (so they outlive a restart, as a running box does), every command
 //   logged and answered by fakeExec: the playtest green unless game.ts says BROKEN, the check's tests red on that;
 //   music.mjs rendering a fixed track; `rm -f <files>` deleting them; the rest a no-op. As the platform's, a stopped box
@@ -75,9 +75,16 @@ const ADVISE = {
 const SCRIPTS: Record<string, readonly Step[]> = {
   // Writes the game, then asks the advisor.
   advised: [write(), ADVISE],
+  // Asks the advisor for the done check, then builds the change.
+  advisedbuild: [edit("speed = 2"), play, ADVISE, build("change")],
   // Asks the advisor, which fails, then writes the game.
   advisorfails: [
     { input: { question: "advisor fails" }, tool: "ask_advisor" },
+    write(),
+  ],
+  // Asks the advisor, which answers nothing, then writes the game.
+  advisorsilent: [
+    { input: { question: "advisor silent" }, tool: "ask_advisor" },
     write(),
   ],
   // Reads what the Creator has said, from the file the Maker keeps in the box.
@@ -247,10 +254,14 @@ const advisorRequests = new Map<string, unknown[]>();
 
 const TOKENS = 1000;
 
-// The advisor's call: the only one with no tools. A question "advisor fails" gets the gateway's 400.
+// The advisor's call: the only one with no tools.
 const advise = (draftId: string, body: { messages: Message[] }) => {
   advisorRequests.set(draftId, [...(advisorRequests.get(draftId) ?? []), body]);
-  if (texts(body.messages.at(-1)?.content).join("").includes("advisor fails")) {
+  const question = texts(body.messages.at(-1)?.content).join("");
+  if (question.includes("advisor silent")) {
+    return reply([], "max_tokens", TOKENS);
+  }
+  if (question.includes("advisor fails")) {
     return Response.json(
       {
         error: {

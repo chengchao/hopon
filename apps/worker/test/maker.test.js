@@ -47,11 +47,12 @@ const token = async (sub) => {
   );
   return `${body}.${Buffer.from(signature).toString("base64url")}`;
 };
+const VARS = `CLERK_JWT_KEY="${pem}"\nPREVIEW_SECRET="test-preview-secret-of-32-chars!!"\n`;
 const vars = path.join(state, "vars.env");
-writeFileSync(
-  vars,
-  `CLERK_JWT_KEY="${pem}"\nPREVIEW_SECRET="test-preview-secret-of-32-chars!!"\n`
-);
+writeFileSync(vars, VARS);
+// The same, with an advisor model pi-ai doesn't know.
+const noAdvisorVars = path.join(state, "no-advisor.env");
+writeFileSync(noAdvisorVars, `${VARS}MAKER_ADVISOR_MODEL="claude-nope-1"\n`);
 
 const wrangler = (args, options) =>
   spawn("npx", ["wrangler", ...args, "--config", CONFIG], {
@@ -71,7 +72,7 @@ const ORIGIN = `http://127.0.0.1:${port}`;
 let server;
 // The server's output, printed only if the test fails.
 const serverLog = [];
-const start = async () => {
+const start = async (envFile = vars) => {
   server = wrangler(
     [
       "dev",
@@ -81,7 +82,7 @@ const start = async () => {
       "--persist-to",
       state,
       "--env-file",
-      vars,
+      envFile,
     ],
     { detached: true, stdio: ["ignore", "pipe", "pipe"] }
   );
@@ -735,16 +736,53 @@ test(
       sent,
       /The Maker's question:\\nShould the level data live apart from the physics\?/u
     );
-
-    assert.equal(await socket.turn("build advisorfails"), "turn_done");
-    const tools = await toolsCalled(draft);
-    assert.deepEqual(tools.slice(-2), ["ask_advisor", "write"]);
-    const entries = await transcript(draft);
-    assert.ok(
-      entries.some(({ text }) => text.includes("The advisor couldn't answer")),
-      "the failure reached the agent"
+    assert.doesNotMatch(
+      sent,
+      /history ends before this call/u,
+      "no stand-in result for the ask_advisor call itself"
     );
+    assert.doesNotMatch(
+      JSON.stringify(request),
+      /cache_control/u,
+      "the advisor's one-off request writes no cache"
+    );
+
+    // A failed advisor, and one that answers nothing, each tell the agent to go on, and it does.
+    for (const [script, said] of [
+      ["advisorfails", /The advisor couldn't answer: .*the advisor is down/u],
+      ["advisorsilent", /The advisor gave no advice: it stopped on length\./u],
+    ]) {
+      // oxlint-disable-next-line no-await-in-loop -- one turn after another
+      assert.equal(await socket.turn(`build ${script}`), "turn_done");
+      // oxlint-disable-next-line no-await-in-loop -- one turn after another
+      const tools = await toolsCalled(draft);
+      assert.deepEqual(tools.slice(-2), ["ask_advisor", "write"]);
+      // oxlint-disable-next-line no-await-in-loop -- one turn after another
+      const entries = await transcript(draft);
+      assert.ok(
+        entries.some(
+          ({ text }) =>
+            said.test(text) && text.includes("Go on without its advice")
+        ),
+        `${script}: the agent is told to go on`
+      );
+    }
     socket.close();
+
+    // An advisor model pi-ai doesn't know fails only ask_advisor: the Maker still runs, and the agent is told to go on.
+    kill();
+    await start(noAdvisorVars);
+    const { id: unknown } = await json("/api/drafts", {
+      text: "build advised",
+    });
+    const fallback = await connect(unknown);
+    await fallback.until("the unknown advisor's turn's end", over);
+    assert.match(
+      await lastReply(unknown),
+      /said: The advisor is unavailable: no model claude-nope-1\. Go on without its advice/u
+    );
+    assert.deepEqual(await fakeJson(unknown, "advisor"), []);
+    fallback.close();
   }
 );
 
@@ -834,18 +872,22 @@ test("allowance: each model call is charged to its Creator's week; a run's work 
   assert.equal(await revisionOf(draft), 1);
   assert.equal(await left(), 1500 - 4000);
 
-  // 1,500 left again: the run's first call leaves 500, so its work starts; its second leaves -500, so the advisor isn't
-  // asked, and the agent is told the Allowance is used up.
+  // 1,500 left again: the run's first call leaves 500, so its work starts; its third leaves -1,500, so the done check
+  // asks no advisor and tells the agent to go on, and the run still builds the Revision the Creator paid for.
   again.close();
   await newWeek("2026-W02");
   const advised = await connect(draft);
   await advised.turn("spend 99250");
   await advised.turn("spend 99250");
-  assert.equal(await advised.turn("build advised"), "turn_done");
-  assert.match(
-    await lastReply(draft),
-    /said: The weekly Allowance is used up\. Tell the Creator: "You've used this week's hopon tokens\./u
-  );
+  assert.equal(await advised.turn("build advisedbuild"), "turn_done");
   assert.deepEqual(await fakeJson(draft, "advisor"), []);
+  const advisedEntries = await transcript(draft);
+  const [told, ...more] = advisedEntries.filter(({ text }) =>
+    text.includes("The advisor wasn't asked")
+  );
+  assert.equal(more.length, 0);
+  assert.match(told.text, /Go on without its advice/u);
+  assert.doesNotMatch(told.text, /Allowance is used up/u);
+  assert.equal(await lastReply(draft), published(2));
   advised.close();
 });

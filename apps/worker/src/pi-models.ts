@@ -41,8 +41,11 @@ export const piModels = (env: Env, agents: readonly AgentModel[]) => {
   const models = createModels();
   for (const { metadata, model, provider } of agents) {
     const entry = CATALOG[model];
+    // A model pi-ai doesn't know fails only the calls to it, which find no model: a mistyped MAKER_ADVISOR_MODEL
+    // leaves the Maker up without advice.
     if (!entry) {
-      throw new Error(`no model ${model} in pi-ai's catalog`);
+      console.error(`no model ${model} in pi-ai's catalog`);
+      continue;
     }
     const fetch: FetchFunction = (input, init) =>
       modelFetch(new Request(input, init), env, { metadata: metadata() });

@@ -56,8 +56,6 @@ These checks threw and were skipped; fix them in tests.json: {{ERRORS}}
 
 Published: the Creator now has Revision {{N}}.{{SKIPPED}}
 
-## advisor-failed
+## no-advice
 
-The advisor couldn't answer: {{ERROR}}
-
-Go on without its advice.
+The advisor {{WHY}}. Go on without its advice: finish the work, and call `build` when the game is ready.
