@@ -44,3 +44,10 @@ The decisions behind P2 of `maker-single-agent-vite.md`, in order. Each names wh
 - **An unknown advisor model fails only the advisor.** `piModels` threw at load on any model pi-ai doesn't know, so a mistyped `MAKER_ADVISOR_MODEL` took the whole Maker down (measured: the test's `/api/drafts` answers 500 at `372b40e`). It now logs and leaves that model out. `ask_advisor` finds no model, logs, and returns `no-advice` ("is unavailable"). The agent's own model unknown now fails at its first call instead of at load.
 - **No stand-in result.** pi's context gives the running `ask_advisor` call a stand-in error result, "Tool result unavailable: history ends before this call completed." The advisor saw it as `RESULT of ask_advisor (error)`. `render` drops results whose `details.reason` is `missing_result`.
 - **Screenshots.** The advisor's prompt now says screenshots reach it only as `[image]`, so it judges looks from the code and behavior from the tests and the playtest's text.
+
+## Verify, live, fix round
+
+- **Preview** at `1ec7a87`, CI green.
+- **star** (Draft `cea216e5…`): "Make a simple tap-the-star game.", then "Add 3 levels with a boss at the end of level 3." Two builds, both published (Revisions 1 and 2), no advisor call. The agent loaded `make-game` in the first turn.
+- **editor** (Draft `4638820a…`): one build, published (Revision 1), no advisor call. The Draft's snapshot holds the new tool description ("Before every build, as the done check") and the `v10` skill text, so the agent saw both and skipped the done check.
+- **Against the first round:** 3 builds and 0 advisor calls, against 5 builds and 1 call. The gateway logged no `claude-opus-5-5` call for either Draft. With the moments advisory, Sonnet 5.5 mostly skips the done check whether the moments sit in the skill, in the description, or both. Enforcing it in code (say, `build` refusing until `ask_advisor` ran this run) is the operator's call; it is not in this PR.
