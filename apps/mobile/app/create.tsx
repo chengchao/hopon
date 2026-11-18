@@ -207,7 +207,7 @@ const Header = ({
   </View>
 );
 
-// The Draft, once it has a Revision to play: the Talker titled it, or this chat shows its card.
+// The Draft, once it has a Revision to play: the Maker titled it, or this chat shows its card.
 const withGame = (draft: DraftSummary | null | undefined, rows: Row[]) =>
   draft && (draft.title !== null || rows.some((row) => row.play))
     ? draft
@@ -336,7 +336,7 @@ const Create = () => {
     if (frame.type === "turn_done" || frame.type === "turn_failed") {
       fetchAllowance();
     }
-    // The Talker names the game at the end of a turn that builds it.
+    // The Maker names the game at the end of a turn that builds it.
     if (frame.type === "turn_done" && draft) {
       const drafts = await fetchDrafts().catch(() => []);
       const listed = drafts.find((d) => d.id === draft.id);

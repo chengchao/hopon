@@ -26,7 +26,7 @@ interface Entry {
   kind: string;
   model?: Message[];
 }
-// A running tool call; the build's output is the Coder's step labels, one a line.
+// A running tool call; the build's output is its step labels, one a line.
 interface ToolSlot {
   callId: string;
   name: string;
@@ -90,11 +90,11 @@ export interface Chat {
   partial?: Message;
   running: boolean;
   pending: Pending[];
-  // Operations the Talker has taken (or dropped), in case the news beats the POST's answer.
+  // Operations the Maker has taken (or dropped), in case the news beats the POST's answer.
   taken: string[];
   // How the last turn ended, when it didn't answer. Live only: a snapshot doesn't say.
   ended?: "stopped" | "failed" | "resting";
-  // The Talker's build call while it runs (#148): its step labels so far, and when the app first saw it.
+  // The Maker's build call while it runs (#148): its step labels so far, and when the app first saw it.
   build?: { callId: string; output: string; since: number };
 }
 
@@ -132,7 +132,7 @@ const textOf = (message: Message | undefined) => {
     typeof content === "string"
       ? content
       : content
-          .map((block) => (block.type === "text" ? block.text : ""))
+          .map((block) => (block?.type === "text" ? block.text : ""))
           .join("")
   ).trim();
 };
@@ -141,8 +141,8 @@ const queuedCount = (items: { mode: string }[]) =>
   items.filter((item) => item.mode !== "write").length;
 
 // A snapshot carries no submission records, only how many messages are still queued. They are the newest ones sent:
-// the Talker takes them in order. ponytail: a message sent while the snapshot was in flight can drop out of view
-// until the Talker takes it; snapshots with the inbox's operation ids would close that.
+// the Maker takes them in order. ponytail: a message sent while the snapshot was in flight can drop out of view
+// until the Maker takes it; snapshots with the inbox's operation ids would close that.
 const fromSnapshot = (chat: Chat, snapshot: Snapshot, at: number): Chat => {
   const slot = snapshot.tools?.find(
     (tool) => tool.name === "build" && tool.status !== "done"
@@ -276,7 +276,7 @@ const applyFrame = (chat: Chat, frame: Frame, at: number): Chat => {
     return fromSnapshot(chat, frame.data, at);
   }
   if (frame.type === "turn_failed") {
-    // Stop is pi's abort, and the Talker says "resting" when AI Gateway's credits ran out (ADR 0004); every other
+    // Stop is pi's abort, and the Maker says "resting" when AI Gateway's credits ran out (ADR 0004); every other
     // reason reads the same to the Creator (#119).
     const ended: Record<string, Chat["ended"]> = {
       aborted: "stopped",

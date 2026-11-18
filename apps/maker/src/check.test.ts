@@ -1,5 +1,5 @@
-// The harness check (ADR 0005) on the real sandbox image, in Docker: what a model leaves behind can't pass a game that
-// doesn't run, and the main agent's tests decide a build. It needs the image, so it runs only
+// The harness check (ADR 0006) on the real sandbox image, in Docker: what a model leaves behind can't pass a game that
+// doesn't run, and the agent's tests decide a build. It needs the image, so it runs only
 // with HOPON_BOX_IMAGE set, e.g. to one of `docker images cloudflare-dev/maker-box-*` after `pnpm -F worker dev:maker`.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -81,7 +81,7 @@ const GAME = readFileSync(
 const withLine = (line: string) =>
   GAME.replace("function gameUpdate() {", `function gameUpdate() {\n  ${line}`);
 const BROKEN = withLine('throw new Error("broken game");');
-// The sub agent's inputs: taps in the middle.
+// The agent's playtest inputs: taps in the middle.
 const INPUTS = JSON.stringify({
   inputs: [500, 1000, 1500, 2000].map((at) => ({
     at,
@@ -95,7 +95,7 @@ const job: Job = {
   draftId: "check",
   revision: 0,
   source: {},
-  spec: { brief: "", music: null, title: "Fruit" },
+  spec: { music: null, title: "Fruit" },
 };
 
 const processes = async () => {
@@ -178,7 +178,7 @@ test(
 );
 
 test(
-  "a game that throws when it runs fails the check, with no test from the main agent",
+  "a game that throws when it runs fails the check, with no test from the agent",
   { skip, timeout: 300_000 },
   async () => {
     await restore(box, { "game.ts": BROKEN });
@@ -233,7 +233,7 @@ const tested = (tests: Tests): Job => ({
 });
 
 test(
-  "the main agent's tests pass on a game that does what they check",
+  "the agent's tests pass on a game that does what they check",
   { skip, timeout: 300_000 },
   async () => {
     await restore(box, { "game.ts": TESTED });

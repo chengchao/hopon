@@ -1,6 +1,6 @@
 // `node /opt/hopon/playtest.js ['<json>']` in the workspace, where json is {inputs, ms} or "random" for the eval's
 // fixed 10 s script. Prints the result JSON and writes playtest-start.png and playtest-end.png. Exit 1 when red.
-// `node /opt/hopon/playtest.js tests ['<json>']` runs the main agent's tests instead, from the JSON or ./tests.json.
+// `node /opt/hopon/playtest.js tests ['<json>']` runs the agent's tests instead, from the JSON or ./tests.json.
 import { readFileSync } from "node:fs";
 
 import { playtest, randomScript, runTests } from "./helpers.js";

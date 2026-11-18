@@ -15,7 +15,7 @@ export const isLittlejsHtml = (html: string) =>
 
 const MUSIC_SCRIPT = `<script src="${MUSIC}"></script>`;
 // A plain-DOM game's own index.html on the current scaffold, loading its music right after it exactly when it has some.
-// The sub agent never writes the music's script: the box's playtest has no music.js to serve.
+// The agent never writes the music's script: the box's playtest has no music.js to serve.
 export const domHtml = (html: string, music: boolean) => {
   const page = html
     .replaceAll(MUSIC_SCRIPT, "")

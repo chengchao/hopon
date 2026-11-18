@@ -1,4 +1,4 @@
-// The Make tab's WebSocket to a Draft's Talker (#126, #147). Each connect fetches a one-time ticket, then opens the
+// The Make tab's WebSocket to a Draft's Maker (#126, #147). Each connect fetches a one-time ticket, then opens the
 // socket, whose first frame is a snapshot of the whole chat. Messages and Stop are POSTs, so they work while this is
 // down; the socket only brings the Maker's side.
 import { addEventListener as onNetInfo } from "@react-native-community/netinfo";
@@ -8,7 +8,7 @@ import { AppState } from "react-native";
 import { api, API_URL } from "@/lib/api";
 import type { Frame } from "@/lib/maker-chat";
 
-// The Talker closes a socket that hasn't pinged for 60 s while a turn runs, and answers each ping with "pong".
+// The Maker closes a socket that hasn't pinged for 60 s while a turn runs, and answers each ping with "pong".
 const PING_MS = 20_000;
 // No frame and no pong for this long is a lost connection, even if the socket never closed (#126).
 const SILENCE_MS = 40_000;

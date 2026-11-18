@@ -1,0 +1,30 @@
+# 6. The Maker is one agent that loads game making as a skill
+
+## Status
+
+Proposed. Supersedes ADR 0005 and the Talker and Coder split of ADR 0003. ADR 0003's box, its Durable Object per Draft and its Container, and ADR 0004's Allowance stay as they are.
+
+## Context
+
+ADR 0005 runs two agents in one `Maker`. An Opus main agent chats with the Creator and briefs a Sonnet sub agent through a `build` tool, and the sub agent writes the game. The single-agent prototype (branch `claude/maker-single-agent`, commits `184d870` to `aedda08`) ran the same eight-chat e2e eval on its Preview with one Sonnet agent that chats and writes the game itself. A sweep cost about $1.2 to $1.3 against $2.34 for two agents. The median build took 54 to 83 seconds against about 105. The judge's "looks" score was 3.1 to 3.3 against 3.7, and every build was green.
+
+Creators also send messages that are not about a game: a greeting, a thank-you, a question about hopon. An agent that always carries the whole game workflow in its prompt pays for it on each of those turns.
+
+## Decision
+
+- **One agent.** The Maker's root conversation is the only conversation. It runs on `MAKER_MODEL` at `MAKER_EFFORT`, Sonnet 5.5 at medium by default. `MAKER_MAIN_*` and `MAKER_SUB_*` go. Its tools are pi's coding tools, the skills through `activate_skill`, `playtest`, and `build`.
+- **Game making is a skill.** The system prompt, `apps/worker/prompts/maker.md`, holds the Maker's voice, when to make a game, what games can't do, and the limits. The workflow, the design rules and the tests rules are the `make-game` skill. The prompt tells the agent to load it only when the Creator asks for a game or a change. The engine and music skills stay as they are. `building-games` and `AGENTS.md` fold into `make-game`.
+- **Prompts are Markdown.** The Worker bundles `prompts/*.md` as text. Values the code owns (the limits, the busy and used-up lines, the title and description lengths) are `{{name}}` placeholders that `renderPrompt` in `apps/worker/src/prompts.ts` fills. A placeholder with no value, or a value with no placeholder, throws. `maker.md` is the system prompt. `tool-results.md` holds what the tools tell the agent: the refusals, the restart, and `build`'s errors and result. Tool and parameter descriptions stay beside their types in code, because they are the tool's schema.
+- **The design has no word limit.** The main agent's brief was capped at 300 words. The agent now writes `design.md` itself, and the skill asks for a clear, complete and specific design with numbers: Goal, Rules, Controls, Difficulty, Fairness, Look, Language, Music and Done when.
+- **`build` publishes the workspace.** It runs `/opt/hopon/verify.js new` or `change` (design, Done-when criteria, tests and game present, and music for a new game), then the harness check of ADR 0005 with the agent's own `tests.json`, then writes Revision n+1, `design.md` and `tests.json` included, and the Draft's title and description. A failure is the tool's error result. A box that restarted during the call is restored to Revision n, so `build` then refuses and tells the agent its work is gone. `index.html` is the Revision's last file, and the current Revision is the newest one that has it, so an eviction mid-write leaves the old one current. The tool keeps the name `build`, because the app's chat draws the game card from a `build` result and the status line from a running `build`, so installed apps keep their game card and status line.
+- **`Music: none` needs the Creator's words.** The Maker keeps every message the Creator sends and writes them, as a JSON array, to `.hopon/asked.json` in the workspace before each run, after each restore, and before and after each `build`'s check, whose sweep removes `.hopon/`. It never reaches a Revision. For a new game, verify.js accepts `Music: none` only with a quote that is one of those messages, or at least 3 words or 12 characters of one, compared word for word. A change keeps the game's music as it is, none included.
+- **Only the reply reaches the Creator.** The Worker's socket strips the text of any assistant message that also calls a tool or was cut off (Stop, the abort timer, the length limit, an error), and streams no text, since text can't be told from a note until its message ends. Each socket renumbers the streaming message's later blocks past the text it dropped, because the app writes each change at its index. The model's transcript keeps everything. A prompt rule against notes between tool calls did not stop them in the prototype's eval.
+- **Limits per message.** 20 tool calls not counting `build`, 4 `build` calls, and 5 minutes, enforced by a `beforeTool` hook. Past one, tools are refused and the agent tells the Creator. The run's first tool call checks the Allowance and brings up and restores the box. Each later call brings the box up again, so a box that stopped mid-run is restarted and the agent told before the call runs.
+
+## Consequences
+
+- One model call per step instead of a main agent's turn around each build, so a sweep costs less and a build ends sooner. The prototype measured both. The prototype's "looks" scores were about 0.4 below two agents'. On this change's two head sweeps they averaged 3.64 against 3.71, about 0.07 lower.
+- A chat turn that isn't about a game loads no skill and calls no tool.
+- `design.md` and `tests.json` are part of a Revision, so a change after the box idled out starts with them. A Draft made before this change has neither, and the skill tells the agent to write `design.md` from the game's code first.
+- The app shows no status line until the agent calls `build`, because only `build` drives it.
+- The talker eval and `apps/maker/src/talker.ts` go. The e2e eval reads the one agent's builds from its tool calls, and the judge grades them against the Creator's messages.

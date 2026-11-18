@@ -1,11 +1,9 @@
-// One Talker chat of the eval: scripted Creator turns against a stub Coder that returns canned results (#115).
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+// The eval's scripted chats (#115) and how a chat is judged: what the Creator says each turn, what the Maker replies
+// and builds, and the judge's scores. The e2e run (preview.ts) plays them on a Preview.
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
 
 import type { Spec } from "../src/job.ts";
-import { openTalker } from "../src/talker.ts";
-import type { BuildResult, Talker, Thinking } from "../src/talker.ts";
 import { judgeTalker } from "./judge.ts";
 import type { TalkerTurnRecord } from "./judge.ts";
 
@@ -24,26 +22,10 @@ export const CHATS = JSON.parse(
   readFileSync(path.join(import.meta.dirname, "chats.json"), "utf-8")
 ) as Chat[];
 
-// Long enough for a steer to land mid-build; it is subtracted from the reply time.
-const STUB_BUILD_MS = 3000;
-const STEER_AFTER_MS = 1000;
 const MAX_WORDS = 60;
 const CODE = /```|<\/?[a-z][\w-]*[\s>]|\bfunction\b|=>|\bconst \w+ =|;\s*$/mu;
 
-const totalCost = (usage: {
-  models: Record<string, { cost: { total: number } }>;
-}) =>
-  Object.values(usage.models).reduce((sum, model) => sum + model.cost.total, 0);
-
-// The stub Coder's state for the current turn.
-interface Stub {
-  builds: Spec[];
-  buildMs: number;
-  steer?: () => void;
-}
-
-// One turn as the report reads it. The end-to-end run against a Preview (preview.ts) makes the same record from the
-// Draft's socket.
+// One turn as the report reads it, from the Draft's socket (preview.ts).
 export const turnRecord = ({
   turn,
   reply,
@@ -91,76 +73,32 @@ export const turnRecord = ({
 });
 type TurnRecord = ReturnType<typeof turnRecord>;
 
-const playTurn = async (talker: Talker, stub: Stub, turn: ChatTurn) => {
-  stub.builds = [];
-  stub.buildMs = 0;
-  stub.steer = turn.steer
-    ? () => {
-        void talker.steer(turn.steer ?? "");
-        stub.steer = undefined;
-      }
-    : undefined;
-  // The reply is every assistant message of the turn, read from its committed entry: partials arrive as deltas or
-  // as whole blocks, depending on commit timing. First token: the first streamed change of any kind (thinking too);
-  // first visible: the first text or tool call, what the app can show.
-  const texts: string[] = [];
-  let firstToken: number | undefined;
-  let firstVisible: number | undefined;
-  const unlisten = talker.listen((event) => {
-    if (event.type === "message_update") {
-      firstToken ??= Date.now();
-      const visible = event.changes.some(
-        (change) =>
-          change.type === "text_delta" ||
-          change.type === "toolcall_start" ||
-          ((change.type === "block" || change.type === "text_start") &&
-            change.block.type !== "thinking")
-      );
-      if (visible) {
-        firstVisible ??= Date.now();
-      }
-    } else if (
-      event.type === "message_end" &&
-      event.entry.kind === "pi.assistant"
-    ) {
-      const [message] = event.entry.model ?? [];
-      if (message?.role === "assistant") {
-        firstToken ??= Date.now();
-        firstVisible ??= Date.now();
-        texts.push(
-          message.content
-            .flatMap((part) => (part.type === "text" ? [part.text] : []))
-            .join("")
-        );
-      }
-    }
-  });
-  const costBefore = totalCost(await talker.usage());
-  const started = Date.now();
-  const settled = await talker.turn(turn.text);
-  const ms = Date.now() - started;
-  unlisten();
-  const reply = texts.join("\n").trim();
-  return turnRecord({
-    buildMs: stub.buildMs,
-    builds: stub.builds,
-    cost: totalCost(await talker.usage()) - costBefore,
-    firstTokenMs: firstToken === undefined ? undefined : firstToken - started,
-    firstVisibleMs:
-      firstVisible === undefined ? undefined : firstVisible - started,
-    ms,
-    reply,
-    status: settled.status,
-    turn,
-    unanswered:
-      settled.status === "done"
-        ? undefined
-        : JSON.stringify(settled).slice(0, 500),
-  });
-};
+// Whether the judge's scores pass a chat: every turn understood, and with two agents every build's brief a good spec.
+// With one agent (ADR 0006) a build has no brief, and the "spec" item grades the Creator's own words, so it is recorded
+// but not part of a pass.
+export const scoresPass = (
+  agents: 1 | 2,
+  judged:
+    | readonly {
+        understood: { score: number };
+        spec: { score: number } | null;
+      }[]
+    | undefined,
+  turns: readonly { builds: readonly unknown[] }[]
+) =>
+  judged !== undefined &&
+  judged.length === turns.length &&
+  judged.every(
+    (turn, index) =>
+      turn.understood.score >= 4 &&
+      (agents === 1 ||
+        turns[index]?.builds.length === 0 ||
+        (turn.spec?.score ?? 0) >= 4)
+  );
 
 // The chat judged and scored, into result.json.
 export const judgeChat = async ({
+  agents,
   chat,
   dir,
   modelId,
@@ -168,6 +106,7 @@ export const judgeChat = async ({
   thinking,
   turns,
 }: {
+  agents: 1 | 2;
   chat: Chat;
   dir: string;
   modelId: string;
@@ -194,16 +133,10 @@ export const judgeChat = async ({
       turn.builds.length === turn.buildsExpected &&
       turn.mentionOk
   );
-  const scoresOk =
-    judged !== undefined &&
-    judged.length === turns.length &&
-    judged.every(
-      (turn, index) =>
-        turn.understood.score >= 4 &&
-        (turns[index]?.builds.length === 0 || (turn.spec?.score ?? 0) >= 4)
-    );
+  const scoresOk = scoresPass(agents, judged, turns);
   const record = {
     agent: "talker",
+    agents,
     behaviourOk,
     brevityOk,
     chat: chat.id,
@@ -217,53 +150,6 @@ export const judgeChat = async ({
   };
   writeFileSync(path.join(dir, "result.json"), JSON.stringify(record, null, 2));
   return record;
-};
-
-export const runTalker = async ({
-  modelId,
-  chat,
-  run,
-  dir,
-  coder,
-  thinking = "high",
-}: {
-  modelId: string;
-  chat: Chat;
-  run: number;
-  dir: string;
-  // The real Coder, for the end-to-end run; without it, a stub returns a canned success after 3 s.
-  coder?: (spec: Spec) => Promise<BuildResult>;
-  thinking?: Thinking;
-}) => {
-  mkdirSync(dir, { recursive: true });
-  const stub: Stub = { buildMs: 0, builds: [] };
-  const talker = await openTalker({
-    build: async (spec) => {
-      stub.builds.push(spec);
-      const started = Date.now();
-      setTimeout(() => stub.steer?.(), STEER_AFTER_MS);
-      const result = coder
-        ? await coder(spec)
-        : await sleep(STUB_BUILD_MS).then((): BuildResult => ({
-            ok: true,
-            summary: `Built "${spec.title}". ${spec.brief.split(/(?<=\.)\s/u)[0]} It plays well and the playtest is green.`,
-          }));
-      stub.buildMs += Date.now() - started;
-      return result;
-    },
-    modelId,
-    thinking,
-  });
-  const turns: TurnRecord[] = [];
-  try {
-    for (const turn of chat.turns) {
-      // oxlint-disable-next-line no-await-in-loop -- a chat's turns are sequential
-      turns.push(await playTurn(talker, stub, turn));
-    }
-  } finally {
-    await talker.close();
-  }
-  return await judgeChat({ chat, dir, modelId, run, thinking, turns });
 };
 
 export type TalkerRecord = Awaited<ReturnType<typeof judgeChat>>;

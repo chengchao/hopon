@@ -13,7 +13,6 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 
 import type { Spec } from "../src/job.ts";
-import { CANDIDATES } from "../src/models.ts";
 import { buildRuntime } from "../src/runtime.ts";
 import { CODER_JOBS, OUT, passes, REVISIONS } from "./coder.ts";
 import type { CoderRecord } from "./coder.ts";
@@ -28,14 +27,13 @@ import {
   talkerStats,
 } from "./report.ts";
 import type { TalkerRecord } from "./talker.ts";
-import { CHATS, runTalker } from "./talker.ts";
+import { CHATS } from "./talker.ts";
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
   options: {
     chats: { type: "string" },
     concurrency: { default: "6", type: "string" },
-    models: { type: "string" },
     // e2e: the Worker Preview's URL the chats run on.
     preview: { type: "string" },
     runs: { default: "3", type: "string" },
@@ -49,7 +47,6 @@ const BLIND_RUNS = 20;
 
 const list = (value: string | undefined, all: string[]) =>
   value ? value.split(",").filter(Boolean) : all;
-const models = (fallback: string[]) => list(values.models, fallback);
 
 // A fixed number of tasks in flight.
 const pool = async <T>(tasks: (() => Promise<T>)[], size: number) => {
@@ -66,33 +63,6 @@ const pool = async <T>(tasks: (() => Promise<T>)[], size: number) => {
   await Promise.all(Array.from({ length: size }, worker));
   return results;
 };
-
-const version = (name: string) =>
-  (
-    JSON.parse(
-      readFileSync(
-        path.join(
-          import.meta.dirname,
-          "..",
-          "node_modules",
-          name,
-          "package.json"
-        ),
-        "utf-8"
-      )
-    ) as { version: string }
-  ).version;
-
-const versions = () =>
-  Object.fromEntries(
-    [
-      "@earendil-works/pi-ai",
-      "@earendil-works/pi-durable",
-      "littlejsengine",
-      "playwright-core",
-      "typescript",
-    ].map((name) => [name, version(name)])
-  );
 
 // The gateway refuses requests when Unified Billing runs short (402). Such a run says nothing about the model: its
 // result is discarded, and the sweep stops so nothing else is spent into a refusal. The next sweep reruns it.
@@ -395,42 +365,6 @@ const commands: Record<string, () => Promise<void> | void> = {
       await contactSheet(coderRuns);
     }
     console.log(markdown);
-  },
-  talker: async () => {
-    writeFileSync(
-      path.join(sweepDir, "versions.json"),
-      JSON.stringify(versions(), null, 2)
-    );
-    const chats = CHATS.filter((chat) =>
-      list(
-        values.chats,
-        CHATS.map((each) => each.id)
-      ).includes(chat.id)
-    );
-    const tasks = models(Object.keys(CANDIDATES)).flatMap((modelId) =>
-      chats.flatMap((chat) =>
-        Array.from({ length: Number(values.runs) }, (_, run) => async () => {
-          const dir = path.join(
-            sweepDir,
-            "talker",
-            modelId,
-            `${chat.id}-${run + 1}`
-          );
-          if (billingStopped || existsSync(path.join(dir, "result.json"))) {
-            return;
-          }
-          const record = await runTalker({ chat, dir, modelId, run: run + 1 });
-          if (refusedForBilling(dir, record)) {
-            return;
-          }
-          console.log(
-            `${modelId} ${chat.id}#${run + 1}: ${record.pass ? "pass" : "FAIL"} behaviour=${record.behaviourOk} brevity=${record.brevityOk} $${record.cost.toFixed(4)}`
-          );
-        })
-      )
-    );
-    await pool(tasks, Number(values.concurrency));
-    console.log(report(sweepDir, CALIBRATION).markdown);
   },
 };
 

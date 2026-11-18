@@ -1,4 +1,4 @@
-// Every Maker model call goes through here (#120, #136): the Talker's and the Coder's in the Worker, and the eval's,
+// Every Maker model call goes through here (#120, #136): the Maker's in the Worker (ADR 0006), and the eval's,
 // all for `http://models.internal/<provider>`. It routes by provider prefix and the body's `model`, adds the key, and
 // tags the call for the AI Gateway's logs, which are the only record (#120). Errors pass through; no retry.
 // At launch the only route is `/anthropic/v1/messages`.
@@ -16,7 +16,7 @@ export interface ModelEnv {
 export interface ModelCall {
   metadata: {
     draftId: string;
-    agent: "talker" | "coder" | "eval";
+    agent: "maker" | "eval";
     jobId?: string;
   };
   // Production drops message text from the gateway's logs (#125); the eval keeps it.

@@ -1,27 +1,25 @@
-// The Maker (ADR 0005): one Durable Object per Draft, `env.MAKER.getByName(draftId)`, running both of the Draft's
-// agents in one pi-durable Harness through PiHarness on the Agent class. The main agent is the root conversation: it
-// chats with the Creator and calls `build` (build.ts). The sub agent is a child conversation each `build` call owns: it
-// writes the game in the sandbox with pi's coding tools and `playtest`. The sandbox is the Draft's Container, which the
-// Maker starts and drives itself (agent-sandbox.ts).
+// The Maker (ADR 0006): one Durable Object per Draft, `env.MAKER.getByName(draftId)`, running one agent in a
+// pi-durable Harness through PiHarness on the Agent class. The agent chats with the Creator and, when asked for a game
+// or a change, loads the make-game skill and writes the game itself in the sandbox, with pi's coding tools, the skills,
+// `playtest`, and `build` (publish.ts), which checks the workspace and writes the next Revision. The sandbox is the Draft's Container, which the Maker
+// starts and drives itself (agent-sandbox.ts).
 //
-// pi owns the run: the transcripts, queued steers, model calls, and resuming after an eviction. Ours is the Effect
+// pi owns the run: the transcript, queued steers, model calls, and resuming after an eviction. Ours is the Effect
 // services around pi and the sandbox, the requests the Worker forwards, and the sockets: every connect gets pi's
-// snapshot of the main agent's conversation, then live batches (#128). What a job does in the sandbox (the prompt, the
-// playtest, the workspace it starts from, its ending) is the game rules' (apps/maker/src/job.ts).
+// snapshot of the conversation, then live batches (#128).
 import { Type } from "@earendil-works/pi-ai";
 import {
   createRegistry,
   defineExtension,
   defineTool,
-  GenerationTask,
   Harness,
   hook,
+  InboxDoc,
+  LiveDoc,
   ToolTask,
 } from "@earendil-works/pi-durable";
 import type {
   AgentEventStream,
-  ConversationId,
-  Extension,
   SubmissionId,
 } from "@earendil-works/pi-durable";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
@@ -41,29 +39,21 @@ import {
   Semaphore,
 } from "effect";
 
-import BUILDING_GAMES from "../../maker/agent-home/.agents/skills/building-games/SKILL.md";
 import DOM_GAMES from "../../maker/agent-home/.agents/skills/dom-games/SKILL.md";
 import LITTLEJS from "../../maker/agent-home/.agents/skills/littlejs-api/SKILL.md";
+import MAKE_GAME from "../../maker/agent-home/.agents/skills/make-game/SKILL.md";
 import MUSIC_SF2 from "../../maker/agent-home/.agents/skills/music-sf2/SKILL.md";
 import MUSIC_SYNTH from "../../maker/agent-home/.agents/skills/music-synth/SKILL.md";
 import ZZFX from "../../maker/agent-home/.agents/skills/zzfx/SKILL.md";
-import AGENTS from "../../maker/agent-home/AGENTS.md";
 import {
   boxPlaytest,
-  checkBuild,
   DEADLINE_MS,
-  MAX_REPAIRS,
+  MAX_BUILDS,
   MAX_STEPS,
-  pastDeadline,
-  prompt,
-  repairPrompt,
-  RESTARTED,
   restore,
   screenshots,
-  stepLabel,
-  SYSTEM_PROMPT,
 } from "../../maker/src/job.ts";
-import type { Job } from "../../maker/src/job.ts";
+import MAKER from "../prompts/maker.md";
 import {
   AgentSandbox,
   BoxStartFailed,
@@ -72,11 +62,13 @@ import {
   jobBox,
   readyFirst,
 } from "./agent-sandbox.ts";
-import { buildTool } from "./build.ts";
-import type { Final } from "./build.ts";
-import { MAIN_PROMPT } from "./main-prompt.ts";
 import { metered, piModels } from "./pi-models.ts";
+import { BUSY, MAKER_VALUES, renderPrompt, USED_UP } from "./prompts.ts";
+import { publishTool, revisionSource, writeAsked } from "./publish.ts";
+import { creatorView } from "./reply.ts";
 import { drafts, now } from "./schema.ts";
+import { allowanceLeft } from "./storage.ts";
+import { toolResult } from "./tool-results.ts";
 
 class PiError extends Data.TaggedError("PiError")<{
   readonly cause: unknown;
@@ -85,7 +77,7 @@ class PiError extends Data.TaggedError("PiError")<{
 const call = <A>(f: () => Promise<A>) =>
   Effect.tryPromise({ catch: (cause) => new PiError({ cause }), try: f });
 
-// The main agent's conversation at the edge: every call is a promise, so each method is one Effect.tryPromise.
+// The conversation at the edge: every call is a promise, so each method is one Effect.tryPromise.
 class Pi extends Context.Service<
   Pi,
   {
@@ -128,38 +120,21 @@ const TICKET_MS = 60_000;
 // hibernation, so one with no ping for this long is closed.
 const SILENT_MS = 60_000;
 
-// AGENTS.md as the sub agent's project section, with its "read the skill" lines pointed at activate_skill: the skills
-// aren't files.
-const READ_SKILL =
-  "Read the `building-games` skill, then the skill for the engine, with the **read tool**. Skills are not in the workspace, so bash can't see them; don't look for them with bash";
-if (!AGENTS.includes(READ_SKILL)) {
-  throw new Error("AGENTS.md no longer says how to read a skill");
-}
-const PROJECT = AGENTS.replace(
-  READ_SKILL,
-  "Load the `building-games` skill, then the skill for the engine, with **activate_skill**. Skills are not in the workspace, so bash can't see them; don't look for them with bash"
-)
-  .replaceAll("Read the `", "Load the `")
-  .replaceAll("read the `", "load the `");
+const PROMPT = renderPrompt(MAKER, MAKER_VALUES);
 
 const SKILLS = fromManifest({
-  fingerprint: "v3",
-  id: "hopon-coder",
-  skills: [
-    BUILDING_GAMES,
-    DOM_GAMES,
-    LITTLEJS,
-    MUSIC_SF2,
-    MUSIC_SYNTH,
-    ZZFX,
-  ].map((raw) => {
-    const parsed = parseSkillMarkdown(raw);
-    if (!parsed) {
-      throw new Error(`a SKILL.md without frontmatter: ${raw.slice(0, 80)}`);
+  fingerprint: "v7",
+  id: "hopon-maker",
+  skills: [MAKE_GAME, DOM_GAMES, LITTLEJS, MUSIC_SF2, MUSIC_SYNTH, ZZFX].map(
+    (raw) => {
+      const parsed = parseSkillMarkdown(raw);
+      if (!parsed) {
+        throw new Error(`a SKILL.md without frontmatter: ${raw.slice(0, 80)}`);
+      }
+      const { body, description, name } = parsed;
+      return { body, description, name };
     }
-    const { body, description, name } = parsed;
-    return { body, description, name };
-  }),
+  ),
 });
 
 const Input = Type.Object({
@@ -171,29 +146,25 @@ const Input = Type.Object({
   y: Type.Number(),
 });
 
-// The running or last job, in the object's storage, so a restarted object still knows its limits.
-interface JobState {
-  jobId: string;
-  job: Job;
-  // The sub agent's conversation, as PiHarness names its session.
-  conversation: string;
+// The limits of the run in flight, in the object's storage, keyed by the input that began pi's run (a turn's steers
+// join it). Each run's work begins at its first tool call.
+interface RunState {
+  run: string;
   deadlineAt: number;
+  // Tool calls but `build`, and `build` calls.
   steps: number;
-  // The harness check's failures sent back to the sub agent.
-  repairs: number;
-  // The box started again mid-job and lost what the sub agent wrote, which it hasn't yet been told.
+  builds: number;
+  // The box started again mid-run, from the current Revision, and the agent hasn't yet been told.
   restarted?: boolean;
-  // Why it was stopped: the deadline, the step limit or Stop.
-  stopped?: string;
+  // Where the run's messages begin in `asked`.
+  from: number;
+  // How many of the Creator's messages the agent had seen when the run's last `build` began: not those still queued.
+  seen?: number;
 }
 
-// Each agent's model calls go through its own pi provider, which tags them for the gateway (pi-models.ts). The eval
-// reads the tags.
-const MAIN_PROVIDER = "anthropic";
-const SUB_PROVIDER = "anthropic-sub";
-
-const text = (content: readonly { type: string; text?: string }[]) =>
-  content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
+const PROVIDER = "anthropic";
+// Tools that change the workspace, after which it no longer holds the Revision it was restored to.
+const WRITES = new Set(["bash", "edit", "write"]);
 
 export class Maker extends Agent<Env> {
   // Overridden by the Maker test's fake sandbox (test/maker/worker.ts).
@@ -205,10 +176,8 @@ export class Maker extends Agent<Env> {
   // One start at a time: a call that finds the box starting waits for it, restore included.
   starting = Semaphore.makeUnsafe(1);
 
-  // The box is a cache over the job: one that stopped (idle, a deploy, a crash) starts again from the unfinished
-  // job's source, whether pi resumes the run with nobody connected or a rerun of `build` waits for it. What the old box
-  // held since the job began is gone, and the harness check, which would otherwise pass the old game, first tells the
-  // sub agent to write its changes again.
+  // The box is a cache over the Draft's current Revision: one that stopped (idle, a deploy, a crash) starts again
+  // from it, and a run in flight is told its work is gone.
   up = this.starting.withPermit(
     Effect.gen({ self: this }, function* () {
       const box = yield* AgentSandbox;
@@ -220,113 +189,145 @@ export class Maker extends Agent<Env> {
         return yield* new BoxStartFailed({ cause: "the Draft is deleted" });
       }
       yield* box.start;
-      const state = this.job;
-      if (state && !this.final(state.jobId)) {
-        yield* Effect.promise(() => restore(jobBox(box), state.job.source));
-        this.job = { ...state, restarted: true };
+      const { n, source } = yield* Effect.promise(() =>
+        revisionSource(this.env.FILES, this.name)
+      );
+      yield* Effect.promise(async () => {
+        await restore(jobBox(box), source);
+        await writeAsked(jobBox(box), this.askedSinceNew());
+      });
+      this.workspace = n;
+      const state = this.runState;
+      if (state) {
+        this.runState = { ...state, restarted: true };
       }
     })
   );
 
-  // Every command and file a job touches comes through `up` first.
+  // Every command and file a run touches comes through `up` first.
   box = readyFirst(this.sandbox.runSync(AgentSandbox), () =>
     this.sandbox.runPromise(this.up)
   );
 
-  // What each job holds in memory while its `build` call waits: its step listener, its deadline, and the abort of the
-  // harness check's commands. Keyed by job, so a stopped job that is still ending never touches the next one.
-  running = new Map<
-    string,
-    {
-      step: (label: string) => void;
-      deadline: ReturnType<typeof setTimeout>;
-      check: AbortController;
-    }
-  >();
-  // One job begins at a time, so a stopped job still restoring the workspace can't overwrite the next one's.
+  // One run begins at a time: a round's parallel first calls restore the workspace once.
   beginning = Semaphore.makeUnsafe(1);
+  // The run's abort timer, 30 s past its deadline (MAKER_BUILD_ABORT_S), cleared at its end.
+  abortTimer: ReturnType<typeof setTimeout> | undefined;
   // Set by Delete: from then on nothing starts the box or reopens pi.
   closing = false;
 
-  get job() {
-    return this.ctx.storage.kv.get<JobState>("job");
+  get runState() {
+    return this.ctx.storage.kv.get<RunState>("run");
   }
 
-  set job(state: JobState | undefined) {
-    this.ctx.storage.kv.put("job", state);
+  set runState(state: RunState | undefined) {
+    this.ctx.storage.kv.put("run", state);
   }
 
-  // The last job's final event only: one with music.js runs to hundreds of KB.
-  final(jobId: string) {
-    const last = this.ctx.storage.kv.get<{ jobId: string; event: Final }>(
-      "final"
-    );
-    return last?.jobId === jobId ? last.event : undefined;
+  // Whether the box restarted since the agent was last told, which it is now.
+  tellRestart() {
+    const state = this.runState;
+    if (!state?.restarted) {
+      return false;
+    }
+    this.runState = { ...state, restarted: false };
+    return true;
   }
 
-  // Stops this job only, and never after Delete, when reaching pi would open it again.
-  stop(jobId: string, reason: string) {
-    const { job } = this;
-    if (this.closing || job?.jobId !== jobId || this.final(jobId)) {
-      return;
-    }
-    this.job = { ...job, stopped: job.stopped ?? reason };
-    this.running.get(jobId)?.check.abort();
-    // oxlint-disable-next-line no-void -- the run ends on its own; its waiter reads `stopped`
-    void this.harness.session(job.conversation).abort();
+  // Everything the Creator has said in this chat.
+  get asked() {
+    return this.ctx.storage.kv.get<string[]>("asked") ?? [];
   }
 
-  settle(jobId: string, event: Final) {
-    this.ctx.storage.kv.put("final", { event, jobId });
-    return event;
+  set asked(messages: string[]) {
+    this.ctx.storage.kv.put("asked", messages);
   }
 
-  // The sub agent's answer, through the harness check (job.ts): a message that sends it back to work, or the job's
-  // final event, kept for a rerun of `build`. A job stopped meanwhile is left to `runJob`.
-  async end(jobId: string, report: string) {
-    await this.sandbox.runPromise(this.up);
-    const before = this.job;
-    if (before?.jobId !== jobId) {
-      throw new Error(`job ${jobId} ended without its state`);
+  // What verify.js reads for its `Music: none` quote (publish.ts's writeAsked): what the Creator asked of an earlier
+  // game doesn't hold for the next one. A published new game (a start over is one) cuts at the messages its agent had
+  // seen when it built, so one sent during the build counts for the change after it; the run in flight keeps its own.
+  askedSinceNew(run = this.runState) {
+    const cut = this.ctx.storage.kv.get<number>("askedFrom") ?? 0;
+    return this.asked.slice(Math.min(cut, run?.from ?? cut));
+  }
+
+  // The Revision the workspace holds, undefined once a run has changed it.
+  get workspace() {
+    return this.ctx.storage.kv.get<number>("workspace");
+  }
+
+  set workspace(n: number | undefined) {
+    if (n === undefined) {
+      this.ctx.storage.kv.delete("workspace");
+    } else {
+      this.ctx.storage.kv.put("workspace", n);
     }
-    const verdict = await checkBuild(
-      jobBox(this.box, this.running.get(jobId)?.check.signal),
-      { job: before.job }
-    );
-    const state = this.job;
-    if (state?.jobId !== jobId || state.stopped) {
-      return;
-    }
-    if (state.restarted) {
-      this.job = { ...state, restarted: false };
-      return { continue: RESTARTED };
-    }
-    // The record of each failed check and each test error, which the eval reads from the step labels.
-    const { testErrors = [], ...outcome } = verdict;
-    if (testErrors.length > 0) {
-      this.running
-        .get(jobId)
-        ?.step(`Test error: ${testErrors.join(" | ").slice(0, 600)}`);
-    }
-    if ("errors" in outcome) {
-      this.running
-        .get(jobId)
-        ?.step(`Harness failed: ${outcome.errors.join(" | ").slice(0, 600)}`);
-      if (state.repairs < MAX_REPAIRS) {
-        this.job = { ...state, repairs: state.repairs + 1 };
-        return { continue: repairPrompt(outcome.errors) };
+  }
+
+  // A run's work begins: the Allowance checked (ADR 0004: work starts only above zero; once started it finishes), the
+  // box up, and the workspace restored to the current Revision unless it holds it. Undefined, or why it can't begin.
+  // Each later call of the run brings the box up too, so one that stopped since is restarted, and the run told, before
+  // the call runs on what's left.
+  async begin(run: string, from: number): Promise<string | undefined> {
+    const begun = this.runState?.run === run;
+    if (!begun) {
+      const db = drizzle(this.env.DB);
+      const draft = await db
+        .select({ owner: drafts.owner })
+        .from(drafts)
+        .where(eq(drafts.id, this.name))
+        .get();
+      const allowed =
+        !!draft &&
+        (await allowanceLeft(
+          db,
+          draft.owner,
+          Number(this.env.MAKER_WEEKLY_TOKENS)
+        )) > 0;
+      if (!allowed) {
+        return toolResult("used-up", { USED_UP });
       }
-      this.settle(jobId, {
-        reason: `the harness check failed: ${outcome.errors.join("; ")}`,
-        type: "failed",
-      });
+    }
+    const up = await this.sandbox.runPromise(
+      this.up.pipe(
+        Effect.as(true),
+        // NoBox's message says how to get a box under plain `wrangler dev`.
+        Effect.catch((error) =>
+          Effect.sync(() => {
+            console.error(`Maker ${this.name}: no box`, error);
+            return false;
+          })
+        )
+      )
+    );
+    if (!up) {
+      return toolResult("busy", { BUSY });
+    }
+    if (begun) {
       return;
     }
-    this.settle(
-      jobId,
-      Date.now() > state.deadlineAt
-        ? { reason: pastDeadline(DEADLINE_MS / 1000), type: "failed" }
-        : { ...outcome, summary: report.trim(), type: "done" }
+    const { n, source } = await revisionSource(this.env.FILES, this.name);
+    if (this.workspace !== n) {
+      await restore(jobBox(this.box), source);
+      this.workspace = n;
+    }
+    const state = {
+      builds: 0,
+      deadlineAt: Date.now() + DEADLINE_MS,
+      from,
+      run,
+      steps: 0,
+    };
+    await writeAsked(jobBox(this.box), this.askedSinceNew(state));
+    this.runState = state;
+    clearTimeout(this.abortTimer);
+    this.abortTimer = setTimeout(
+      () => {
+        if (this.runState?.run === run && !this.closing) {
+          this.runtime.runFork(Pi.use((pi) => pi.abort));
+        }
+      },
+      Number(this.env.MAKER_BUILD_ABORT_S) * 1000
     );
   }
 
@@ -334,7 +335,7 @@ export class Maker extends Agent<Env> {
     description:
       "Typecheck and play the game in headless Chromium (360×640) on a fake clock: loads it, taps the centre to start, runs your inputs (game ms), stops when the game ends, and returns the result with screenshots of the start and the end (the over screen when it ended).",
     execute: async ({ inputs }, _api, context) => {
-      // Stop and the deadline abort the run, and with it the playtest's command.
+      // Stop and the abort timer abort the run, and with it the playtest's command.
       const box = jobBox(this.box, context?.abortSignal);
       const result = await boxPlaytest(
         box,
@@ -362,96 +363,90 @@ export class Maker extends Agent<Env> {
     replay: "safe",
   });
 
-  // #116's step limit: the 21st call is blocked and the job stopped. Each step's label goes to the main agent's status.
+  build = publishTool(
+    this.env,
+    this.name,
+    (signal) => jobBox(this.box, signal),
+    () => this.askedSinceNew(),
+    () => this.tellRestart(),
+    (n, kind) => {
+      this.workspace = n;
+      if (kind === "new") {
+        this.ctx.storage.kv.put(
+          "askedFrom",
+          this.runState?.seen ?? this.asked.length
+        );
+      }
+    }
+  );
+
+  // #116's limits, per run: the 21st step, the 5th `build` and any call past the deadline are refused, and the agent
+  // tells the Creator. The run's first call begins its work.
   limits = hook(ToolTask, {
-    beforeTool: (toolCall) => {
-      const { job } = this;
-      if (!job || toolCall.parent) {
+    beforeTool: async (toolCall, api, context) => {
+      if (toolCall.parent) {
         return;
       }
-      const steps = job.steps + 1;
-      this.job = { ...job, steps };
-      if (steps > MAX_STEPS) {
-        this.stop(job.jobId, `over ${MAX_STEPS} steps`);
-        return { block: `Over the ${MAX_STEPS}-step limit.` };
+      const live = await api.snapshot(LiveDoc, api.conversationId, context);
+      const inputs = live?.run?.inputs ?? [];
+      const run = String(inputs[0]);
+      const inbox = await api.snapshot(InboxDoc, api.conversationId, context);
+      const seen =
+        this.asked.length -
+        (inbox?.items ?? []).filter((item) => item.mode !== "write").length;
+      const refused = await this.sandbox.runPromise(
+        this.beginning.withPermit(
+          Effect.promise(() => this.begin(run, seen - inputs.length))
+        )
+      );
+      const state = this.runState;
+      if (refused || state?.run !== run) {
+        return { block: refused ?? toolResult("run-ended") };
       }
-      this.running
-        .get(job.jobId)
-        ?.step(stepLabel(toolCall.name, toolCall.arguments));
+      if (this.tellRestart()) {
+        return { block: toolResult("restarted") };
+      }
+      const building = toolCall.name === "build";
+      const next = {
+        ...state,
+        builds: state.builds + (building ? 1 : 0),
+        ...(building && { seen }),
+        steps: state.steps + (building ? 0 : 1),
+      };
+      this.runState = next;
+      if (next.steps > MAX_STEPS) {
+        return { block: toolResult("steps", { MAX_STEPS }) };
+      }
+      if (next.builds > MAX_BUILDS) {
+        return { block: toolResult("builds", { MAX_BUILDS }) };
+      }
+      if (Date.now() > state.deadlineAt) {
+        return {
+          block: toolResult("deadline", { SECONDS: DEADLINE_MS / 1000 }),
+        };
+      }
+      if (WRITES.has(toolCall.name)) {
+        this.workspace = undefined;
+      }
     },
   });
 
-  // The ending runs inside pi's run, at each of the sub agent's final answers, so it completes with nobody connected.
-  // A `continue` sends the sub agent back to work in the same run. A stopped run never yields; `runJob` ends it.
-  ending = hook(GenerationTask, {
-    onYield: async (answer) => {
-      const state = this.job;
-      if (!state || state.stopped || this.final(state.jobId)) {
-        return;
-      }
-      return await this.end(state.jobId, text(answer.content));
-    },
-  });
-
-  // Each agent is one extension, so its prompt and hooks apply to its own conversations only. The sub agent's skills
-  // come from skills(), which is async, so the Harness factory adds them.
-  sub = defineExtension({
-    hooks: [this.limits, this.ending, metered(this.env, () => this.name)],
-    name: "sub",
-    sections: [
-      { key: "preamble", render: () => SYSTEM_PROMPT, tag: false },
-      { key: "project", render: () => PROJECT },
-    ],
-    tools: [this.playtest],
-  });
-
-  subSkills: Extension | undefined;
-
-  main = defineExtension({
-    hooks: [metered(this.env, () => this.name)],
-    name: "main",
-    sections: [{ key: "preamble", render: () => MAIN_PROMPT, tag: false }],
-    tools: [
-      buildTool(
-        this.env,
-        this.name,
-        this.ctx.storage,
-        () => {
-          this.runtime.runFork(Pi.use((pi) => pi.abort));
-        },
-        {
-          agent: () => ({
-            extensions: [
-              CodingTools,
-              this.sub,
-              ...(this.subSkills ? [this.subSkills] : []),
-            ],
-            model: {
-              modelId: this.env.MAKER_SUB_MODEL,
-              provider: SUB_PROVIDER,
-            },
-            thinkingLevel: this.env.MAKER_SUB_EFFORT,
-          }),
-          run: (job, step, signal) => this.runJob(job, step, signal),
-        }
-      ),
-    ],
+  maker = defineExtension({
+    hooks: [this.limits, metered(this.env, () => this.name)],
+    name: "maker",
+    sections: [{ key: "preamble", render: () => PROMPT, tag: false }],
+    tools: [this.playtest, this.build],
   });
 
   harness = new PiHarness({
     defaults: {
-      model: { id: this.env.MAKER_MAIN_MODEL, provider: MAIN_PROVIDER },
-      thinkingLevel: this.env.MAKER_MAIN_EFFORT,
+      model: { id: this.env.MAKER_MODEL, provider: PROVIDER },
+      thinkingLevel: this.env.MAKER_EFFORT,
     },
     harness: async ({ storage, context, onWake }) => {
-      this.subSkills = await skills([SKILLS]);
+      const skilled = await skills([SKILLS]);
       const registry = createRegistry();
-      for (const extension of [
-        CodingTools,
-        this.sub,
-        this.subSkills,
-        this.main,
-      ]) {
+      for (const extension of [CodingTools, this.maker, skilled]) {
         registry.install(extension);
       }
       // Retention 0: pi drops an idle conversation at once, so the object hibernates between turns (#128). onWake: a
@@ -462,27 +457,17 @@ export class Maker extends Agent<Env> {
           env: () => boxEnv(this.box, `box:${this.name}`),
           models: piModels(this.env, [
             {
-              metadata: () => ({ agent: "talker", draftId: this.name }),
-              model: this.env.MAKER_MAIN_MODEL,
-              provider: MAIN_PROVIDER,
-            },
-            {
-              metadata: () => ({
-                agent: "coder",
-                draftId: this.name,
-                jobId: this.job?.jobId ?? "none",
-              }),
-              model: this.env.MAKER_SUB_MODEL,
-              provider: SUB_PROVIDER,
+              metadata: () => ({ agent: "maker", draftId: this.name }),
+              model: this.env.MAKER_MODEL,
+              provider: PROVIDER,
             },
           ]),
           onWake,
           registry,
-          // The root conversation, the main agent's, gets only its own extension. `build` configures each child.
           settings: {
             contextRetentionMs: 0,
             documentRetentionMs: 0,
-            extensions: [this.main],
+            extensions: [CodingTools, this.maker, skilled],
           },
         },
         context
@@ -528,114 +513,6 @@ export class Maker extends Agent<Env> {
     );
   }
 
-  // A job's deadline, armed when its `build` call waits for it, and again by a rerun after a restart.
-  armDeadline(state: JobState) {
-    return setTimeout(
-      () => this.stop(state.jobId, pastDeadline(DEADLINE_MS / 1000)),
-      Math.max(0, state.deadlineAt - Date.now())
-    );
-  }
-
-  // A job's start, one at a time: the box up, and for a new job the workspace rewritten from its source and its state
-  // written. Its prompt is submitted every time, under its id, so a rerun after a reset submits it if the reset came
-  // first, and pi takes it once. Undefined once started; a final event when it can't start.
-  async begin(
-    jobId: string,
-    job: Job,
-    session: ReturnType<PiHarness["session"]>,
-    signal: AbortSignal
-  ): Promise<Final | undefined> {
-    if (signal.aborted) {
-      return this.settle(jobId, { reason: "cancelled", type: "failed" });
-    }
-    const up = await this.sandbox.runPromise(
-      this.up.pipe(
-        Effect.as(true),
-        // NoBox's message says how to get a box under plain `wrangler dev`.
-        Effect.catch((error) =>
-          Effect.sync(() => {
-            console.error(`Maker ${this.name}: no box`, error);
-            return false;
-          })
-        )
-      )
-    );
-    if (!up) {
-      // A box that can't start built nothing and made no model call: `busy` (#122).
-      return this.settle(jobId, { reason: "busy", type: "failed" });
-    }
-    if (this.job?.jobId !== jobId) {
-      await restore(jobBox(this.box), job.source);
-      if (signal.aborted) {
-        return this.settle(jobId, { reason: "cancelled", type: "failed" });
-      }
-      this.job = {
-        conversation: session.id,
-        deadlineAt: Date.now() + DEADLINE_MS,
-        job,
-        jobId,
-        repairs: 0,
-        steps: 0,
-      };
-    }
-    await session.submit(prompt(job), { operationId: jobId });
-  }
-
-  // One job, from `build`: started, then waited for; a finished one is answered at once. Stop and the turn's timer
-  // abort `signal`, and the job ends `failed: cancelled`.
-  async runJob(
-    {
-      jobId,
-      job,
-      conversation,
-    }: { jobId: string; job: Job; conversation: ConversationId },
-    step: (label: string) => void,
-    signal: AbortSignal
-  ): Promise<Final> {
-    const stored = this.final(jobId);
-    if (stored) {
-      return stored;
-    }
-    const session = this.harness.session(String(conversation));
-    const unstarted = await this.sandbox.runPromise(
-      this.beginning.withPermit(
-        Effect.promise(() => this.begin(jobId, job, session, signal))
-      )
-    );
-    const state = this.job;
-    if (unstarted || state?.jobId !== jobId) {
-      return (
-        unstarted ??
-        this.final(jobId) ?? { reason: "cancelled", type: "failed" }
-      );
-    }
-    const cancel = () => this.stop(jobId, "cancelled");
-    signal.addEventListener("abort", cancel, { once: true });
-    const deadline = this.armDeadline(state);
-    this.running.set(jobId, { check: new AbortController(), deadline, step });
-    try {
-      await session.wait(jobId);
-      // The run's last answer settled it (`end`), unless it was stopped or the check threw, which pi swallows.
-      return (
-        this.final(jobId) ??
-        this.settle(jobId, {
-          reason: this.job?.stopped ?? "the harness check didn't finish",
-          type: "failed",
-        })
-      );
-    } catch (error) {
-      console.error(`Maker ${this.name}: job ${jobId}`, error);
-      return this.settle(jobId, {
-        reason: `the sub agent failed: ${String(error)}`,
-        type: "failed",
-      });
-    } finally {
-      clearTimeout(deadline);
-      signal.removeEventListener("abort", cancel);
-      this.running.delete(jobId);
-    }
-  }
-
   // oxlint-disable-next-line class-methods-use-this -- Agent's hook: the socket carries our frames only, not its protocol.
   shouldSendProtocolMessages() {
     return false;
@@ -649,9 +526,13 @@ export class Maker extends Agent<Env> {
       );
       this.streams.set(connection.id, stream);
       const send = (frame: Frame) => connection.send(JSON.stringify(frame));
-      send({ data: stream.snapshot, type: "snapshot" });
+      const forCreator = creatorView();
+      send({
+        data: forCreator(stream.snapshot) as typeof stream.snapshot,
+        type: "snapshot",
+      });
       stream.start((events) => {
-        send({ data: events, type: "batch" });
+        send({ data: events.map(forCreator), type: "batch" });
         for (const event of events) {
           if (event.type !== "submission") {
             continue;
@@ -692,6 +573,7 @@ export class Maker extends Agent<Env> {
         } else if (event.type === "run_end") {
           clearInterval(this.ticker);
           this.ticker = undefined;
+          clearTimeout(this.abortTimer);
           // oxlint-disable-next-line no-await-in-loop -- one run ends per batch at most.
           await db
             .update(drafts)
@@ -780,6 +662,8 @@ export class Maker extends Agent<Env> {
             request.json<{ text: string }>()
           );
           const id = yield* pi.send(message);
+          // After pi queues it, so a message counted here is in pi's inbox or a run (the limits hook's `seen`).
+          this.asked = [...this.asked, message];
           return Response.json({ id }, { status: 202 });
         }
         if (action === "stop") {
@@ -795,7 +679,7 @@ export class Maker extends Agent<Env> {
             busy: !!snapshot.run || snapshot.inbox.length > 0,
           });
         }
-        // Delete (#144): any build stopped, the box, then the transcripts, the schedules and the rest of the storage; the
+        // Delete (#144): any run stopped, the box, then the transcripts, the schedules and the rest of the storage; the
         // reset closes the sockets. The Worker deletes the files and the row.
         if (action === "delete") {
           // A running build ends first, while pi is open; after `closing` nothing reaches pi or starts the box.

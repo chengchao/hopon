@@ -1,6 +1,6 @@
-// How the Coder does a build job, whatever runs the agent: the job and its events, the prompt, the playtest, the
-// workspace a job starts from and the Revision it ends with. It reaches the box only through `Box`, so a Coder on any
-// box runs it unchanged (#173); the Worker's adapts its Container (jobBox in apps/worker/src/agent-sandbox.ts).
+// What the Maker's harness does in the box, whatever runs the agent: the playtest, the workspace a run starts from, and
+// the check that turns the workspace into a Revision. It reaches the box only through `Box`, so it runs unchanged on
+// any box (#173); the Worker's adapts its Container (jobBox in apps/worker/src/agent-sandbox.ts).
 import { Schema } from "effect";
 
 import { domHtml, isLittlejsHtml, littlejsHtml, MUSIC } from "../image/page.ts";
@@ -25,20 +25,14 @@ export interface Box {
 // Sonnet at high effort. The turn's abort timer sits 30 s past it (#122).
 export const MAX_STEPS = 20;
 export const DEADLINE_MS = 300_000;
-// Harness repairs per build (ADR 0005): a check that fails sends the errors back this many times, then the build fails.
-export const MAX_REPAIRS = 3;
+// `build` calls per message (ADR 0006): a failed check comes back as errors to fix, this many times in all.
+export const MAX_BUILDS = 4;
 const MUSIC_MIN_S = 20;
 const MUSIC_MAX_S = 40;
 
-export const SYSTEM_PROMPT = `You are the sub agent in hopon, an app where people make small phone games by chatting. You get one build job from the main agent, who talks to the Creator: a new game to make, or a change to the game in the workspace. The brief names the engine and ends with the success criteria under "Done when:". You build it, playtest it until it meets every criterion, and report back to the main agent. You never talk to the Creator.
-
-When the work the user asked for is done and checked, stop and report. Don't add features, tests, files, docs or refactors that weren't asked for. If you think one would help, mention it at the end instead of doing it.
-
-Your tools run in the game's workspace, a sandbox with no network. Follow the project instructions below.`;
-
-// The main agent's tests of a build (ADR 0005): the game values they read, which the sub agent keeps on a
-// top-level `testVars` in game.ts, and the tests the harness runs on every check.
-const TestsSchema = Schema.Struct({
+// The agent's tests of its game (tests.json): the game values they read, which it keeps on a top-level `testVars` in
+// game.ts, and the tests the harness runs on every check.
+export const TestsSchema = Schema.Struct({
   expose: Schema.Array(
     Schema.Struct({ means: Schema.String, name: Schema.String })
   ),
@@ -54,15 +48,14 @@ const TestsSchema = Schema.Struct({
 });
 export type Tests = typeof TestsSchema.Type;
 
-// The job from the Talker (#122), decoded at the server's door.
-export const JobSchema = Schema.Struct({
+// What the check needs of a build: the Revision it starts from, and whether to render music and which tests to run.
+const JobSchema = Schema.Struct({
   draftId: Schema.String,
   // The Revision the job starts from, 0 when the Draft has none.
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   // game.ts, index.html, music.mjs or music.py; never game.js or music.js. Empty for a new game, a start over included.
   source: Schema.Record(Schema.String, Schema.String),
   spec: Schema.Struct({
-    brief: Schema.String,
     // genre and mood when this build writes or rewrites the music, else null
     music: Schema.NullOr(Schema.String),
     tests: Schema.optional(TestsSchema),
@@ -70,7 +63,8 @@ export const JobSchema = Schema.Struct({
   }),
 });
 export type Job = typeof JobSchema.Type;
-export type Spec = Job["spec"];
+// The eval's build spec: a job's, and what the judge grades the game against.
+export type Spec = Job["spec"] & { brief: string };
 
 export interface PlaytestResult {
   ok: boolean;
@@ -85,17 +79,6 @@ export interface PlaytestResult {
   // Real ms by phase.
   timings?: Record<string, number>;
 }
-
-export type CoderEvent =
-  | { type: "step"; label: string }
-  | { type: "playtest"; ok: boolean; errors: string[] }
-  | {
-      type: "done";
-      summary: string;
-      files: Record<string, string>;
-      deleted: string[];
-    }
-  | { type: "failed"; reason: string };
 
 // The image's binaries by full path, so a program a model put earlier on PATH can't stand in for one.
 const NODE = "/usr/local/bin/node";
@@ -151,7 +134,7 @@ const SCORES = {
 type Score = keyof typeof SCORES;
 const SCORE_FILES = Object.keys(SCORES) as Score[];
 
-// What a Revision holds of the sub agent's (#117); the harness adds game.js, music.js and a LittleJS game's index.html,
+// What a Revision holds of the agent's (#117); the harness adds game.js, music.js and a LittleJS game's index.html,
 // and a plain-DOM game's index.html gets the music's script from it.
 const SOURCE_FILES = ["index.html", "game.ts", ...SCORE_FILES];
 const HOME = "/home/user";
@@ -215,7 +198,7 @@ export const stepLabel = (tool: string, args: Record<string, unknown>) => {
   if (tool === "playtest") {
     return "Playtesting";
   }
-  // pi-durable's Coder loads skills with activate_skill; pi-coding-agent's reads their SKILL.md.
+  // pi-durable's agents load skills with activate_skill; pi-coding-agent's read their SKILL.md.
   if (tool === "activate_skill") {
     return "Reading the docs";
   }
@@ -230,43 +213,18 @@ export const stepLabel = (tool: string, args: Record<string, unknown>) => {
   return tool === "edit" ? "Fixing the game" : "Writing the game";
 };
 
-const hasTests = (tests: Tests | undefined): tests is Tests =>
-  (tests?.tests.length ?? 0) > 0;
-
-// The harness's own test, ahead of the main agent's on every check: the game loads, starts and plays a second with no
-// console error. With no test from the main agent it is the whole of "does the game run".
+// The harness's own test, ahead of the agent's tests.json on every check: the game loads, starts and plays a second
+// with no console error. With no other test it is the whole of "does the game run".
 const RUNS: Tests["tests"][number] = {
   checks: [{ at: 1000, expect: "state !== undefined" }],
   inputs: [],
   name: "the game runs",
 };
 
-const testsPrompt = (tests: Tests) =>
-  [
-    "",
-    "Tests: the harness runs these on your game and fails the build until every one passes. Keep each value below up to date every frame, from the game's real state, on a top-level object in game.ts: `const testVars: Record<string, number | string | boolean> = {};` (keep it when you change the game).",
-    ...tests.expose.map(({ means, name }) => `- testVars.${name}: ${means}`),
-    "Each test loads the game, taps (180, 320) to start, waits 500 ms, then sends its inputs at their `at` (ms) and evaluates each check's expression at its `at` over `vars` (testVars), `score`, `state` (hopon's) and `prev`, the same three at the check before (`prev.vars`, `prev.score`, `prev.state`). Save the tests below as tests.json and run them with `node /opt/hopon/playtest.js tests`.",
-    JSON.stringify(tests),
-  ].join("\n");
-
-export const prompt = ({ revision, source, spec }: Job) =>
-  [
-    Object.keys(source).length === 0
-      ? "Build a new game."
-      : `Change the game in the workspace (Revision ${revision}).`,
-    `Title: ${spec.title}`,
-    `Brief: ${spec.brief}`,
-    spec.music
-      ? `Music: write the music for this game (${spec.music}) and render music.wav.`
-      : "Music: none this turn; leave any existing music file as it is.",
-    ...(hasTests(spec.tests) ? [testsPrompt(spec.tests)] : []),
-  ].join("\n");
-
 interface TestsResult {
   ok: boolean;
   failures: string[];
-  // Checks whose expression threw: the main agent's mistakes, skipped rather than sent back to the sub agent.
+  // Checks whose expression threw: mistakes in tests.json, skipped rather than failing the game.
   testErrors: string[];
   typeErrors: string[];
 }
@@ -290,16 +248,6 @@ const boxTests = async (box: Box, tests: Tests): Promise<TestsResult> => {
     };
   }
 };
-
-// What the harness says to the sub agent when its check fails, or the box lost the job's work.
-export const repairPrompt = (errors: readonly string[]) =>
-  [
-    "The harness ran your game and it failed:",
-    ...errors.map((error) => `- ${error}`),
-    "Fix these, playtest again, then give your report.",
-  ].join("\n");
-export const RESTARTED =
-  "The sandbox restarted, and the workspace is back to how it was when the job began: your changes are gone. Make them again, playtest, then give your report.";
 
 // The Revision's changed and deleted files, against the source the job sent. The harness adds its own two: a LittleJS
 // game's index.html, and music.js when the job rendered music. A Revision has music.js when this job rendered it or
@@ -360,7 +308,7 @@ const write = async (box: Box, files: Record<string, string | null>) => {
   );
 };
 
-// The workspace holds exactly the job's source, but for index.html. A LittleJS game's is the harness's, not the sub
+// The workspace holds exactly the job's source, but for index.html. A LittleJS game's is the harness's, not the
 // agent's, and in the box it would make the game look like plain DOM. A plain-DOM game's goes in on the current
 // scaffold and without the music's script, which the harness adds back. A box left dirty by a failed or stopped job
 // starts from Revision n.
@@ -379,12 +327,9 @@ export const restore = async (box: Box, source: Job["source"]) => {
   );
 };
 
-export const pastDeadline = (seconds: number) =>
-  `past the ${seconds} s deadline`;
-
-// The harness's check of a build (ADR 0005), each time the sub agent stops: the music rendered, the source read into
+// The harness's check of a build (ADR 0006), at each `build` call: the music rendered, the source read into
 // memory, the box swept and given back only that source, then the game typechecked, emitted and run through RUNS and
-// the main agent's tests, and the source read again to show nothing rewrote it meanwhile. Its errors, or the
+// the agent's tests, and the source read again to show nothing rewrote it meanwhile. Its errors, or the
 // Revision's files, which hold exactly what it ran. Whatever the model claims, a game that doesn't run never becomes a
 // Revision (#122), and game.js always comes from game.ts. It replays no playtest and plays no random script: in 46
 // recorded builds those two failed 2, both on a playtest that printed nothing, and caught no broken game.

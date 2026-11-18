@@ -10,7 +10,7 @@ const ENV = {
   CLOUDFLARE_GATEWAY_ID: "gw",
 };
 const CALL: ModelCall = {
-  metadata: { agent: "coder", draftId: "d1", jobId: "d1-c1" },
+  metadata: { agent: "maker", draftId: "d1", jobId: "d1-c1" },
 };
 
 // What pi-ai's Anthropic client sends to `http://models.internal/anthropic`.

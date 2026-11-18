@@ -1,6 +1,6 @@
-// The Maker (ADR 0005) under `wrangler dev`, through the Worker's routes and a WebSocket, as the app sees it: the main
-// agent's `build` (#143) and the sub agent's job (#175). test/maker/worker.ts fakes the model (a message
-// "build <script>" builds with that script) and the sandbox, so this needs no key, no Docker and no model call. The
+// The Maker (ADR 0006) under `wrangler dev`, through the Worker's routes and a WebSocket, as the app sees it: one
+// agent that chats, writes the game in the box and publishes it with `build`. test/maker/worker.ts fakes the model (a
+// message "build <script>" plays that script) and the sandbox, so this needs no key, no Docker and no model call. The
 // sandbox's commands are read back through the fake.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -17,6 +17,13 @@ const CONFIG = new URL("maker/wrangler.jsonc", import.meta.url).pathname;
 const state = mkdtempSync(path.join(tmpdir(), "maker-test-"));
 // test/maker/worker.ts's game.ts.
 const GAME = "let speed = 1;\nfunction gameRender() {}\n";
+// test/maker/worker.ts's music.opus, in base64.
+const MUSIC = 'hopon.music = "T2dnUw==";\n';
+const NOTE = "Note to self: the jump checks out.";
+// test/maker/worker.ts's design.md and tests.json.
+const DESIGN = "# Moon Cat design\n";
+const TESTS = '{"expose": [], "tests": []}';
+const RESTARTED = /The sandbox restarted/u;
 
 const keys = await crypto.subtle.generateKey(
   {
@@ -124,7 +131,13 @@ const over = (frame) =>
   (frame.type === "snapshot" &&
     !frame.data.run &&
     frame.data.entries.at(-1)?.kind === "pi.assistant");
-const stepLabel = (frame) => JSON.stringify(frame).includes("Writing the game");
+// The playtest's result has reached the app.
+const played = (frame) =>
+  frame.type === "batch" &&
+  frame.data.some(
+    (event) =>
+      event.type === "tool_execution_end" && event.toolName === "playtest"
+  );
 const steered = (frame) => JSON.stringify(frame).includes("inbox_update");
 
 // One socket to the Draft's Maker and every frame it gets.
@@ -174,21 +187,26 @@ const connect = async (draft) => {
   };
 };
 
-// The main agent's transcript, from a fresh snapshot: each entry's kind and text.
-const transcript = async (draft) => {
+// The conversation as a fresh socket's snapshot shows it.
+const snapshot = async (draft) => {
   const socket = await connect(draft);
   socket.close();
   const [{ data }] = socket.frames;
-  return data.entries.map((entry) => ({
+  return data;
+};
+const blocks = (entry) =>
+  (entry.model ?? []).flatMap((message) =>
+    typeof message.content === "string"
+      ? [{ text: message.content, type: "text" }]
+      : message.content
+  );
+// The transcript the app shows: each entry's kind and text.
+const transcript = async (draft) => {
+  const { entries } = await snapshot(draft);
+  return entries.map((entry) => ({
     kind: entry.kind,
-    text: (entry.model ?? [])
-      .flatMap((message) =>
-        typeof message.content === "string"
-          ? [message.content]
-          : message.content.flatMap((block) =>
-              block.type === "text" ? [block.text] : []
-            )
-      )
+    text: blocks(entry)
+      .flatMap((block) => (block.type === "text" ? [block.text] : []))
       .join(" "),
   }));
 };
@@ -196,18 +214,23 @@ const lastReply = async (draft) => {
   const entries = await transcript(draft);
   return entries.findLast((entry) => entry.kind === "pi.assistant")?.text;
 };
+// The tools the agent called, by name, as the app's chat sees them.
+const toolsCalled = async (draft) => {
+  const { entries } = await snapshot(draft);
+  return entries.flatMap((entry) =>
+    blocks(entry).flatMap((block) =>
+      block.type === "toolCall" ? [block.name] : []
+    )
+  );
+};
 // The Draft's Maker through MAKER_DEV's route, for test/maker/worker.ts's fakes.
 const fake = (draft, what) => fetch(`${ORIGIN}/__maker/${draft}/fake/${what}`);
 const fakeJson = async (draft, what) => {
   const response = await fake(draft, what);
   return response.json();
 };
-const subCalls = (draft) => fakeJson(draft, "calls");
+const modelCalls = (draft) => fakeJson(draft, "calls");
 const boxLog = (draft) => fakeJson(draft, "log");
-const playtests = async (draft) => {
-  const log = await boxLog(draft);
-  return log.filter((c) => c.includes("/opt/hopon/playtest.js")).length;
-};
 const previewUrl = async (draft) => {
   const { url } = await json(`/api/drafts/${draft}/preview`);
   return url;
@@ -227,6 +250,14 @@ const revisionOf = async (draft) => {
   const [n] = await revisionFile(draft, "game.ts");
   return n;
 };
+const noRevision = async (draft) => {
+  const preview = await call(`/api/drafts/${draft}/preview`);
+  assert.equal(preview.status, 404);
+};
+const published = (n) => `said: Published: the Creator now has Revision ${n}.`;
+// Whether the box's log has `build`'s verify run for a build of `kind`.
+const verified = (log, kind) =>
+  log.some((command) => command.endsWith(`/opt/hopon/verify.js ${kind}`));
 
 const migrate = async () => {
   const migrating = wrangler(
@@ -245,28 +276,48 @@ const serve = async (t) => {
     }
   });
 };
-// The server's output from `from` on contains `line`: a job pi finished with nobody connected.
-const logged = async (from, line) => {
-  const deadline = Date.now() + 60_000;
-  while (!Buffer.concat(serverLog).subarray(from).toString().includes(line)) {
-    assert.ok(Date.now() < deadline, `timed out waiting for "${line}"`);
-    // oxlint-disable-next-line no-await-in-loop -- polling
-    await sleep(100);
-  }
+const restart = async () => {
+  kill();
+  await start();
 };
+const deleteDraft = async (draft) =>
+  fetch(`${ORIGIN}/api/drafts/${draft}`, {
+    headers: { Authorization: `Bearer ${await token("user_maker")}` },
+    method: "DELETE",
+  });
 
 test(
-  "build: the sub agent makes and changes the game as Revisions in R2; failures, Stop, the timer, a steer and a restart",
-  { timeout: 180_000 },
+  "the Maker chats, and builds and changes the game as Revisions in R2; notes, failures, Stop, the timer, a steer and restarts",
+  { timeout: 240_000 },
   async (t) => {
     await migrate();
     await serve(t);
 
-    // A new Draft's first build, with music, writes 1/; the D1 row gets the title.
-    const { id: draft } = await json("/api/drafts", { text: "build music" });
+    // A hello gets a reply and nothing else: no tool, so no skill and no build, and the box never starts.
+    const { id: draft } = await json("/api/drafts", { text: "hello" });
     let socket = await connect(draft);
     // The fakes are quick, so the first turn may be over before the socket's snapshot.
-    await socket.until("the first turn's end", over);
+    await socket.until("the hello's end", over);
+    assert.equal(await lastReply(draft), "said: hello");
+    assert.deepEqual(await toolsCalled(draft), []);
+    assert.deepEqual(await boxLog(draft), []);
+    assert.equal(await modelCalls(draft), 1);
+    await noRevision(draft);
+
+    // Before its first tool runs, the box holds everything the Creator has said in this chat.
+    assert.equal(await socket.turn("build asked"), "turn_done");
+    assert.match(await lastReply(draft), /"hello",\s*"build asked"/u);
+
+    // A change needs a game to change: with no Revision, build refuses it, and nothing is written.
+    assert.equal(await socket.turn("build change"), "turn_done");
+    assert.match(await lastReply(draft), /There's no game yet/u);
+    await noRevision(draft);
+
+    // A new game with music writes 1/, and the D1 row gets the title.
+    assert.equal(await socket.turn("build music"), "turn_done");
+    assert.equal(await lastReply(draft), published(1));
+    const called = await toolsCalled(draft);
+    assert.ok(called.includes("build"));
     assert.deepEqual(await revisionFile(draft, "game.ts"), [1, 200, GAME]);
     assert.deepEqual(await revisionFile(draft, "game.js"), [
       1,
@@ -277,27 +328,26 @@ test(
     assert.equal(indexAt, 1);
     assert.match(index, /<script src="game\.js"><\/script>/u);
     assert.match(index, /music\.js/u);
-    // test/maker/worker.ts's music.opus, in base64.
-    assert.deepEqual(await revisionFile(draft, "music.js"), [
-      1,
-      200,
-      'hopon.music = "T2dnUw==";\n',
-    ]);
+    assert.deepEqual(await revisionFile(draft, "music.js"), [1, 200, MUSIC]);
     // Gzipped by the runtime (workerd), from the Worker's Content-Encoding; fetch decodes it, so the text above held.
     const page = await previewUrl(draft);
     const gzipped = await fetch(page.replace(/index\.html$/u, "music.js"), {
       headers: { "Accept-Encoding": "gzip" },
     });
     assert.equal(gzipped.headers.get("Content-Encoding"), "gzip");
-    assert.equal(await gzipped.text(), 'hopon.music = "T2dnUw==";\n');
+    assert.equal(await gzipped.text(), MUSIC);
     const { drafts } = await json("/api/drafts");
     assert.equal(drafts[0].title, "Moon Cat");
-    assert.equal(await lastReply(draft), "said: Built it with music.");
 
-    // A change: the sub agent edits the source it was given and plays it again; 2/ carries the music over, and 1/ is
-    // gone.
+    // After a new game, what the Creator said for the games before it no longer counts for verify's quotes.
+    assert.equal(await socket.turn("build asked"), "turn_done");
+    assert.match(await lastReply(draft), /\["build asked"\]/u);
+
+    // A change, in the workspace as the last run left it: 2/ carries the music over, and 1/ is gone. Verify knows the
+    // game had music.
     const first = await previewUrl(draft);
     assert.equal(await socket.turn("build change"), "turn_done");
+    assert.ok(verified(await boxLog(draft), "change --had-music"));
     assert.deepEqual(await revisionFile(draft, "game.ts"), [
       2,
       200,
@@ -308,49 +358,44 @@ test(
       200,
       "// built",
     ]);
-    assert.deepEqual(await revisionFile(draft, "music.js"), [
-      2,
-      200,
-      'hopon.music = "T2dnUw==";\n',
-    ]);
+    assert.deepEqual(await revisionFile(draft, "music.js"), [2, 200, MUSIC]);
     const gone = await fetch(first);
     assert.equal(gone.status, 404);
 
-    // The harness check runs what ships, a change after the last green playtest included. A break after it fails the
-    // check, whose errors go back to the sub agent 3 times; then the build fails and leaves the Revision alone.
-    const before = await playtests(draft);
-    assert.equal(await socket.turn("build editLate"), "turn_done");
-    assert.deepEqual(await revisionFile(draft, "game.js"), [
-      3,
-      200,
-      "// built 3",
-    ]);
-    assert.equal(await playtests(draft), before + 2);
-    const calls = await subCalls(draft);
-    assert.equal(await socket.turn("build breakLate"), "turn_done");
-    assert.match(
-      await lastReply(draft),
-      /The build failed: the harness check failed: boom/u
-    );
-    assert.equal((await subCalls(draft)) - calls, 4 + 3);
+    // A note the agent writes beside a tool call never reaches the app, streamed or whole; its reply does.
+    const noted = socket.frames.length;
+    assert.equal(await socket.turn("build noted"), "turn_done");
+    assert.equal(await revisionOf(draft), 3);
+    const live = JSON.stringify(socket.frames.slice(noted));
+    assert.ok(!live.includes(NOTE), "the note reached the socket");
+    assert.ok(live.includes(published(3)), "the reply reached the socket");
+    assert.ok(!JSON.stringify(await snapshot(draft)).includes(NOTE));
+
+    // A game the check fails: build's result is the errors, and the Revision stays.
+    assert.equal(await socket.turn("build broken"), "turn_done");
+    assert.match(await lastReply(draft), /The harness check failed:\s+- boom/u);
     assert.equal(await revisionOf(draft), 3);
 
-    // A box that can't start: busy has its own line, and the sub agent made no model call.
-    const called = await subCalls(draft);
+    // A failed build, a fix, and 4/.
+    assert.equal(await socket.turn("build fix"), "turn_done");
+    assert.equal(await lastReply(draft), published(4));
+    assert.deepEqual(await revisionFile(draft, "game.ts"), [4, 200, GAME]);
+
+    // A box that can't start: the agent is given the busy line, and nothing is written.
     await fake(draft, "nobox");
-    await socket.turn("build new");
+    assert.equal(await socket.turn("build one"), "turn_done");
     assert.match(
       await lastReply(draft),
       /The Maker is busy\. Try again in a minute\./u
     );
-    assert.equal(await subCalls(draft), called);
+    assert.equal(await revisionOf(draft), 4);
 
-    // A job that never ends: the abort timer ends the turn turn_failed, and the running command is stopped.
+    // A run that never ends: the abort timer ends the turn turn_failed, and the running command is stopped.
     assert.equal(await socket.turn("build hang"), "turn_failed");
-    assert.equal(await revisionOf(draft), 3);
+    assert.equal(await revisionOf(draft), 4);
 
-    // Stop mid-build, once the sub agent's step label reached the socket: turn_failed; the game hasn't changed.
-    let step = socket.after("the step label", stepLabel);
+    // Stop mid-run: turn_failed, and the game hasn't changed.
+    let step = socket.after("the playtest", played);
     const stopped = socket.turn("build wait");
     await step();
     // Publish waits for the turn to end (#145).
@@ -358,10 +403,10 @@ test(
     assert.equal(publishing.status, 409);
     await call(`/api/drafts/${draft}/stop`, {});
     assert.equal(await stopped, "turn_failed");
-    assert.equal(await revisionOf(draft), 3);
+    assert.equal(await revisionOf(draft), 4);
 
-    // A steer sent mid-build reaches the main agent after build returns.
-    step = socket.after("the step label", stepLabel);
+    // A steer sent mid-run reaches the agent after the tool round it joins.
+    step = socket.after("the playtest", played);
     const building = socket.turn("build wait");
     await step();
     const queued = socket.after("the queued steer", steered);
@@ -370,8 +415,8 @@ test(
     await fake(draft, "release");
     assert.equal(await building, "turn_done");
     const entries = await transcript(draft);
-    const result = entries.findLastIndex(
-      (entry) => entry.text === "Built it after a wait."
+    const result = entries.findLastIndex((entry) =>
+      entry.text.includes("Revision 5")
     );
     const steer = entries.findLastIndex(
       (entry) => entry.text === "make it orange"
@@ -380,38 +425,36 @@ test(
       result !== -1 && result < steer,
       JSON.stringify(entries.slice(-4))
     );
-    assert.match(entries.at(-1).text, /make it orange/u);
-    assert.equal(await revisionOf(draft), 4);
+    assert.equal(entries.at(-1).text, "said: make it orange");
+    assert.deepEqual(await revisionFile(draft, "game.js"), [
+      5,
+      200,
+      "// built 3",
+    ]);
 
-    // Killed while the sub agent's model answers its last step: the app reconnects, pi resumes the build and the same
-    // job, the box keeps running and gets its inactivity timeout again, and the Revision is written.
-    step = socket.after("the step label", stepLabel);
+    // Killed while the model answers mid-run: the app reconnects, pi resumes the run, the box keeps running and gets
+    // its inactivity timeout again, and the Revision is written.
+    step = socket.after("the playtest", played);
     await send(draft, "build slow");
     await step();
     socket.close();
-    kill();
-    let from = Buffer.concat(serverLog).length;
-    await start();
+    await restart();
     socket = await connect(draft);
-    await logged(from, `Maker ${draft}: job slow done`);
     await socket.until("the turn's end after the restart", over);
-    assert.equal(await revisionOf(draft), 5);
+    assert.equal(await lastReply(draft), published(6));
     const kept = await boxLog(draft);
     assert.ok(kept.includes("inactivity timeout"));
 
-    // Again on a box that stops with the server: a fresh one starts and gets the job's source. What the sub agent wrote
-    // went with the old box, so the harness check tells it to write it again before it plays anything.
+    // Again on a box that stops with the server: a fresh one starts from the current Revision, and the agent is told
+    // its work is gone instead of building what's left.
     await fake(draft, "lose");
     const { length: lostBefore } = await boxLog(draft);
-    step = socket.after("the step label", stepLabel);
+    step = socket.after("the playtest", played);
     await send(draft, "build slow");
     await step();
     socket.close();
-    kill();
-    from = Buffer.concat(serverLog).length;
-    await start();
+    await restart();
     socket = await connect(draft);
-    await logged(from, `Maker ${draft}: job slow done`);
     await socket.until("the turn's end after the second restart", over);
     const all = await boxLog(draft);
     const lost = all.slice(lostBefore);
@@ -421,17 +464,19 @@ test(
       lost[restarted + 1],
       /\/usr\/bin\/find \/workspace \/home\/user -mindepth 1 -delete/u
     );
-    assert.equal(await lastReply(draft), "said: Wrote it again.");
-    assert.deepEqual(await revisionFile(draft, "game.ts"), [6, 200, GAME]);
+    assert.match(await lastReply(draft), RESTARTED);
+    assert.equal(await revisionOf(draft), 6);
 
-    // A start over: the sub agent is asked for a new game in an empty workspace, and 7/ carries nothing of 6/.
+    // A start over: 7/ carries nothing of 6/.
     const [, musicBefore] = await revisionFile(draft, "music.mjs");
     assert.equal(musicBefore, 200);
     assert.equal(await socket.turn("build fresh"), "turn_done");
-    assert.equal(await lastReply(draft), "said: Build a new game.");
+    assert.equal(await lastReply(draft), published(7));
     assert.deepEqual(await revisionFile(draft, "game.ts"), [7, 200, GAME]);
     const [, musicAfter] = await revisionFile(draft, "music.mjs");
     assert.equal(musicAfter, 404);
+    const [, scriptAfter] = await revisionFile(draft, "music.js");
+    assert.equal(scriptAfter, 404);
 
     // Every command the box ran was under `timeout --kill-after=5`, so an abort stops all it started. The harness's own
     // (the playtest, the sweep) name the program by its full path, with no shell to run a model's ~/.bash_profile.
@@ -453,9 +498,9 @@ test(
 
     // Between turns, Publish turns the last Revision into a Game with the Maker's title and description, and the Draft
     // goes, with its box.
-    const published = await call(`/api/drafts/${draft}/publish`, {});
-    assert.equal(published.status, 201);
-    const { id: gameId } = await published.json();
+    const publish = await call(`/api/drafts/${draft}/publish`, {});
+    assert.equal(publish.status, 201);
+    const { id: gameId } = await publish.json();
     const { games } = await json("/api/games");
     assert.deepEqual(
       { ...games[0], comments: undefined, likes: undefined },
@@ -476,155 +521,90 @@ test(
     assert.deepEqual(await json("/api/drafts"), { drafts: [] });
     socket.close();
 
-    // Every model call was tagged with the agent that made it.
+    // Every model call was tagged as the Maker's.
     assert.equal(await fakeJson(draft, "mistagged"), 0);
 
-    // A second build in one turn is refused, even in a later tool round, and the next turn can build.
-    const { id: twice } = await json("/api/drafts", { text: "build twice" });
-    socket = await connect(twice);
-    await socket.until("the two-build turn's end", over);
-    const [afterTwo] = await revisionFile(twice, "game.ts");
-    assert.equal(afterTwo, 1);
-    assert.match(await lastReply(twice), /Only one build per message/u);
-    assert.equal(await socket.turn("build new"), "turn_done");
-    const [nextTurn] = await revisionFile(twice, "game.ts");
-    assert.equal(nextTurn, 2);
-
     // Delete takes the box with the Draft, before the Maker's storage goes.
-    const deleted = await fetch(`${ORIGIN}/api/drafts/${twice}`, {
-      headers: { Authorization: `Bearer ${await token("user_maker")}` },
-      method: "DELETE",
-    });
+    const { id: doomed } = await json("/api/drafts", { text: "build new" });
+    socket = await connect(doomed);
+    await socket.until("the build's end", over);
+    assert.equal(await revisionOf(doomed), 1);
+    const deleted = await deleteDraft(doomed);
     assert.equal(deleted.status, 204);
-    assert.equal(await fakeJson(twice, "destroyed"), true);
-    assert.deepEqual(await boxLog(twice), []);
+    assert.equal(await fakeJson(doomed, "destroyed"), true);
+    assert.deepEqual(await boxLog(doomed), []);
     socket.close();
   }
 );
 
 test(
-  "harness check: a game green under its own playtest and red under the check goes back to the sub agent, which fixes it",
-  { timeout: 60_000 },
-  async (t) => {
-    await serve(t);
-    const { id: draft } = await json("/api/drafts", { text: "build crashy" });
-    const socket = await connect(draft);
-    await socket.until("the crashy turn's end", over);
-    assert.equal(await lastReply(draft), "said: Fixed it.");
-    assert.deepEqual(await revisionFile(draft, "game.ts"), [1, 200, GAME]);
-    assert.deepEqual(await fakeJson(draft, "told"), [
-      "The harness ran your game and it failed:\n- boom\nFix these, playtest again, then give your report.",
-    ]);
-    socket.close();
-  }
-);
-
-test(
-  "limits: the deadline and the 21st step end the job failed, and nothing is written",
+  "limits: the 21st step and the 5th build are refused, and the agent is told to give up",
   { timeout: 120_000 },
   async (t) => {
     await serve(t);
-    const { id: draft } = await json("/api/drafts", { text: "build late" });
+    const { id: draft } = await json("/api/drafts", { text: "build loop" });
     const socket = await connect(draft);
-    await socket.until("the late turn's end", over);
-    // 300 s; the fake's is 1 s.
-    assert.match(
-      await lastReply(draft),
-      /The build failed: past the 300 s deadline/u
-    );
-    // Twenty steps run; the 21st is blocked and ends the job.
-    const calls = await subCalls(draft);
-    assert.equal(await socket.turn("build loop"), "turn_done");
-    assert.match(await lastReply(draft), /The build failed: over 20 steps/u);
-    assert.equal((await subCalls(draft)) - calls, 21);
-    // None of them made a Revision.
-    const preview = await call(`/api/drafts/${draft}/preview`);
-    assert.equal(preview.status, 404);
+    await socket.until("the loop turn's end", over);
+    assert.match(await lastReply(draft), /Over the 20-step limit/u);
+    // 21 tool calls, then the reply.
+    assert.equal(await modelCalls(draft), 22);
+    await noRevision(draft);
+
+    // Four builds publish; the fifth is refused.
+    assert.equal(await socket.turn("build five"), "turn_done");
+    assert.match(await lastReply(draft), /Over the 4-build limit/u);
+    assert.equal(await revisionOf(draft), 4);
     socket.close();
   }
 );
 
 test(
-  "races: Stop, the timer, Delete and restarts each end only their own job",
-  { timeout: 240_000 },
+  "races: Stop, a stopped box and Delete each end only their own run",
+  { timeout: 120_000 },
   async (t) => {
-    await migrate();
     await serve(t);
     const { id: draft } = await json("/api/drafts", { text: "build new" });
-    let socket = await connect(draft);
+    const socket = await connect(draft);
     await socket.until("the first turn's end", over);
-
-    // Stop while the stopped job's ending is slow, then build at once: the new job runs as if alone, and fails at its
-    // own deadline.
-    let step = socket.after("the step label", stepLabel);
-    let stopped = socket.turn("build wait");
-    await step();
-    await fake(draft, "slowreads/300");
-    await call(`/api/drafts/${draft}/stop`, {});
-    assert.equal(await stopped, "turn_failed");
-    assert.equal(await socket.turn("build change"), "turn_done");
-    assert.equal(await lastReply(draft), "said: Made it faster.");
-    assert.equal(await revisionOf(draft), 2);
-    step = socket.after("the step label", stepLabel);
-    stopped = socket.turn("build wait");
-    await step();
-    await call(`/api/drafts/${draft}/stop`, {});
-    assert.equal(await stopped, "turn_failed");
-    assert.equal(await socket.turn("build late"), "turn_done");
-    assert.match(
-      await lastReply(draft),
-      /The build failed: past the 300 s deadline/u
-    );
-    await fake(draft, "slowreads/0");
+    assert.equal(await revisionOf(draft), 1);
 
     // Stop during a playtest that would run 20 s: the playtest is aborted, and the turn ends at once.
     await fake(draft, "slowplay/20000");
-    step = socket.after("the step label", stepLabel);
-    stopped = socket.turn("build new");
+    let step = socket.after("the playtest's call", (frame) =>
+      JSON.stringify(frame).includes('"name":"playtest"')
+    );
+    const stopped = socket.turn("build new");
     await step();
     await sleep(300);
     const at = Date.now();
     await call(`/api/drafts/${draft}/stop`, {});
     assert.equal(await stopped, "turn_failed");
     assert.ok(Date.now() - at < 3000, `Stop took ${Date.now() - at} ms`);
+    assert.equal(await revisionOf(draft), 1);
 
-    // The box stops after the green playtest: what the sub agent wrote went with it, so the harness check tells it to
-    // write it again, and the Revision holds what it played then.
-    step = socket.after("the step label", stepLabel);
+    // The box stops after the playtest: what the agent wrote went with it, so it's told so rather than building what's
+    // left, and the Revision stays.
+    step = socket.after("the playtest", played);
     const held = socket.turn("build wait");
     await step();
-    await sleep(300);
     await fake(draft, "stopbox");
     await fake(draft, "release");
     assert.equal(await held, "turn_done");
-    assert.equal(await lastReply(draft), "said: Wrote it again.");
-    assert.equal(await revisionOf(draft), 3);
+    assert.match(await lastReply(draft), RESTARTED);
+    assert.equal(await revisionOf(draft), 1);
 
-    // A reset after the job's state is written and before its prompt is submitted: the rerun submits it.
-    socket.close();
-    const from = Buffer.concat(serverLog).length;
-    await send(draft, "build crashset");
-    await logged(from, "reset before the submit");
-    await sleep(1000);
-    socket = await connect(draft);
-    await logged(from, `Maker ${draft}: job crashset done`);
-    await socket.until("the turn's end after the reset", over);
-    assert.equal(await revisionOf(draft), 4);
-
-    // Every model call was tagged with the agent that made it.
     assert.equal(await fakeJson(draft, "mistagged"), 0);
 
     // Delete during a slow playtest: it answers at once, and the box never starts again.
     await fake(draft, "slowplay/20000");
-    step = socket.after("the step label", stepLabel);
+    step = socket.after("the playtest's call", (frame) =>
+      JSON.stringify(frame).includes('"name":"playtest"')
+    );
     const deleting = socket.turn("build new");
     await step();
     await sleep(300);
     const before = Date.now();
-    const deleted = await fetch(`${ORIGIN}/api/drafts/${draft}`, {
-      headers: { Authorization: `Bearer ${await token("user_maker")}` },
-      method: "DELETE",
-    });
+    const deleted = await deleteDraft(draft);
     assert.equal(deleted.status, 204);
     assert.ok(
       Date.now() - before < 3000,
@@ -637,6 +617,95 @@ test(
   }
 );
 
+test(
+  "Revisions: they keep the agent's design and tests; a box restart mid-build and a write cut short publish nothing",
+  { timeout: 120_000 },
+  async (t) => {
+    await serve(t);
+    const { id: draft } = await json("/api/drafts", {
+      text: "build designed",
+    });
+    const socket = await connect(draft);
+    await socket.until("the first build's end", over);
+    assert.equal(await lastReply(draft), published(1));
+    assert.deepEqual(await revisionFile(draft, "design.md"), [1, 200, DESIGN]);
+    assert.deepEqual(await revisionFile(draft, "tests.json"), [1, 200, TESTS]);
+    assert.ok(verified(await boxLog(draft), "new"));
+
+    // The box idles out: the next run starts from the Revision, with the design and tests in it.
+    await fake(draft, "stopbox");
+    assert.equal(await socket.turn("build readdesign"), "turn_done");
+    assert.match(await lastReply(draft), /Moon Cat design/u);
+
+    // A change is verified as one, so a game without music can stay without it.
+    assert.equal(await socket.turn("build change"), "turn_done");
+    assert.equal(await lastReply(draft), published(2));
+    assert.ok(verified(await boxLog(draft), "change"));
+
+    // After a failed check, what the Creator has said is still in the box for the agent's own verify run.
+    assert.equal(await socket.turn("build checkedasked"), "turn_done");
+    assert.match(await lastReply(draft), /"build checkedasked"/u);
+
+    // The box stops during build, and starts again from Revision 2: the check passes that old game, which must not
+    // become Revision 3.
+    await fake(draft, "stopatverify");
+    assert.equal(await socket.turn("build change"), "turn_done");
+    assert.match(await lastReply(draft), RESTARTED);
+    assert.equal(await revisionOf(draft), 2);
+
+    // An eviction cut Revision 3 short: it isn't current, and the next build writes 3/ whole, without its leftovers.
+    await fake(draft, "partial");
+    assert.equal(await revisionOf(draft), 2);
+    const { length: putsBefore } = await fakeJson(draft, "puts");
+    assert.equal(await socket.turn("build change"), "turn_done");
+    assert.equal(await lastReply(draft), published(3));
+    const [, stale] = await revisionFile(draft, "stale.js");
+    assert.equal(stale, 404);
+
+    // index.html, the mark of a whole Revision, is written only once every other file of it is.
+    const allPuts = await fakeJson(draft, "puts");
+    const writes = allPuts
+      .slice(putsBefore)
+      .filter((put) => put.includes(`drafts/${draft}/3/`));
+    const indexAt = writes.indexOf(`start drafts/${draft}/3/index.html`);
+    const others = writes.filter((put) => !put.endsWith("/index.html"));
+    assert.ok(others.length > 0 && indexAt > 0, JSON.stringify(writes));
+    for (const put of others) {
+      assert.ok(writes.indexOf(put) < indexAt, JSON.stringify(writes));
+    }
+
+    // A second new game in one run still has the message that asked for it.
+    assert.equal(await socket.turn("build twice"), "turn_done");
+    assert.match(await lastReply(draft), /\["build twice"\]/u);
+
+    // A message sent while a new game builds is about that game: it counts for the change after it. The run's first
+    // tool waits until a message queued before it (which the fake plays as the next script) has reached pi, so the
+    // cut counts only what pi has placed in the run.
+    const started = socket.after("the run's start", (frame) =>
+      JSON.stringify(frame).includes('"run_start"')
+    );
+    const building = socket.turn("build waitwrite");
+    await started();
+    const early = socket.after("the early steer", steered);
+    await send(draft, "build waitnew");
+    await early();
+    const step = socket.after("the playtest", played);
+    await fake(draft, "release");
+    await step();
+    const late = socket.after("the late steer", steered);
+    await send(draft, "No music at all.");
+    await late();
+    await fake(draft, "release");
+    assert.equal(await building, "turn_done");
+    assert.equal(await socket.turn("build asked"), "turn_done");
+    assert.match(
+      await lastReply(draft),
+      /\["No music at all\.",\s*"build asked"\]/u
+    );
+    socket.close();
+  }
+);
+
 // A message the Allowance refuses before any model call.
 const refused = async (route, text) => {
   const response = await call(route, { text });
@@ -645,9 +714,9 @@ const refused = async (route, text) => {
   assert.equal(code, "allowance_used");
 };
 
-// The Allowance (ADR 0004) is 100,000 hopon tokens here (test/maker/wrangler.jsonc), and each fake main agent call
-// reads 1,000 input tokens unless told to spend more, so its calls are 1,000 hopon tokens each; the sub agent's are 6.
-test("allowance: each model call is charged to its Creator's week; a build starts only above zero, and one that starts finishes below it; then the Maker refuses until the week resets", async (t) => {
+// The Allowance (ADR 0004) is 200,000 hopon tokens here (test/maker/wrangler.jsonc), and each fake model call reads
+// 1,000 input tokens unless told to spend more, so its calls are 1,000 hopon tokens each.
+test("allowance: each model call is charged to its Creator's week; a run's work starts only above zero, and one that starts finishes below it; then the Maker refuses until the week resets", async (t) => {
   await serve(t);
   const left = async () => {
     const { left: tokens } = await json("/api/allowance");
@@ -667,25 +736,26 @@ test("allowance: each model call is charged to its Creator's week; a build start
   assert.equal(reason, "resting");
   assert.equal(await left(), before - 1000);
 
-  // 1,000 left: the build's turn takes it to zero before build runs, so the build is refused without the sub agent,
-  // and the reply after it overshoots.
+  // 1,000 left: the call that asks for a tool takes it to zero, so the tool is refused and the box never starts; the
+  // reply after it overshoots.
   await socket.turn(`spend ${before - 2000}`);
   assert.equal(await left(), 1000);
-  assert.equal(await socket.turn("build new"), "turn_done");
-  assert.equal(await subCalls(draft), 0);
+  assert.equal(await socket.turn("build one"), "turn_done");
   assert.match(
     await lastReply(draft),
     /You've used this week's hopon tokens\. They come back when the week resets\./u
   );
+  assert.deepEqual(await boxLog(draft), []);
   assert.equal(await left(), -1000);
 
   // At or below zero, chat and builds are refused before any model call: the transcript doesn't change.
   const entries = await transcript(draft);
+  const calls = await modelCalls(draft);
   await refused(`/api/drafts/${draft}/messages`, "hello again");
   await refused(`/api/drafts/${draft}/messages`, "build new");
   await refused("/api/drafts", "build new");
   assert.deepEqual(await transcript(draft), entries);
-  assert.equal(await subCalls(draft), 0);
+  assert.equal(await modelCalls(draft), calls);
   socket.close();
 
   // A new week: this one's bucket becomes last week's, and the Allowance is full again.
@@ -706,20 +776,17 @@ test("allowance: each model call is charged to its Creator's week; a build start
   const [code] = await once(moved, "exit");
   assert.equal(code, 0);
   await start();
-  assert.equal(await left(), 100_000);
+  assert.equal(await left(), 200_000);
 
-  // 1,500 left: the build's first call leaves 500, so it starts, and it finishes though its reply overshoots. The sub
-  // agent's 3 calls are 18 of it.
+  // 1,500 left: the run's first call leaves 500, so its work starts, and it finishes though its later calls overshoot:
+  // 3 tool calls and the reply.
   const again = await connect(draft);
-  await again.turn("spend 98500");
+  // Two calls: one of 198,500 input tokens would overflow the model's context.
+  await again.turn("spend 99250");
+  await again.turn("spend 99250");
   assert.equal(await left(), 1500);
-  const step = again.after("the step label", stepLabel);
-  const building = again.turn("build wait");
-  await step();
-  await fake(draft, "release");
-  assert.equal(await building, "turn_done");
-  const [n] = await revisionFile(draft, "game.ts");
-  assert.equal(n, 1);
-  assert.equal(await left(), -518);
+  assert.equal(await again.turn("build new"), "turn_done");
+  assert.equal(await revisionOf(draft), 1);
+  assert.equal(await left(), 1500 - 4000);
   again.close();
 });
