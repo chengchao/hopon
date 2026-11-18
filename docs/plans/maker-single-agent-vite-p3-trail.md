@@ -1,0 +1,14 @@
+# Maker single agent on Vite, P3: decision trail
+
+P3 stores a Revision as `source.tgz` and its built files. One row per decision or finished unit. Label: measured, inferred or guess.
+
+| When (UTC) | Decision or unit | Why | Evidence |
+| --- | --- | --- | --- |
+| 2026-11-18 | Branch `claude/p3-source-tgz` from origin/main `b933ddb`. The prototype `b68bf0f` is ported, not cherry-picked. | main's `build` tool, verify.js, asked.json and the completion marker postdate the prototype. | measured: `git log origin/main`. |
+| 2026-11-18 | The pack, unpack and check live in `apps/maker/src/job.ts`, not in `publish.ts` as in the prototype. `checkBuild` takes `{music, tests}` and returns `source.tgz` plus `dist/`'s files. | `check.test.ts` then runs the real pack and unpack in the real image, and `publish.ts` keeps only R2 and D1. | measured: `HOPON_BOX_IMAGE=hopon-box:p3 pnpm -F maker test` 36 of 36. |
+| 2026-11-18 | `design.md` and `tests.json` live only in `source.tgz`. | One copy of the source, so a restore can't disagree with itself. A separate copy would only serve a published Game, which shouldn't carry them. | inferred. |
+| 2026-11-18 | A published Game gets every Revision file but `source.tgz`, `design.md` and `tests.json`. | The page loads none of them, and `design.md` may quote the Creator. No route reads a Game's source back. | measured: `worker.test.js` publish case; `rg gameFiles apps/worker/src` shows only publish, serve and delete. |
+| 2026-11-18 | The built files are capped at 5 MB, and the packed source at 5 MB. | A phone loads the built files on each swipe to the game. The prototype's 20 MB was over any P3 game: a game with music is about 0.3 MB of Opus plus its script. | guess on the cap; inferred on the size of a game. |
+| 2026-11-18 | The check runs the score with `env -C /tmp/hopon-music`, and the source leaves out every `.wav` and `.mid`. `.wav` is no longer an importable asset. | The music-sf2 skeleton writes `raw.wav` and `song.mid` beside `music.wav`. Packed, they made the source 5.2 MB, and written during the check they would fail the compare. | measured: the music-sf2 case of `check.test.ts` failed with "the workspace's source is 5.2 MB packed" before the change. |
+| 2026-11-18 | `tar` runs from its argv with `--use-compress-program=/usr/bin/gzip -n`, no shell. Extraction uses `--no-same-owner`. | main's harness runs no shell (job.ts's `Box`), and the packed owner is 0. | measured: `check.test.ts` "source.tgz is the workspace's source" (same bytes after `touch`, owner 1001 after restore). |
+| 2026-11-18 | The make-game, dom-games and littlejs-api skills are unchanged. | P3's file boundary excludes `agent-home/**`, and P5 rewrites them. A skill that tells the agent to empty the workspace with `find -delete` would also delete `.hopon/asked.json`. The agent still writes single-file games, and the harness accepts modules. | inferred. |

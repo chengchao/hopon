@@ -1,21 +1,40 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { domHtml } from "./page.ts";
+import { domHtml, isLittlejsHtml, littlejsHtml } from "./page.ts";
 
-const v1 = `<body><p>hi</p><script src="/dom/v1.js"></script>
+const v1 = `<head></head><body><p>hi</p><script src="/dom/v1.js"></script>
 <script src="game.js"></script></body>`;
 
-test("a plain-DOM page moves to the current scaffold and loads its music right after it", () => {
+test("a plain-DOM page moves to the current scaffold and loses an older Revision's music script", () => {
+  const old = v1.replace(
+    "</script>",
+    '</script><script src="music.js"></script>'
+  );
+  assert.equal(domHtml(old), domHtml(v1));
   assert.equal(
-    domHtml(v1, true),
-    `<body><p>hi</p><script src="/dom/v3.js"></script><script src="music.js"></script>
+    domHtml(v1),
+    `<head></head><body><p>hi</p><script src="/dom/v4.js"></script>
 <script src="game.js"></script></body>`
   );
 });
 
-test("a plain-DOM page without music loses the music's script, and adding it twice keeps one", () => {
-  const twice = domHtml(domHtml(v1, true), true);
-  assert.equal(twice.match(/music\.js/gu)?.length, 1);
-  assert.doesNotMatch(domHtml(twice, false), /music\.js/u);
+test("a built page names its music on the scaffold's script and links its stylesheet once", () => {
+  const files = { css: "game.css", music: "music.opus" };
+  const page = domHtml(domHtml(v1, files), files);
+  assert.match(
+    page,
+    /<script src="\/dom\/v4\.js" data-music="music\.opus"><\/script>/u
+  );
+  assert.equal(page.match(/game\.css/gu)?.length, 1);
+  assert.match(page, /<link rel="stylesheet" href="game\.css"><\/head>/u);
+  assert.doesNotMatch(domHtml(page), /data-music/u);
+  const littlejs = littlejsHtml(files);
+  assert.match(
+    littlejs,
+    /<script src="\/runtime\/v4\.js" data-music="music\.opus"><\/script><script src="game\.js">/u
+  );
+  assert.match(littlejs, /<link rel="stylesheet" href="game\.css">/u);
+  assert.ok(isLittlejsHtml(littlejs));
+  assert.doesNotMatch(littlejsHtml(), /data-music|stylesheet/u);
 });

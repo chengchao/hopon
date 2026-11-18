@@ -1,17 +1,25 @@
 // The box's playtest (#115's strict contract), run with cwd = the Draft's workspace by playtest.js. Typechecks
-// game.ts against a narrow .d.ts, emits game.js, serves the game as the app would (a served runtime under the game
-// CSP), plays a script of taps and swipes in headless Chromium and screenshots the start and the end.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+// game.ts and the modules it imports against a narrow .d.ts, builds the game into dist/, serves it as the app would (a
+// served runtime under the game CSP), plays a script of taps and swipes in headless Chromium and screenshots the start
+// and the end.
+import {
+  copyFileSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { DOM_SRC, littlejsHtml, RUNTIME_SRC } from "./page.ts";
+import { DOM_SRC, domHtml, littlejsHtml, RUNTIME_SRC } from "./page.ts";
 
 const here = import.meta.dirname;
 
-// The served-runtime CSP: scripts and media from the game's own origin only.
+// The served-runtime CSP: scripts, styles, images, fonts, media and fetches from the game's own origin only.
 const GAME_CSP =
-  "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data: blob:; media-src 'self' data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts";
+  "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts";
 const ORIGIN = "http://game.hopon";
 const VIEWPORT = { height: 640, width: 360 };
 const START = { x: 180, y: 320 };
@@ -28,38 +36,146 @@ const BROWSER_SERVER = "ws://127.0.0.1:9222/hopon";
 
 export const isDom = () => existsSync("index.html");
 
+// Every module game.ts imports is the game's: their type errors count, the image's own .d.ts files' don't.
 const typecheck = async () => {
   const { default: ts } = await import("typescript");
   const program = ts.createProgram(
-    ["game.ts", path.join(here, isDom() ? "dom.d.ts" : "littlejs.d.ts")],
+    [
+      "game.ts",
+      path.join(here, isDom() ? "dom.d.ts" : "littlejs.d.ts"),
+      path.join(here, "assets.d.ts"),
+    ],
     {
+      allowImportingTsExtensions: true,
       lib: ["lib.es2022.d.ts", "lib.dom.d.ts"],
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
       noEmit: true,
+      resolveJsonModule: true,
       skipLibCheck: true,
       strict: false,
       target: ts.ScriptTarget.ES2022,
       types: [],
     }
   );
+  const cwd = process.cwd();
+  const own = (file) => {
+    const resolved = path.resolve(file);
+    return resolved.startsWith(`${cwd}/`) && !resolved.startsWith(`${here}/`);
+  };
   return ts
     .getPreEmitDiagnostics(program)
-    .filter((diagnostic) => diagnostic.file?.fileName === "game.ts")
+    .filter((diagnostic) => diagnostic.file && own(diagnostic.file.fileName))
     .map((diagnostic) => {
       const { line } = diagnostic.file.getLineAndCharacterOfPosition(
         diagnostic.start ?? 0
       );
-      return `game.ts:${line + 1}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`;
+      return `${path.relative(cwd, path.resolve(diagnostic.file.fileName))}:${line + 1}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`;
     });
 };
 
+// The built game: game.ts and every module, stylesheet and asset it imports, bundled by esbuild into dist/ with the
+// page. The bundle is flat ESM with no exports, so it runs as a classic script and game.ts's top-level hooks and
+// testVars stay globals; no tree shaking, since nothing in game.ts calls its own hooks. An imported image, sound or font
+// becomes a hashed file next to the page, and its import its URL. The harness renders music.opus at `build`, and the
+// page names it for the scaffold to fetch; a playtest before that has none.
+export const DIST = "dist";
+const MUSIC_FILE = "music.opus";
+const ASSET_LOADERS = Object.fromEntries(
+  [
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".svg",
+    ".mp3",
+    ".ogg",
+    ".opus",
+    ".woff2",
+    ".ttf",
+  ].map((extension) => [extension, "file"])
+);
 const emit = async () => {
-  const { transform } = await import("esbuild");
-  const { code } = await transform(readFileSync("game.ts", "utf-8"), {
-    loader: "ts",
+  const { build } = await import("esbuild");
+  rmSync(DIST, { force: true, recursive: true });
+  await build({
+    assetNames: "[name]-[hash]",
+    bundle: true,
+    entryNames: "game",
+    entryPoints: ["game.ts"],
+    format: "esm",
+    loader: { ...ASSET_LOADERS, ".json": "json", ".txt": "text" },
+    logLevel: "silent",
+    outdir: DIST,
     target: "es2022",
+    treeShaking: false,
   });
-  writeFileSync("game.js", code);
+  // An export (game.ts exporting something, or esbuild wrapping it as CommonJS for a direct eval) would make the
+  // bundle a module, which the page can't run as a classic script.
+  if (/^export /mu.test(readFileSync(path.join(DIST, "game.js"), "utf-8"))) {
+    throw new Error(
+      "game.ts must not export anything or use eval(): the page runs it as a plain script"
+    );
+  }
+  const music = existsSync(MUSIC_FILE) ? MUSIC_FILE : undefined;
+  if (music) {
+    copyFileSync(MUSIC_FILE, path.join(DIST, MUSIC_FILE));
+  }
+  const files = {
+    css: existsSync(path.join(DIST, "game.css")) ? "game.css" : undefined,
+    music,
+  };
+  writeFileSync(
+    path.join(DIST, "index.html"),
+    isDom()
+      ? domHtml(readFileSync("index.html", "utf-8"), files)
+      : littlejsHtml(files)
+  );
 };
+
+// esbuild's errors, or anything else emit threw, as type errors: each with its file and line when it has one.
+const emitErrors = (error) =>
+  (error.errors ?? [error]).map((item) =>
+    item.location
+      ? `${item.location.file}:${item.location.line}: ${item.text}`
+      : String(item.text ?? item.message ?? item)
+  );
+
+// What the page loads, by path: the scaffolds and every built file.
+const servedFiles = () => {
+  const files = {
+    [DOM_SRC]: readFileSync(path.join(here, "dom.js")),
+    [RUNTIME_SRC]: readFileSync(path.join(here, "runtime.js")),
+  };
+  for (const name of readdirSync(DIST)) {
+    files[`/${name}`] = readFileSync(path.join(DIST, name));
+  }
+  files["/"] = files["/index.html"];
+  return files;
+};
+
+// As the Worker serves a game's files (apps/worker/src/api.ts).
+const CONTENT_TYPES = {
+  css: "text/css",
+  gif: "image/gif",
+  html: "text/html",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  js: "text/javascript",
+  mp3: "audio/mpeg",
+  ogg: "audio/ogg",
+  opus: "audio/ogg",
+  png: "image/png",
+  svg: "image/svg+xml",
+  ttf: "font/ttf",
+  webp: "image/webp",
+  woff2: "font/woff2",
+};
+const contentType = (pathname) =>
+  pathname === "/"
+    ? "text/html"
+    : (CONTENT_TYPES[pathname.split(".").pop()] ?? "application/octet-stream");
 
 // Park–Miller: the same "random" script on every game and every run.
 const seeded = (seed) => {
@@ -117,14 +233,13 @@ const prepare = async () => {
     return { typeErrors: typeErrors.slice(0, 10) };
   }
   const checked = Date.now();
-  await emit();
+  try {
+    await emit();
+  } catch (error) {
+    return { typeErrors: emitErrors(error).slice(0, 10) };
+  }
   const emitted = Date.now();
-  const files = {
-    "/": isDom() ? readFileSync("index.html") : littlejsHtml(false),
-    [DOM_SRC]: readFileSync(path.join(here, "dom.js")),
-    "/game.js": readFileSync("game.js"),
-    [RUNTIME_SRC]: readFileSync(path.join(here, "runtime.js")),
-  };
+  const files = servedFiles();
   // The box installs Chromium next to this file, and a command may not get the image's ENV.
   if (existsSync(path.join(here, "browsers"))) {
     process.env.PLAYWRIGHT_BROWSERS_PATH ??= path.join(here, "browsers");
@@ -254,10 +369,12 @@ const openTestGame = async (browser, files, errors) => {
     }
     return route.fulfill({
       body,
-      contentType: url.pathname.endsWith(".js")
-        ? "text/javascript"
-        : "text/html",
-      headers: { "content-security-policy": GAME_CSP },
+      contentType: contentType(url.pathname),
+      // The page's origin is opaque (sandbox), so its fetch of its own music is cross-origin, as on the Worker.
+      headers: {
+        "access-control-allow-origin": "*",
+        "content-security-policy": GAME_CSP,
+      },
     });
   });
   await page.goto(`${ORIGIN}/`);

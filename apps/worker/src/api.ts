@@ -49,8 +49,10 @@ import {
 import DOM_V1 from "./runtime/dom-v1.json" with { type: "json" };
 import DOM_V2 from "./runtime/dom-v2.json" with { type: "json" };
 import DOM_V3 from "./runtime/dom-v3.json" with { type: "json" };
+import DOM_V4 from "./runtime/dom-v4.json" with { type: "json" };
 import RUNTIME_V2 from "./runtime/v2.json" with { type: "json" };
 import RUNTIME_V3 from "./runtime/v3.json" with { type: "json" };
+import RUNTIME_V4 from "./runtime/v4.json" with { type: "json" };
 import {
   blocks,
   comments,
@@ -424,9 +426,11 @@ const gzipped = (c: HonoContext<AppEnv>): Record<string, string> =>
 for (const [route, code] of [
   ["/runtime/v2.js", RUNTIME_V2],
   ["/runtime/v3.js", RUNTIME_V3],
+  ["/runtime/v4.js", RUNTIME_V4],
   ["/dom/v1.js", DOM_V1],
   ["/dom/v2.js", DOM_V2],
   ["/dom/v3.js", DOM_V3],
+  ["/dom/v4.js", DOM_V4],
 ]) {
   app.get(route, (c) =>
     c.body(code, 200, {
@@ -761,12 +765,28 @@ app.get(`/api/drafts/${DRAFT}/preview`, (c) =>
 );
 
 // A game's file from R2, a Draft's or a published Game's, typed by its extension and under the game CSP. It's signed
-// out, so `no-store` comes from the middleware.
+// out, so `no-store` comes from the middleware. Text goes out gzipped; the rest is compressed already.
 const FILE_TYPES: Record<string, string> = {
+  css: "text/css; charset=utf-8",
   html: "text/html; charset=utf-8",
   js: "text/javascript; charset=utf-8",
   json: "application/json",
   mjs: "text/javascript; charset=utf-8",
+  svg: "image/svg+xml",
+  txt: "text/plain; charset=utf-8",
+};
+const BINARY_TYPES: Record<string, string> = {
+  gif: "image/gif",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  mp3: "audio/mpeg",
+  ogg: "audio/ogg",
+  opus: "audio/ogg",
+  png: "image/png",
+  tgz: "application/gzip",
+  ttf: "font/ttf",
+  webp: "image/webp",
+  woff2: "font/woff2",
 };
 const FILE = ":file{[\\w.-]+}";
 const gameFile = async (c: HonoContext<AppEnv>, key: string) => {
@@ -774,10 +794,14 @@ const gameFile = async (c: HonoContext<AppEnv>, key: string) => {
   if (!object) {
     throw fail(404, "File not found.");
   }
-  const type = FILE_TYPES[key.split(".").pop() ?? ""];
+  const extension = key.split(".").pop() ?? "";
+  const type = FILE_TYPES[extension];
   return c.body(object.body, 200, {
+    // The page is sandboxed to an opaque origin, so its fetch of its own music is cross-origin.
+    "Access-Control-Allow-Origin": "*",
     "Content-Security-Policy": GAME_CSP,
-    "Content-Type": type ?? "application/octet-stream",
+    "Content-Type":
+      type ?? BINARY_TYPES[extension] ?? "application/octet-stream",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     ...(type ? gzipped(c) : {}),
   });
@@ -806,6 +830,7 @@ app.get(`/drafts/${DRAFT}/:n{[0-9]{1,9}}/:token/${FILE}`, async (c) => {
 // row comes first for its id, then the files; a copy that fails takes the row back out. A retry after a failed Delete
 // finds the row by its Draft and finishes the job.
 const RUNTIME = /\/runtime\/(?<version>v\d+)\.js/u;
+const SOURCE_ONLY = new Set(["design.md", "source.tgz", "tests.json"]);
 app.post(`/api/drafts/${DRAFT}/publish`, (c) =>
   run(
     c,
@@ -865,20 +890,23 @@ app.post(`/api/drafts/${DRAFT}/publish`, (c) =>
           .returning({ id: games.id })
           .get()
       );
-      // Every file as it is, binary or not: the Game plays as its Creator last played it.
+      // Every file the page loads as it is, binary or not: the Game plays as its Creator last played it. The source and
+      // the agent's notes stay with the Draft and go with it.
       yield* Effect.promise(async () => {
         const { objects } = await c.env.FILES.list({ prefix: revision });
         await Promise.all(
-          objects.map(async ({ key }) => {
-            const object = await c.env.FILES.get(key);
-            if (!object) {
-              throw new Error(`${key} is missing`);
-            }
-            await c.env.FILES.put(
-              `${gameFiles(game.id)}${key.slice(revision.length)}`,
-              await object.arrayBuffer()
-            );
-          })
+          objects
+            .filter(({ key }) => !SOURCE_ONLY.has(key.slice(revision.length)))
+            .map(async ({ key }) => {
+              const object = await c.env.FILES.get(key);
+              if (!object) {
+                throw new Error(`${key} is missing`);
+              }
+              await c.env.FILES.put(
+                `${gameFiles(game.id)}${key.slice(revision.length)}`,
+                await object.arrayBuffer()
+              );
+            })
         );
       }).pipe(
         Effect.onError(() =>

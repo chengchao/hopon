@@ -8,6 +8,7 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
@@ -21,8 +22,8 @@ import type {
 } from "@earendil-works/pi-ai";
 import type { AgentEvent } from "@earendil-works/pi-durable";
 
-import { isLittlejsHtml, MUSIC } from "../image/page.ts";
-import { stepLabel } from "../src/job.ts";
+import { isLittlejsHtml } from "../image/page.ts";
+import { SOURCE_TAR, stepLabel } from "../src/job.ts";
 import type { PlaytestResult, Spec } from "../src/job.ts";
 import { passes, previewHtml, warningsOf } from "./coder.ts";
 import type { CoderJob } from "./coder.ts";
@@ -30,16 +31,15 @@ import { judgeCoder } from "./judge.ts";
 import { judgeChat, turnRecord } from "./talker.ts";
 import type { Chat } from "./talker.ts";
 
-// A Revision's files (the Worker's build.ts writes them to R2), and the ones a job carries.
-const REVISION_FILES = [
-  "index.html",
-  "game.ts",
-  "game.js",
-  "music.mjs",
-  "music.py",
-  MUSIC,
-];
+// A Revision's page as the WebView loads it, and its source: source.tgz, or the source files of a Revision from before
+// it.
+const PAGE_FILES = ["index.html", "game.js", "game.css"];
 const SOURCE_FILES = ["game.ts", "index.html", "music.mjs", "music.py"];
+interface Revision {
+  page: Record<string, string>;
+  tar?: Uint8Array;
+  files: Record<string, string>;
+}
 const PLAYTEST = path.join(import.meta.dirname, "..", "image", "playtest.js");
 // What the Preview doesn't report. Not 0: a stat leaves these runs out (report.ts).
 const UNKNOWN = null;
@@ -143,22 +143,36 @@ const playtest = async (cwd: string, arg: string) => {
   }
 };
 
-// The eval's final check of a built game, in dir/box: the fixed random script, whose screenshots are kept and judged.
-// No replay: the Preview doesn't report the Coder's last inputs, and with none a game that waits for a tap looks
-// frozen (#179: 10 of 67 builds failed only that).
-const finalChecks = async (dir: string, files: Record<string, string>) => {
-  const box = path.join(dir, "box");
-  mkdirSync(box, { recursive: true });
-  for (const file of SOURCE_FILES) {
-    const text = files[file];
-    // As restore(): a LittleJS game's index.html is the harness's, and in the box it would look like plain DOM.
-    if (
-      text !== undefined &&
-      !(file === "index.html" && isLittlejsHtml(text))
-    ) {
-      writeFileSync(path.join(box, file), text);
+// A workspace's files as restore() leaves them in the box, in dir: source.tgz unpacked, or a Revision from before it's
+// source files but a LittleJS game's index.html, which is the harness's and in the box would look like plain DOM.
+// Their text by path.
+const unpack = async (dir: string, revision: Revision) => {
+  mkdirSync(dir, { recursive: true });
+  if (revision.tar) {
+    const tar = path.join(dir, "..", SOURCE_TAR);
+    writeFileSync(tar, revision.tar);
+    await promisify(execFile)("tar", ["-xzf", tar, "-C", dir]);
+  } else {
+    for (const [file, text] of Object.entries(revision.files)) {
+      if (!(file === "index.html" && isLittlejsHtml(text))) {
+        writeFileSync(path.join(dir, file), text);
+      }
     }
   }
+  return Object.fromEntries(
+    readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => {
+        const file = path.join(entry.parentPath, entry.name);
+        return [path.relative(dir, file), readFileSync(file, "utf-8")];
+      })
+  );
+};
+
+// The eval's final check of a built game, in its workspace: the fixed random script, whose screenshots are kept in dir
+// and judged. No replay: the Preview doesn't report the Coder's last inputs, and with none a game that waits for a tap
+// looks frozen (#179: 10 of 67 builds failed only that).
+const finalChecks = async (dir: string, box: string) => {
   const random = await playtest(box, "random");
   const [start, end] = ["start", "end"].map((shot) => {
     const png = path.join(box, `playtest-${shot}.png`);
@@ -660,20 +674,31 @@ export const runPreviewE2E = async ({
   };
 
   // The current Revision, through the app's preview link: index.html's siblings, as the WebView loads them.
-  const readRevision = async (id: string) => {
+  const readRevision = async (id: string): Promise<Revision> => {
     const { json } = await api(`/api/drafts/${id}/preview`);
     const link = String(json.url);
-    const files = await Promise.all(
-      REVISION_FILES.map(async (file) => {
-        const response = await fetch(link.replace(/index\.html$/u, file));
-        return [file, response.ok ? await response.text() : undefined] as const;
-      })
-    );
-    return Object.fromEntries(
-      files.flatMap(([file, text]) =>
-        text === undefined ? [] : [[file, text]]
-      )
-    ) as Record<string, string>;
+    const get = async (file: string) => {
+      const response = await fetch(link.replace(/index\.html$/u, file));
+      return response.ok
+        ? new Uint8Array(await response.arrayBuffer())
+        : undefined;
+    };
+    const texts = async (names: string[]) => {
+      const got = await Promise.all(
+        names.map(async (file) => [file, await get(file)] as const)
+      );
+      return Object.fromEntries(
+        got.flatMap(([file, bytes]) =>
+          bytes ? [[file, Buffer.from(bytes).toString()]] : []
+        )
+      );
+    };
+    const tar = await get(SOURCE_TAR);
+    return {
+      files: tar ? {} : await texts(SOURCE_FILES),
+      page: await texts(PAGE_FILES),
+      tar,
+    };
   };
 
   const draft = { n: 0, source: {} as Record<string, string> };
@@ -687,22 +712,23 @@ export const runPreviewE2E = async ({
         : build.spec.kind === "change";
     const kind: CoderJob["kind"] = edit ? "edit" : "build";
     const { failed, reason, text } = outcome(build);
-    const files = failed || !draftId ? {} : await readRevision(draftId);
-    for (const [file, contents] of Object.entries(files)) {
-      writeFileSync(path.join(buildDir, file), contents);
+    const revision =
+      failed || !draftId ? undefined : await readRevision(draftId);
+    const box = path.join(buildDir, "box");
+    const files = revision ? await unpack(box, revision) : {};
+    if (revision?.page["game.js"]) {
+      writeFileSync(
+        path.join(buildDir, "preview.html"),
+        previewHtml(revision.page)
+      );
     }
-    if (files["game.js"]) {
-      writeFileSync(path.join(buildDir, "preview.html"), previewHtml(files));
-    }
-    const checked = failed ? undefined : await finalChecks(buildDir, files);
+    const checked = revision ? await finalChecks(buildDir, box) : undefined;
     const final = checked?.final;
     const finalGreen = final?.random.ok === true;
-    // The judge reads the game, not music.js's base64.
-    const { [MUSIC]: _music, ...judged } = files;
     const scores = checked
       ? await judgeCoder({
           end: checked.end,
-          files: judged,
+          files,
           original: edit ? draft.source : undefined,
           signals: checked.final.random,
           spec: build.spec,
@@ -729,6 +755,8 @@ export const runPreviewE2E = async ({
       run,
       // From the `build` call's start to its result: the job, plus reading and writing R2.
       seconds: ((build.endedAt ?? Date.now()) - build.startedAt) / 1000,
+      // What the build was asked for, which the judge graded against.
+      spec: build.spec,
       // Seconds from the build's start to each label, in step order.
       stepSeconds: build.labelAt.map((at) => (at - build.startedAt) / 1000),
       steps: build.labels.length,
@@ -745,9 +773,7 @@ export const runPreviewE2E = async ({
     );
     if (!failed) {
       draft.n += 1;
-      draft.source = Object.fromEntries(
-        Object.entries(files).filter(([file]) => SOURCE_FILES.includes(file))
-      );
+      draft.source = files;
     }
     return record;
   };

@@ -7,14 +7,16 @@
 //   gets the gateway's 402. A call with no tools is the advisor's (src/advisor.ts): it gets fixed advice, a 400 for the
 //   question "advisor fails", or an empty answer cut at max_tokens for "advisor silent", and isn't counted in `calls`.
 // - The sandbox: files in the Maker's own storage (so they outlive a restart, as a running box does), every command
-//   logged and answered by fakeExec: the playtest green unless game.ts says BROKEN, the check's tests red on that;
-//   music.mjs rendering a fixed track; `rm -f <files>` deleting them; the rest a no-op. As the platform's, a stopped box
+//   logged and answered by fakeExec: the playtest green unless game.ts says BROKEN, the check's tests red on that,
+//   building dist/; music.mjs rendering a fixed track; tar packing the workspace's source into source.tgz as JSON (its
+//   files' text by name) and unpacking it; `rm -f <files>` deleting them; the rest a no-op. As the platform's, a stopped box
 //   refuses every command and file, and one started again is empty.
 // /__maker/<draftId>/fake/<what> (MAKER_DEV's route) reaches the Draft's Maker: `log` returns the box's commands, and
 // its start, destroy and inactivity timeout; `puts` the start and end of each R2 put; `release` lets a held step answer; `nobox` stops the box and makes its
 // next start fail; `lose` makes the box stop with the server, as a box on another host would; `stopbox` stops it once;
 // `slowplay/<ms>` slows its next playtest; `stopatverify` stops the box once `build`'s verify has answered;
-// `partial` leaves the next Revision half-written in R2, as an eviction mid-build would; `calls` counts the model calls; `advisor` returns the advisor's requests; `mistagged` counts calls whose gateway tag
+// `partial` leaves the next Revision half-written in R2, as an eviction mid-build would; `legacy` writes the next
+// Revision as one from before source.tgz; `calls` counts the model calls; `advisor` returns the advisor's requests; `mistagged` counts calls whose gateway tag
 // doesn't name the Maker; `destroyed` says whether the Draft's box was destroyed, and `startsafterdestroy` how often it
 // started after that.
 import { Effect, Layer } from "effect";
@@ -348,6 +350,12 @@ const RED = JSON.stringify({ errors: ["boom"], ok: false, typeErrors: [] });
 const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 const OPUS = new Uint8Array([79, 103, 103, 83]);
 const REMOVE = /\brm -f (?<files>[\w. ]+)$/u;
+// What job.ts's tar leaves out of the source.
+const NOT_SOURCE =
+  /^\/workspace\/(?:dist\/|\.hopon\/|node_modules\/|game\.js$|music\.opus$|playtest-)|\.(?:wav|mid)$/u;
+const PACKED = "/tmp/hopon-source.tgz";
+const decode = (bytes: Uint8Array | undefined) =>
+  new TextDecoder().decode(bytes);
 
 // The box's files and running flag live under this prefix in the Maker's storage.
 const key = (path: string) => `fakebox:${path}`;
@@ -453,21 +461,61 @@ export class Maker extends RealMaker {
     };
     const log = (command: string) =>
       kv.put("fakelog", [...(kv.get<string[]>("fakelog") ?? []), command]);
+    // source.tgz as JSON: the workspace's source files' text by name.
+    const pack = () => {
+      const source = Object.fromEntries(
+        paths()
+          .filter((p) => p.startsWith("/workspace/") && !NOT_SOURCE.test(p))
+          .toSorted()
+          .map((p) => [
+            p.slice("/workspace/".length),
+            decode(kv.get<Uint8Array>(key(p))),
+          ])
+      );
+      put(PACKED, encode(JSON.stringify(source)));
+    };
+    const unpack = () => {
+      const source = JSON.parse(
+        decode(kv.get<Uint8Array>(key(PACKED)))
+      ) as Record<string, string>;
+      for (const [name, content] of Object.entries(source)) {
+        put(`/workspace/${name}`, encode(content));
+      }
+    };
     const fakeExec = (command: string): Exec => {
       const removed = REMOVE.exec(command)?.groups?.files;
       if (removed) {
         for (const file of removed.split(" ")) {
           kv.delete(key(`/workspace/${file}`));
         }
+      } else if (command.includes(`/usr/bin/tar --create --file ${PACKED}`)) {
+        pack();
+      } else if (command.includes(`/usr/bin/tar --extract --file ${PACKED}`)) {
+        unpack();
+      } else if (command.includes("/usr/bin/find /workspace/dist")) {
+        return ok(
+          paths()
+            .filter((p) => p.startsWith("/workspace/dist/"))
+            .map((p) => `${p.slice("/workspace/dist/".length)}\n`)
+            .join("")
+        );
       } else if (command.includes("/usr/bin/find /workspace")) {
         wipe();
       } else if (command.includes("/opt/hopon/playtest.js")) {
-        const game = new TextDecoder().decode(
-          kv.get<Uint8Array>(key("/workspace/game.ts"))
-        );
+        const game = decode(kv.get<Uint8Array>(key("/workspace/game.ts")));
         put(
-          "/workspace/game.js",
+          "/workspace/dist/game.js",
           encode(game.includes("speed = 3") ? "// built 3" : "// built")
+        );
+        const opus = kv.get<Uint8Array>(key("/workspace/music.opus"));
+        if (opus) {
+          put("/workspace/dist/music.opus", opus);
+        }
+        put(
+          "/workspace/dist/index.html",
+          encode(
+            `<script src="/runtime/v4.js"${opus ? ' data-music="music.opus"' : ""}></script>`
+          )
         );
         put("/workspace/playtest-start.png", PNG);
         put("/workspace/playtest-end.png", PNG);
@@ -632,6 +680,28 @@ export class Maker extends RealMaker {
           const next = revisionFiles(this.name, n + 1);
           await this.env.FILES.put(`${next}game.ts`, "// half");
           await this.env.FILES.put(`${next}stale.js`, "// half");
+          return new Response(null, { status: 204 });
+        });
+      }
+      // A Revision n+1 from before source.tgz: a LittleJS game with music, design.md beside it, index.html last.
+      case "/fake/legacy": {
+        return currentRevision(this.env.FILES, this.name).then(async (n) => {
+          const next = revisionFiles(this.name, n + 1);
+          await Promise.all(
+            Object.entries({
+              "design.md": "# An older design\n",
+              "game.js": "// built long ago",
+              "game.ts": "let speed = 1;\nfunction gameRender() {}\n",
+              "music.js": 'hopon.music = "T2dnUw==";\n',
+              "music.mjs": "// an older track",
+            }).map(([name, content]) =>
+              this.env.FILES.put(`${next}${name}`, content)
+            )
+          );
+          await this.env.FILES.put(
+            `${next}index.html`,
+            '<script src="/runtime/v3.js"></script><script src="music.js"></script><script src="game.js"></script>'
+          );
           return new Response(null, { status: 204 });
         });
       }

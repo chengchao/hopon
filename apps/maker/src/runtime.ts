@@ -1,7 +1,7 @@
 // Builds image/runtime.js: LittleJS core (release mode: no debug, editor, 3D or plugins) plus the hopon scaffold, and
 // image/littlejs.d.ts: the engine's declarations narrowed to what that build defines, as globals, plus hopon's.
-// The same bytes go to the Worker, which serves them as /runtime/v3.js, so the box's playtest runs what the phone runs.
-// It also copies the plain-DOM scaffold (image/dom.js) to the Worker as is, served as /dom/v3.js. The versions before
+// The same bytes go to the Worker, which serves them as /runtime/v4.js, so the box's playtest runs what the phone runs.
+// It also copies the plain-DOM scaffold (image/dom.js) to the Worker as is, served as /dom/v4.js. The versions before
 // them stay frozen in their JSON for the Games that load them (FROZEN).
 // `pnpm -F maker build:runtime` rebuilds; runtime.test.ts fails when the Worker's copy is stale.
 import { createHash } from "node:crypto";
@@ -42,8 +42,8 @@ const DTS_PATH = path.join(image, "littlejs.d.ts");
 // Committed, as JSON strings the Worker and Node both import.
 const served = (file: string) =>
   path.join(import.meta.dirname, "..", "..", "worker", "src", "runtime", file);
-export const SERVED_PATH = served("v3.json");
-export const DOM_SERVED_PATH = served("dom-v3.json");
+export const SERVED_PATH = served("v4.json");
+export const DOM_SERVED_PATH = served("dom-v4.json");
 
 // One top-level declaration of the engine's d.ts: its JSDoc plus the declaration, which ends where the next one starts.
 const DECLARATION =
@@ -109,11 +109,21 @@ export const FROZEN = [
     route: "/dom/v2.js",
     sha256: "e8b4c0d868ab19b3449945937492cf512de074e1e3660a3e8c2bab01e5c81d7f",
   },
+  {
+    path: served("v3.json"),
+    route: "/runtime/v3.js",
+    sha256: "05830d99f269e095ee3dbff2f0ca212b4d5f12aadc2abf329936384bf4f37c3b",
+  },
+  {
+    path: served("dom-v3.json"),
+    route: "/dom/v3.js",
+    sha256: "b14590b09313ae982295c753b075ef1a5a622b1db33440657c86a81470557458",
+  },
 ];
-export const V3_SHA256 =
-  "05830d99f269e095ee3dbff2f0ca212b4d5f12aadc2abf329936384bf4f37c3b";
-export const DOM_V3_SHA256 =
-  "b14590b09313ae982295c753b075ef1a5a622b1db33440657c86a81470557458";
+export const V4_SHA256 =
+  "6a9dd3463f3c65addfa701e1244dec8c9d4aaa1a83de05581f6cc1d03f37a3fb";
+export const DOM_V4_SHA256 =
+  "f91cb7a4dcb47a031ae1211838f6449654fb09826e2535b85683fb623acb2d8a";
 
 const sha256 = (code: string) =>
   createHash("sha256").update(code).digest("hex");
@@ -149,9 +159,9 @@ export const compileRuntime = async (source = runtimeSource()) => {
 export const buildRuntime = async () => {
   const source = runtimeSource();
   const code = await compileRuntime(source);
-  assertUnchanged(code, V3_SHA256, "/runtime/v3.js");
+  assertUnchanged(code, V4_SHA256, "/runtime/v4.js");
   const dom = domScaffold();
-  assertUnchanged(dom, DOM_V3_SHA256, "/dom/v3.js");
+  assertUnchanged(dom, DOM_V4_SHA256, "/dom/v4.js");
   writeFileSync(RUNTIME_PATH, code);
   writeFileSync(SERVED_PATH, `${JSON.stringify(code)}\n`);
   writeFileSync(DOM_SERVED_PATH, `${JSON.stringify(dom)}\n`);

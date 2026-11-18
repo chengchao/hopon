@@ -1,4 +1,4 @@
-// hopon's plain-DOM scaffold, served at /dom/v3.js before game.js (by the Worker and the box's playtest, the same
+// hopon's plain-DOM scaffold, served at /dom/v4.js before game.js (by the Worker and the box's playtest, the same
 // bytes). It only keeps the score and the game's state, which the playtest reads; the game draws its own screens. The
 // frame counter is the playtest's clock: it stops when the page's main thread hangs.
 /* oxlint-disable no-unused-vars -- globals for game.js */
@@ -21,7 +21,7 @@ const hopon = {
     hopon.won = won;
     hopon.best = Math.max(hopon.best, hopon.score);
   },
-  // music.js sets it when the game has music.
+  // A page from before /dom/v4.js sets it, from music.js, when the game has music.
   music: "",
   restart() {
     hopon.score = 0;
@@ -41,9 +41,20 @@ const hoponTick = () => {
 requestAnimationFrame(hoponTick);
 const hoponClock = () => hoponFrames / 60;
 
-// The music: music.js, which the harness puts between this scaffold and the game when it has some, sets hopon.music to
-// an Opus loop in base64. iOS lets audio start only from a touch, so it starts at the first one, and each later touch
-// resumes it in case that one didn't count. It follows the app's pause, resume and mute, as the LittleJS scaffold does.
+// The music: a built game's page names its Opus loop on this script's data-music, fetched from the start (GAME_CSP
+// allows the game's own files); a page from before /dom/v4.js loaded music.js after it, which sets hopon.music to the
+// loop in base64. iOS lets audio start only from a touch, so it starts at the first one, and each later touch resumes
+// it in case that one didn't count. It follows the app's pause, resume and mute, as the LittleJS scaffold does.
+const hoponMusicSrc = document.currentScript?.dataset.music;
+const hoponMusicLoad = async () => {
+  try {
+    const response = await fetch(hoponMusicSrc);
+    return await response.arrayBuffer();
+  } catch (error) {
+    console.warn("hopon: the music didn't load", error);
+  }
+};
+const hoponMusicFile = hoponMusicSrc ? hoponMusicLoad() : undefined;
 let hoponAudio;
 let hoponAway = false;
 let hoponMuted = false;
@@ -63,7 +74,7 @@ const hoponMusicStart = async () => {
     hoponAudioSync();
     return;
   }
-  if (!hopon.music) {
+  if (!hopon.music && !hoponMusicFile) {
     return;
   }
   const context = new AudioContext();
@@ -72,14 +83,16 @@ const hoponMusicStart = async () => {
   hoponAudio = { context, gain };
   hoponAudioSync();
   try {
-    const bytes = Uint8Array.from(atob(hopon.music), (c) => c.codePointAt(0));
+    const bytes = hopon.music
+      ? Uint8Array.from(atob(hopon.music), (c) => c.codePointAt(0)).buffer
+      : await hoponMusicFile;
     const source = context.createBufferSource();
-    source.buffer = await context.decodeAudioData(bytes.buffer);
+    source.buffer = await context.decodeAudioData(bytes);
     source.loop = true;
     source.connect(gain);
     source.start();
   } catch (error) {
-    console.warn("hopon: the music didn't decode", error);
+    console.warn("hopon: the music didn't load", error);
   }
 };
 for (const type of ["pointerdown", "touchend", "keydown"]) {

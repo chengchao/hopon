@@ -3,7 +3,7 @@
 // any box (#173); the Worker's adapts its Container (jobBox in apps/worker/src/agent-sandbox.ts).
 import { Schema } from "effect";
 
-import { domHtml, isLittlejsHtml, littlejsHtml, MUSIC } from "../image/page.ts";
+import { domHtml, isLittlejsHtml } from "../image/page.ts";
 
 export const WORKSPACE = "/workspace";
 
@@ -17,7 +17,7 @@ export interface Box {
   ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
   read: (file: string) => Promise<string>;
   readBytes: (file: string) => Promise<Uint8Array>;
-  write: (file: string, text: string) => Promise<void>;
+  write: (file: string, data: string | Uint8Array) => Promise<void>;
 }
 
 // #116's turn limits. Steps are the owner's call, raised from #111's 12 to 20 on 2026-11-03: a p95 cap of 10 failed 2
@@ -48,23 +48,15 @@ export const TestsSchema = Schema.Struct({
 });
 export type Tests = typeof TestsSchema.Type;
 
-// What the check needs of a build: the Revision it starts from, and whether to render music and which tests to run.
-const JobSchema = Schema.Struct({
-  draftId: Schema.String,
-  // The Revision the job starts from, 0 when the Draft has none.
-  revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  // game.ts, index.html, music.mjs or music.py; never game.js or music.js. Empty for a new game, a start over included.
-  source: Schema.Record(Schema.String, Schema.String),
-  spec: Schema.Struct({
-    // genre and mood when this build writes or rewrites the music, else null
-    music: Schema.NullOr(Schema.String),
-    tests: Schema.optional(TestsSchema),
-    title: Schema.String,
-  }),
-});
-export type Job = typeof JobSchema.Type;
-// The eval's build spec: a job's, and what the judge grades the game against.
-export type Spec = Job["spec"] & { brief: string };
+// The eval's build spec: whether the build has music and which tests it runs, and what the judge grades the game
+// against.
+export interface Spec {
+  brief: string;
+  // genre and mood when the build has music, else null
+  music: string | null;
+  tests?: Tests;
+  title: string;
+}
 
 export interface PlaytestResult {
   ok: boolean;
@@ -83,6 +75,8 @@ export interface PlaytestResult {
 // The image's binaries by full path, so a program a model put earlier on PATH can't stand in for one.
 const NODE = "/usr/local/bin/node";
 const PYTHON = "/usr/bin/python3";
+const FIND = "/usr/bin/find";
+const TAR = "/usr/bin/tar";
 const PLAYTEST = "/opt/hopon/playtest.js";
 
 // What a playtest.js run that printed no result left: its exit code always, since one killed by a signal or by
@@ -132,17 +126,42 @@ const SCORES = {
   "music.py": { error: (stderr: string) => stderr.slice(-300), run: PYTHON },
 } as const;
 type Score = keyof typeof SCORES;
-const SCORE_FILES = Object.keys(SCORES) as Score[];
-
-// What a Revision holds of the agent's (#117); the harness adds game.js, music.js and a LittleJS game's index.html,
-// and a plain-DOM game's index.html gets the music's script from it.
-const SOURCE_FILES = ["index.html", "game.ts", ...SCORE_FILES];
+export const SCORE_FILES = Object.keys(SCORES) as Score[];
 const HOME = "/home/user";
 
-// music.js: the harness's, from music.wav. GAME_CSP has connect-src 'none', so the Opus loop comes in as a script, in
-// base64, for the runtime to decode in Web Audio (#146).
-export const musicScript = (opus: Uint8Array) =>
-  `hopon.music = "${Buffer.from(opus).toString("base64")}";\n`;
+// A Revision (ADR 0006): source.tgz, the workspace's source, and the built game the page loads, dist/'s files, the
+// music the harness renders among them.
+export const SOURCE_TAR = "source.tgz";
+export const MUSIC_FILE = "music.opus";
+const DIST = "dist";
+// The source is the workspace but what the playtest builds, the scores' renders (music.wav and a skeleton's raw.wav and
+// song.mid), the music, the screenshots, and the Worker's .hopon/ (the Creator's messages, written again on every run).
+// It's packed the same way every time (names sorted, times and owners zeroed, gzip without a name or a time), so the
+// same source is the same bytes.
+const NOT_SOURCE = [
+  "./dist",
+  "./game.js",
+  "*.wav",
+  "*.mid",
+  `./${MUSIC_FILE}`,
+  "./playtest-*.png",
+  "./node_modules",
+  "./.hopon",
+];
+const PACKED = "/tmp/hopon-source.tgz";
+const GZIP = "--use-compress-program=/usr/bin/gzip -n";
+// What the page loads (the scaffold aside) and the source packed, each: a game's needs are well under these, and a
+// phone loads the first on every swipe to the game.
+const MAX_BUILT_BYTES = 5_000_000;
+const MAX_SOURCE_BYTES = 5_000_000;
+// The names the Worker serves a game's files by (apps/worker/src/api.ts).
+const SERVED_NAME = /^[\w.-]+$/u;
+
+// What restore puts back in the workspace: a Revision's source.tgz, or the source files of a Revision from before it.
+export type Source = { tar: Uint8Array } | { files: Record<string, string> };
+
+// Where the check runs the score: what it writes besides music.wav stays out of the workspace, which the check compares.
+const RENDERS = "/tmp/hopon-music";
 
 // The workspace's score to music.opus, or why it failed.
 const renderMusic = async (box: Box, source: Record<string, string | null>) => {
@@ -155,7 +174,15 @@ const renderMusic = async (box: Box, source: Record<string, string | null>) => {
     return `${scores.join(" and ")} are both there: a game has one music file, so delete the one you aren't using`;
   }
   const { error, run } = SCORES[score];
-  const rendered = await box.exec([run, `${WORKSPACE}/${score}`]);
+  await box.exec(["/usr/bin/rm", "-rf", RENDERS]);
+  await box.exec(["/usr/bin/mkdir", "-p", RENDERS]);
+  const rendered = await box.exec([
+    "/usr/bin/env",
+    "-C",
+    RENDERS,
+    run,
+    `${WORKSPACE}/${score}`,
+  ]);
   if (rendered.exitCode !== 0) {
     return `${score} failed: ${error(rendered.stderr)}`;
   }
@@ -167,7 +194,7 @@ const renderMusic = async (box: Box, source: Record<string, string | null>) => {
     "format=duration",
     "-of",
     "csv=p=0",
-    `${WORKSPACE}/music.wav`,
+    `${RENDERS}/music.wav`,
   ]);
   const seconds = Number(probed.stdout.trim());
   if (
@@ -182,12 +209,12 @@ const renderMusic = async (box: Box, source: Record<string, string | null>) => {
     "-loglevel",
     "error",
     "-i",
-    `${WORKSPACE}/music.wav`,
+    `${RENDERS}/music.wav`,
     "-c:a",
     "libopus",
     "-b:a",
     "64k",
-    `${WORKSPACE}/music.opus`,
+    `${WORKSPACE}/${MUSIC_FILE}`,
   ]);
   return encoded.exitCode === 0
     ? null
@@ -249,142 +276,173 @@ const boxTests = async (box: Box, tests: Tests): Promise<TestsResult> => {
   }
 };
 
-// The Revision's changed and deleted files, against the source the job sent. The harness adds its own two: a LittleJS
-// game's index.html, and music.js when the job rendered music. A Revision has music.js when this job rendered it or
-// the last one did and its score is still there; index.html loads it exactly then.
-const diffRevision = (
-  workspace: Record<string, string | null>,
-  source: Job["source"],
-  opus: Uint8Array | null
-) => {
-  const hadMusic = SCORE_FILES.some((file) => file in source);
-  const music =
-    opus !== null ||
-    SCORE_FILES.some((file) => workspace[file] !== null && file in source);
-  const revision = { ...workspace };
-  // Only a plain-DOM game has index.html in the box: restore keeps the harness's page out.
-  const page = revision["index.html"];
-  if (page === null && revision["game.ts"] !== null) {
-    revision["index.html"] = littlejsHtml(music);
-  } else if (page !== null) {
-    revision["index.html"] = domHtml(page, music);
-  }
-  const files: Record<string, string> = {};
-  const deleted: string[] = [];
-  for (const [file, text] of Object.entries(revision)) {
-    if (text === null && file in source) {
-      deleted.push(file);
-    } else if (text !== null && text !== source[file]) {
-      files[file] = text;
-    }
-  }
-  if (opus) {
-    files[MUSIC] = musicScript(opus);
-  } else if (!music && hadMusic) {
-    deleted.push(MUSIC);
-  }
-  return { deleted, files };
-};
-
 // The workspace and the home directory emptied. Processes a model left are not ended: under the durable_object policy
 // every process has root's capabilities, so kill(-1) could end Cloudflare's own, and a model that means to cheat could
-// rewrite the harness anyway. checkBuild instead reads the source again after running it.
+// rewrite the harness anyway. checkBuild instead packs the source again after running it.
 const sweep = async (box: Box) => {
-  await box.exec([
-    "/usr/bin/find",
+  await box.exec([FIND, WORKSPACE, HOME, "-mindepth", "1", "-delete"]);
+};
+
+const run = async (box: Box, argv: string[]) => {
+  const result = await box.exec(argv);
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `${argv.slice(0, 2).join(" ")} failed: ${result.stderr.slice(0, 300)}`
+    );
+  }
+  return result.stdout;
+};
+
+// The workspace's source as source.tgz's bytes.
+export const packSource = async (box: Box) => {
+  await run(box, [
+    TAR,
+    "--create",
+    "--file",
+    PACKED,
+    GZIP,
+    "--format=gnu",
+    "--sort=name",
+    "--mtime=@0",
+    "--owner=0",
+    "--group=0",
+    "--numeric-owner",
+    ...NOT_SOURCE.map((pattern) => `--exclude=${pattern}`),
+    "-C",
     WORKSPACE,
-    HOME,
-    "-mindepth",
-    "1",
-    "-delete",
+    ".",
+  ]);
+  return await box.readBytes(PACKED);
+};
+
+// The workspace swept and given back exactly this source.
+const unpackSource = async (box: Box, tar: Uint8Array) => {
+  await sweep(box);
+  await box.write(PACKED, tar);
+  await run(box, [
+    TAR,
+    "--extract",
+    "--file",
+    PACKED,
+    GZIP,
+    "--no-same-owner",
+    "-C",
+    WORKSPACE,
   ]);
 };
 
-const write = async (box: Box, files: Record<string, string | null>) => {
-  await Promise.all(
-    Object.entries(files).flatMap(([file, text]) =>
-      text === null ? [] : [box.write(`${WORKSPACE}/${file}`, text)]
-    )
-  );
-};
-
-// The workspace holds exactly the job's source, but for index.html. A LittleJS game's is the harness's, not the
+// A Revision from before source.tgz: its source files, but for index.html. A LittleJS game's is the harness's, not the
 // agent's, and in the box it would make the game look like plain DOM. A plain-DOM game's goes in on the current
-// scaffold and without the music's script, which the harness adds back. A box left dirty by a failed or stopped job
-// starts from Revision n.
-export const restore = async (box: Box, source: Job["source"]) => {
+// scaffold and without the music's script, which the playtest's build replaces.
+const writeFiles = async (box: Box, files: Record<string, string>) => {
   await sweep(box);
-  await write(
-    box,
-    Object.fromEntries(
-      Object.entries(source).flatMap(([file, text]) => {
-        if (file !== "index.html") {
-          return [[file, text]];
-        }
-        return isLittlejsHtml(text) ? [] : [[file, domHtml(text, false)]];
-      })
-    )
+  await Promise.all(
+    Object.entries(files).flatMap(([file, text]) => {
+      if (file !== "index.html") {
+        return [box.write(`${WORKSPACE}/${file}`, text)];
+      }
+      return isLittlejsHtml(text)
+        ? []
+        : [box.write(`${WORKSPACE}/${file}`, domHtml(text))];
+    })
   );
 };
 
-// The harness's check of a build (ADR 0006), at each `build` call: the music rendered, the source read into
-// memory, the box swept and given back only that source, then the game typechecked, emitted and run through RUNS and
-// the agent's tests, and the source read again to show nothing rewrote it meanwhile. Its errors, or the
-// Revision's files, which hold exactly what it ran. Whatever the model claims, a game that doesn't run never becomes a
-// Revision (#122), and game.js always comes from game.ts. It replays no playtest and plays no random script: in 46
-// recorded builds those two failed 2, both on a playtest that printed nothing, and caught no broken game.
+// The workspace holds exactly the Revision's source. A box left dirty by a failed or stopped job starts from Revision n.
+export const restore = async (box: Box, source: Source) => {
+  await ("tar" in source
+    ? unpackSource(box, source.tar)
+    : writeFiles(box, source.files));
+};
+
+const sameBytes = (a: Uint8Array, b: Uint8Array) =>
+  a.length === b.length && a.every((byte, index) => byte === b[index]);
+
+// dist/'s files, or why the page can't load them.
+const readBuilt = async (box: Box) => {
+  const listed = await run(box, [
+    FIND,
+    `${WORKSPACE}/${DIST}`,
+    "-maxdepth",
+    "1",
+    "-type",
+    "f",
+    "-printf",
+    "%f\\n",
+  ]);
+  const names = listed.split("\n").filter(Boolean);
+  const unserved = names.filter((name) => !SERVED_NAME.test(name));
+  if (unserved.length > 0) {
+    return `rename ${unserved.join(", ")}: a game's file names are letters, digits, ".", "-" and "_"`;
+  }
+  const built = await Promise.all(
+    names.map(
+      async (name) =>
+        [name, await box.readBytes(`${WORKSPACE}/${DIST}/${name}`)] as const
+    )
+  );
+  const bytes = built.reduce((total, [, data]) => total + data.length, 0);
+  return bytes > MAX_BUILT_BYTES
+    ? `the built game is ${(bytes / 1e6).toFixed(1)} MB, over ${MAX_BUILT_BYTES / 1e6} MB: make its images and sounds smaller`
+    : Object.fromEntries(built);
+};
+
+// The harness's check of a build (ADR 0006), at each `build` call: the source packed, the box swept and given back only
+// that source, the music rendered, then the game built, typechecked and run through RUNS and the agent's tests, and the
+// source packed again to show nothing rewrote it meanwhile. Its errors, or the Revision's files, which hold exactly what
+// it ran. Whatever the model claims, a game that doesn't run never becomes a Revision (#122), and the page always comes
+// from the source. It replays no playtest and plays no random script: in 46 recorded builds those two failed 2, both on
+// a playtest that printed nothing, and caught no broken game.
 export const checkBuild = async (
   box: Box,
-  { job }: { job: Job }
+  { music, tests }: { music: boolean; tests?: Tests }
 ): Promise<
-  (
-    | { errors: string[] }
-    | { files: Record<string, string>; deleted: string[] }
-  ) & { testErrors?: string[] }
+  ({ errors: string[] } | { files: Record<string, Uint8Array> }) & {
+    testErrors?: string[];
+  }
 > => {
-  const texts = await Promise.all(
-    SOURCE_FILES.map((file) => readText(box, file))
+  const tar = await packSource(box);
+  if (tar.length > MAX_SOURCE_BYTES) {
+    return {
+      errors: [
+        `the workspace's source is ${(tar.length / 1e6).toFixed(1)} MB packed, over ${MAX_SOURCE_BYTES / 1e6} MB: delete what the game doesn't use`,
+      ],
+    };
+  }
+  await unpackSource(box, tar);
+  const scores = await Promise.all(
+    SCORE_FILES.map((file) => readText(box, file))
   );
-  const source = Object.fromEntries(
-    SOURCE_FILES.map((file, index) => [file, texts[index] ?? null])
-  );
-  const music = job.spec.music ? await renderMusic(box, source) : null;
-  const opus =
-    job.spec.music && music === null
-      ? await box.readBytes(`${WORKSPACE}/music.opus`)
-      : null;
-  await sweep(box);
-  await write(box, source);
-  if (music !== null) {
-    return { errors: [music] };
+  if (music || scores.some((text) => text !== null)) {
+    const failed = await renderMusic(
+      box,
+      Object.fromEntries(
+        SCORE_FILES.map((file, index) => [file, scores[index]])
+      )
+    );
+    if (failed !== null) {
+      return { errors: [failed] };
+    }
   }
   const tested = await boxTests(box, {
-    expose: job.spec.tests?.expose ?? [],
-    tests: [RUNS, ...(job.spec.tests?.tests ?? [])],
+    expose: tests?.expose ?? [],
+    tests: [RUNS, ...(tests?.tests ?? [])],
   });
   const { testErrors } = tested;
   if (!tested.ok) {
+    return { errors: [...tested.typeErrors, ...tested.failures], testErrors };
+  }
+  if (!sameBytes(await packSource(box), tar)) {
     return {
-      errors: [...tested.typeErrors, ...tested.failures],
+      errors: [
+        "the workspace changed while the harness ran it: stop whatever process is writing to it",
+      ],
       testErrors,
     };
   }
-  const [emitted, ...after] = await Promise.all(
-    ["game.js", ...SOURCE_FILES].map((file) => readText(box, file))
-  );
-  const changed = SOURCE_FILES.filter(
-    (file, index) => (after[index] ?? null) !== source[file]
-  );
-  if (changed.length > 0) {
-    return {
-      errors: changed.map(
-        (file) =>
-          `${file} changed while the harness ran it: stop whatever process is writing it`
-      ),
-    };
+  const built = await readBuilt(box);
+  if (typeof built === "string") {
+    return { errors: [built], testErrors };
   }
-  return {
-    ...diffRevision({ ...source, "game.js": emitted }, job.source, opus),
-    testErrors,
-  };
+  return { files: { ...built, [SOURCE_TAR]: tar }, testErrors };
 };
