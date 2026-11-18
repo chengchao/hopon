@@ -64,7 +64,7 @@ import {
 import { metered, piModels } from "./pi-models.ts";
 import { BUSY, MAKER_VALUES, renderPrompt, USED_UP } from "./prompts.ts";
 import { publishTool, revisionSource, writeAsked } from "./publish.ts";
-import { forCreator } from "./reply.ts";
+import { creatorView } from "./reply.ts";
 import { drafts, now } from "./schema.ts";
 import { allowanceLeft } from "./storage.ts";
 
@@ -486,6 +486,7 @@ export class Maker extends Agent<Env> {
       );
       this.streams.set(connection.id, stream);
       const send = (frame: Frame) => connection.send(JSON.stringify(frame));
+      const forCreator = creatorView();
       send({
         data: forCreator(stream.snapshot) as typeof stream.snapshot,
         type: "snapshot",

@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import type { AgentEvent } from "@earendil-works/pi-durable";
 
-import { forCreator } from "./reply.ts";
+import { creatorView } from "./reply.ts";
 
 const assistant = (content: object[]) => ({
   id: 1,
@@ -15,7 +15,7 @@ const CALL = { arguments: {}, id: "t1", name: "build", type: "toolCall" };
 const REPLY = { text: "Here's Penguin Slide!", type: "text" };
 
 const shown = (event: object) =>
-  forCreator(event as AgentEvent) as unknown as {
+  creatorView()(event as AgentEvent) as unknown as {
     entry: { model: { content: object[] }[] };
   };
 
@@ -33,7 +33,7 @@ test("the reply after the last tool call reaches the Creator whole", () => {
 });
 
 test("a snapshot shows the transcript's replies and no streaming text", () => {
-  const snapshot = forCreator({
+  const snapshot = creatorView()({
     entries: [assistant([NOTE, CALL]), assistant([REPLY])],
     generation: { attempt: 1, message: { content: [NOTE], role: "assistant" } },
     type: "snapshot",
@@ -49,7 +49,7 @@ test("a snapshot shows the transcript's replies and no streaming text", () => {
 });
 
 test("streamed text is dropped, and thinking and tool calls still stream", () => {
-  const event = forCreator({
+  const event = creatorView()({
     changes: [
       {
         block: { text: "", type: "text" },
@@ -74,5 +74,5 @@ test("the Creator's own messages pass unchanged", () => {
     entry: { id: 2, kind: "pi.user", model: [{ content: "hi", role: "user" }] },
     type: "entry_appended",
   };
-  assert.deepEqual(forCreator(user as unknown as AgentEvent), user);
+  assert.deepEqual(creatorView()(user as unknown as AgentEvent), user);
 });

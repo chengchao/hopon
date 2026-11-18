@@ -132,7 +132,7 @@ const textOf = (message: Message | undefined) => {
     typeof content === "string"
       ? content
       : content
-          .map((block) => (block.type === "text" ? block.text : ""))
+          .map((block) => (block?.type === "text" ? block.text : ""))
           .join("")
   ).trim();
 };
