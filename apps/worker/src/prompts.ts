@@ -23,10 +23,15 @@ export const MAKER_VALUES = {
 const PLACEHOLDER = /\{\{(?<name>\w+)\}\}/gu;
 
 // A placeholder with no value, or a value no placeholder uses, throws: either means the prompt and the code disagree.
+// Only the template's own braces are checked: a value is text from outside (a game's error), and is put in as it is.
 export const renderPrompt = (
   template: string,
   values: Record<string, string | number>
 ) => {
+  const malformed = /\{\{.*?\}\}/u.exec(template.replaceAll(PLACEHOLDER, ""));
+  if (malformed) {
+    throw new Error(`the prompt's ${malformed[0]} isn't a placeholder`);
+  }
   const used = new Set<string>();
   const rendered = template.replaceAll(PLACEHOLDER, (match, name: string) => {
     if (!Object.hasOwn(values, name)) {
@@ -35,10 +40,6 @@ export const renderPrompt = (
     used.add(name);
     return String(values[name]);
   });
-  const malformed = /\{\{.*?\}\}/u.exec(rendered);
-  if (malformed) {
-    throw new Error(`the prompt's ${malformed[0]} isn't a placeholder`);
-  }
   const unused = Object.keys(values).filter((name) => !used.has(name));
   if (unused.length > 0) {
     throw new Error(`the prompt never uses ${unused.join(", ")}`);
@@ -55,6 +56,7 @@ const TOOL_RESULTS = [
   "steps",
   "builds",
   "deadline",
+  "no-game",
   "not-ready",
   "check-failed",
   "skipped",

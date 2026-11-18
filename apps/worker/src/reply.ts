@@ -1,8 +1,9 @@
 // What the app's socket shows of the agent's messages (ADR 0006): only its reply. A message that calls a tool is a step
 // of the work, so its text is a note to itself ("Looks good.", "I didn't playtest the music."), never shown; and text
 // streams nowhere, since a message's text can't be told from a note until the message ends. A message cut off by Stop,
-// the abort timer, the length limit or an error is a half-written thought, not a reply, so its text goes too. The
-// transcript the model reads keeps everything.
+// the abort timer or an error is a half-written thought, not a reply, so its text goes too; the turn's failure tells
+// the Creator. One cut by the length limit ends its turn as done, so its text is the only reply there is, and stays.
+// The transcript the model reads keeps everything.
 import type { AgentEvent } from "@earendil-works/pi-durable";
 
 interface Block {
@@ -14,7 +15,7 @@ interface Message {
   stopReason?: string;
 }
 
-const CUT_OFF = new Set(["aborted", "error", "length"]);
+const CUT_OFF = new Set(["aborted", "error"]);
 
 const silent = <M extends Message>(message: M): M =>
   typeof message.content === "string"
