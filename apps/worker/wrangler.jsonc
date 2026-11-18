@@ -35,6 +35,8 @@
     // is the owner's call on 2026-11-11 for the sub agent this replaces (high ran out of time on 3 of 6 builds).
     "MAKER_MODEL": "claude-sonnet-5-5",
     "MAKER_EFFORT": "medium",
+    // The model `ask_advisor` asks (src/advisor.ts): Opus 5.5, or Fable 5.2 as "claude-fable-5-2".
+    "MAKER_ADVISOR_MODEL": "claude-opus-5-5",
     // The abort timer on a turn's work (#116, #122): 30 s past the run's own deadline (job.ts), so its tools are refused
     // first. The Maker test shortens it.
     "MAKER_BUILD_ABORT_S": "330",
@@ -107,6 +109,7 @@
     "vars": {
       "MAKER_MODEL": "claude-sonnet-5-5",
       "MAKER_EFFORT": "medium",
+      "MAKER_ADVISOR_MODEL": "claude-opus-5-5",
       "MAKER_BUILD_ABORT_S": "330",
       "MAKER_WEEKLY_TOKENS": "80000000",
       "MIN_IOS_BUILD": "11",

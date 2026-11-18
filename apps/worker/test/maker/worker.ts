@@ -4,7 +4,8 @@
 //   since that message; a script's end, and any other message, gets a text reply that repeats what the model was last
 //   sent, a tool's result included. A step can carry a note: text in the same message as its tool call. Each call
 //   reads 1,000 input tokens, 1,000 hopon tokens at Haiku 5.5's $0.10 a million, or n after "spend <n>"; "no credits"
-//   gets the gateway's 402.
+//   gets the gateway's 402. A call with no tools is the advisor's (src/advisor.ts): it gets fixed advice, or a 400 for
+//   the question "advisor fails", and isn't counted in `calls`.
 // - The sandbox: files in the Maker's own storage (so they outlive a restart, as a running box does), every command
 //   logged and answered by fakeExec: the playtest green unless game.ts says BROKEN, the check's tests red on that;
 //   music.mjs rendering a fixed track; `rm -f <files>` deleting them; the rest a no-op. As the platform's, a stopped box
@@ -13,7 +14,7 @@
 // its start, destroy and inactivity timeout; `puts` the start and end of each R2 put; `release` lets a held step answer; `nobox` stops the box and makes its
 // next start fail; `lose` makes the box stop with the server, as a box on another host would; `stopbox` stops it once;
 // `slowplay/<ms>` slows its next playtest; `stopatverify` stops the box once `build`'s verify has answered;
-// `partial` leaves the next Revision half-written in R2, as an eviction mid-build would; `calls` counts the model calls; `mistagged` counts calls whose gateway tag
+// `partial` leaves the next Revision half-written in R2, as an eviction mid-build would; `calls` counts the model calls; `advisor` returns the advisor's requests; `mistagged` counts calls whose gateway tag
 // doesn't name the Maker; `destroyed` says whether the Draft's box was destroyed, and `startsafterdestroy` how often it
 // started after that.
 import { Effect, Layer } from "effect";
@@ -67,7 +68,18 @@ const build = (kind: "new" | "change", music = false) => ({
 const READ_ASKED = { input: { path: ".hopon/asked.json" }, tool: "read" };
 const DESIGN = "# Moon Cat design\n";
 const TESTS = '{"expose": [], "tests": []}';
+const ADVISE = {
+  input: { question: "Should the level data live apart from the physics?" },
+  tool: "ask_advisor",
+};
 const SCRIPTS: Record<string, readonly Step[]> = {
+  // Writes the game, then asks the advisor.
+  advised: [write(), ADVISE],
+  // Asks the advisor, which fails, then writes the game.
+  advisorfails: [
+    { input: { question: "advisor fails" }, tool: "ask_advisor" },
+    write(),
+  ],
   // Reads what the Creator has said, from the file the Maker keeps in the box.
   asked: [READ_ASKED],
   // Green under its own playtest, red under build's check.
@@ -230,17 +242,41 @@ const mistagged = new Map<string, number>();
 const destroyed = new Set<string>();
 const startsAfterDestroy = new Map<string, number>();
 
+// The advisor's requests, whole, per Draft.
+const advisorRequests = new Map<string, unknown[]>();
+
 const TOKENS = 1000;
+
+// The advisor's call: the only one with no tools. A question "advisor fails" gets the gateway's 400.
+const advise = (draftId: string, body: { messages: Message[] }) => {
+  advisorRequests.set(draftId, [...(advisorRequests.get(draftId) ?? []), body]);
+  if (texts(body.messages.at(-1)?.content).join("").includes("advisor fails")) {
+    return Response.json(
+      {
+        error: {
+          message: "the advisor is down",
+          type: "invalid_request_error",
+        },
+      },
+      { status: 400 }
+    );
+  }
+  return say("advice: keep the levels in their own file.", TOKENS);
+};
 
 const model = async (request: Request) => {
   const { agent, draftId } = JSON.parse(
     request.headers.get("cf-aig-metadata") ?? "{}"
   ) as { agent: string; draftId: string };
-  calls.set(draftId, (calls.get(draftId) ?? 0) + 1);
   if (agent !== "maker") {
     mistagged.set(draftId, (mistagged.get(draftId) ?? 0) + 1);
   }
-  const { messages } = await request.json<{ messages: Message[] }>();
+  const body = await request.json<{ messages: Message[]; tools?: unknown }>();
+  if (!("tools" in body)) {
+    return advise(draftId, body);
+  }
+  calls.set(draftId, (calls.get(draftId) ?? 0) + 1);
+  const { messages } = body;
   const said = texts(messages.at(-1)?.content);
   if (said.includes("no credits")) {
     return Response.json(
@@ -547,6 +583,7 @@ export class Maker extends RealMaker {
     const { pathname } = new URL(request.url);
     const { kv } = this.ctx.storage;
     const reads: Record<string, () => unknown> = {
+      "/fake/advisor": () => advisorRequests.get(this.name) ?? [],
       "/fake/calls": () => calls.get(this.name) ?? 0,
       "/fake/destroyed": () => destroyed.has(this.name),
       "/fake/log": () => kv.get("fakelog") ?? [],

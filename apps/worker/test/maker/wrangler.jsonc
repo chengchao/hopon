@@ -19,6 +19,7 @@
   "vars": {
     "MAKER_MODEL": "claude-haiku-5-5",
     "MAKER_EFFORT": "low",
+    "MAKER_ADVISOR_MODEL": "claude-haiku-5-5",
     "CLOUDFLARE_ACCOUNT_ID": "test",
     "CLOUDFLARE_GATEWAY_ID": "default",
     "HOPON_OFFLINE": "1",

@@ -55,3 +55,9 @@ These checks threw and were skipped; fix them in tests.json: {{ERRORS}}
 ## published
 
 Published: the Creator now has Revision {{N}}.{{SKIPPED}}
+
+## advisor-failed
+
+The advisor couldn't answer: {{ERROR}}
+
+Go on without its advice.

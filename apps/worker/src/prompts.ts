@@ -61,6 +61,7 @@ const TOOL_RESULTS = [
   "check-failed",
   "skipped",
   "published",
+  "advisor-failed",
 ] as const;
 export type ToolResult = (typeof TOOL_RESULTS)[number];
 

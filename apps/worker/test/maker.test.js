@@ -706,6 +706,48 @@ test(
   }
 );
 
+test(
+  "ask_advisor: the advisor gets the conversation and the question with no tools, its advice is the tool's result, and a failed advisor doesn't end the run",
+  { timeout: 120_000 },
+  async (t) => {
+    await serve(t);
+    const { left: before } = await json("/api/allowance");
+    const { id: draft } = await json("/api/drafts", { text: "build advised" });
+    const socket = await connect(draft);
+    await socket.until("the advised turn's end", over);
+    assert.match(
+      await lastReply(draft),
+      /said: advice: keep the levels in their own file\./u
+    );
+    // The agent's 3 calls and the advisor's, 1,000 hopon tokens each.
+    const { left: after } = await json("/api/allowance");
+    assert.equal(before - after, 4000);
+    const [request, ...more] = await fakeJson(draft, "advisor");
+    assert.equal(more.length, 0);
+    assert.ok(!("tools" in request), "the advisor's request has no tools");
+    assert.match(JSON.stringify(request.system), /You only advise/u);
+    assert.equal(request.messages.length, 1);
+    const [{ content }] = request.messages;
+    const sent = JSON.stringify(content);
+    assert.match(sent, /USER:\\nbuild advised/u, "the Creator's message");
+    assert.match(sent, /\[calls write \{/u, "the agent's tool call");
+    assert.match(
+      sent,
+      /The Maker's question:\\nShould the level data live apart from the physics\?/u
+    );
+
+    assert.equal(await socket.turn("build advisorfails"), "turn_done");
+    const tools = await toolsCalled(draft);
+    assert.deepEqual(tools.slice(-2), ["ask_advisor", "write"]);
+    const entries = await transcript(draft);
+    assert.ok(
+      entries.some(({ text }) => text.includes("The advisor couldn't answer")),
+      "the failure reached the agent"
+    );
+    socket.close();
+  }
+);
+
 // A message the Allowance refuses before any model call.
 const refused = async (route, text) => {
   const response = await call(route, { text });
@@ -758,25 +800,28 @@ test("allowance: each model call is charged to its Creator's week; a run's work 
   assert.equal(await modelCalls(draft), calls);
   socket.close();
 
-  // A new week: this one's bucket becomes last week's, and the Allowance is full again.
-  kill();
-  const moved = wrangler(
-    [
-      "d1",
-      "execute",
-      "DB",
-      "--local",
-      "--persist-to",
-      state,
-      "--command",
-      "UPDATE generation_limits SET bucket = 'user_maker:2026-W01' WHERE bucket LIKE 'user_maker:%'",
-    ],
-    { stdio: "ignore" }
-  );
-  const [code] = await once(moved, "exit");
-  assert.equal(code, 0);
-  await start();
-  assert.equal(await left(), 200_000);
+  // A new week: this one's bucket becomes an old week's, and the Allowance is full again.
+  const newWeek = async (old) => {
+    kill();
+    const moved = wrangler(
+      [
+        "d1",
+        "execute",
+        "DB",
+        "--local",
+        "--persist-to",
+        state,
+        "--command",
+        `UPDATE generation_limits SET bucket = 'user_maker:${old}' WHERE bucket LIKE 'user_maker:%' AND bucket NOT LIKE 'user_maker:2026-W0%'`,
+      ],
+      { stdio: "ignore" }
+    );
+    const [code] = await once(moved, "exit");
+    assert.equal(code, 0);
+    await start();
+    assert.equal(await left(), 200_000);
+  };
+  await newWeek("2026-W01");
 
   // 1,500 left: the run's first call leaves 500, so its work starts, and it finishes though its later calls overshoot:
   // 3 tool calls and the reply.
@@ -788,5 +833,19 @@ test("allowance: each model call is charged to its Creator's week; a run's work 
   assert.equal(await again.turn("build new"), "turn_done");
   assert.equal(await revisionOf(draft), 1);
   assert.equal(await left(), 1500 - 4000);
+
+  // 1,500 left again: the run's first call leaves 500, so its work starts; its second leaves -500, so the advisor isn't
+  // asked, and the agent is told the Allowance is used up.
   again.close();
+  await newWeek("2026-W02");
+  const advised = await connect(draft);
+  await advised.turn("spend 99250");
+  await advised.turn("spend 99250");
+  assert.equal(await advised.turn("build advised"), "turn_done");
+  assert.match(
+    await lastReply(draft),
+    /said: The weekly Allowance is used up\. Tell the Creator: "You've used this week's hopon tokens\./u
+  );
+  assert.deepEqual(await fakeJson(draft, "advisor"), []);
+  advised.close();
 });
