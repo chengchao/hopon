@@ -1,0 +1,47 @@
+// The Maker's prompts are Markdown (apps/worker/prompts/*.md); the numbers and lines the code owns are `{{name}}`
+// placeholders, filled here. maker.ts imports the Markdown as text and renders it once, at load.
+import { GAME_DESCRIPTION_MAX, GAME_TITLE_MAX } from "@hopon/schemas";
+
+import { DEADLINE_MS, MAX_BUILDS, MAX_STEPS } from "../../maker/src/job.ts";
+
+// What the Maker says word for word when a tool reports these. The app shows when the Allowance resets, in the
+// Creator's time.
+export const BUSY = "The Maker is busy. Try again in a minute.";
+export const USED_UP =
+  "You've used this week's hopon tokens. They come back when the week resets.";
+
+export const MAKER_VALUES = {
+  BUILDS: MAX_BUILDS,
+  BUSY,
+  DESCRIPTION_MAX: GAME_DESCRIPTION_MAX,
+  MAX_STEPS,
+  MINUTES: DEADLINE_MS / 60_000,
+  TITLE_MAX: GAME_TITLE_MAX,
+  USED_UP,
+};
+
+const PLACEHOLDER = /\{\{(?<name>\w+)\}\}/gu;
+
+// A placeholder with no value, or a value no placeholder uses, throws: either means the prompt and the code disagree.
+export const renderPrompt = (
+  template: string,
+  values: Record<string, string | number>
+) => {
+  const used = new Set<string>();
+  const rendered = template.replaceAll(PLACEHOLDER, (match, name: string) => {
+    if (!Object.hasOwn(values, name)) {
+      throw new Error(`the prompt's ${match} has no value`);
+    }
+    used.add(name);
+    return String(values[name]);
+  });
+  const malformed = /\{\{.*?\}\}/u.exec(rendered);
+  if (malformed) {
+    throw new Error(`the prompt's ${malformed[0]} isn't a placeholder`);
+  }
+  const unused = Object.keys(values).filter((name) => !used.has(name));
+  if (unused.length > 0) {
+    throw new Error(`the prompt never uses ${unused.join(", ")}`);
+  }
+  return rendered;
+};

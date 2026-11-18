@@ -17,10 +17,8 @@
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "hopon" }],
   "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   "vars": {
-    "MAKER_MAIN_MODEL": "claude-haiku-5-5",
-    "MAKER_MAIN_EFFORT": "high",
-    "MAKER_SUB_MODEL": "claude-haiku-5-5",
-    "MAKER_SUB_EFFORT": "low",
+    "MAKER_MODEL": "claude-haiku-5-5",
+    "MAKER_EFFORT": "low",
     "CLOUDFLARE_ACCOUNT_ID": "test",
     "CLOUDFLARE_GATEWAY_ID": "default",
     "HOPON_OFFLINE": "1",

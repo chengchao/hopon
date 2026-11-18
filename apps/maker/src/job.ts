@@ -1,6 +1,6 @@
-// How the Coder does a build job, whatever runs the agent: the job and its events, the prompt, the playtest, the
-// workspace a job starts from and the Revision it ends with. It reaches the box only through `Box`, so a Coder on any
-// box runs it unchanged (#173); the Worker's adapts its Container (jobBox in apps/worker/src/agent-sandbox.ts).
+// What the Maker's harness does in the box, whatever runs the agent: the playtest, the workspace a run starts from, and
+// the check that turns the workspace into a Revision. It reaches the box only through `Box`, so it runs unchanged on
+// any box (#173); the Worker's adapts its Container (jobBox in apps/worker/src/agent-sandbox.ts).
 import { Schema } from "effect";
 
 import { domHtml, isLittlejsHtml, littlejsHtml, MUSIC } from "../image/page.ts";
@@ -25,20 +25,14 @@ export interface Box {
 // Sonnet at high effort. The turn's abort timer sits 30 s past it (#122).
 export const MAX_STEPS = 20;
 export const DEADLINE_MS = 300_000;
-// Harness repairs per build (ADR 0005): a check that fails sends the errors back this many times, then the build fails.
-export const MAX_REPAIRS = 3;
+// `build` calls per message (ADR 0006): a failed check comes back as errors to fix, this many times in all.
+export const MAX_BUILDS = 4;
 const MUSIC_MIN_S = 20;
 const MUSIC_MAX_S = 40;
 
-export const SYSTEM_PROMPT = `You are the sub agent in hopon, an app where people make small phone games by chatting. You get one build job from the main agent, who talks to the Creator: a new game to make, or a change to the game in the workspace. The brief names the engine and ends with the success criteria under "Done when:". You build it, playtest it until it meets every criterion, and report back to the main agent. You never talk to the Creator.
-
-When the work the user asked for is done and checked, stop and report. Don't add features, tests, files, docs or refactors that weren't asked for. If you think one would help, mention it at the end instead of doing it.
-
-Your tools run in the game's workspace, a sandbox with no network. Follow the project instructions below.`;
-
-// The main agent's tests of a build (ADR 0005): the game values they read, which the sub agent keeps on a
-// top-level `testVars` in game.ts, and the tests the harness runs on every check.
-const TestsSchema = Schema.Struct({
+// The agent's tests of its game (tests.json): the game values they read, which it keeps on a top-level `testVars` in
+// game.ts, and the tests the harness runs on every check.
+export const TestsSchema = Schema.Struct({
   expose: Schema.Array(
     Schema.Struct({ means: Schema.String, name: Schema.String })
   ),
@@ -54,8 +48,8 @@ const TestsSchema = Schema.Struct({
 });
 export type Tests = typeof TestsSchema.Type;
 
-// The job from the Talker (#122), decoded at the server's door.
-export const JobSchema = Schema.Struct({
+// What the check needs of a build: the Revision it starts from, and whether to render music and which tests to run.
+const JobSchema = Schema.Struct({
   draftId: Schema.String,
   // The Revision the job starts from, 0 when the Draft has none.
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
@@ -85,17 +79,6 @@ export interface PlaytestResult {
   // Real ms by phase.
   timings?: Record<string, number>;
 }
-
-export type CoderEvent =
-  | { type: "step"; label: string }
-  | { type: "playtest"; ok: boolean; errors: string[] }
-  | {
-      type: "done";
-      summary: string;
-      files: Record<string, string>;
-      deleted: string[];
-    }
-  | { type: "failed"; reason: string };
 
 // The image's binaries by full path, so a program a model put earlier on PATH can't stand in for one.
 const NODE = "/usr/local/bin/node";
@@ -241,28 +224,6 @@ const RUNS: Tests["tests"][number] = {
   name: "the game runs",
 };
 
-const testsPrompt = (tests: Tests) =>
-  [
-    "",
-    "Tests: the harness runs these on your game and fails the build until every one passes. Keep each value below up to date every frame, from the game's real state, on a top-level object in game.ts: `const testVars: Record<string, number | string | boolean> = {};` (keep it when you change the game).",
-    ...tests.expose.map(({ means, name }) => `- testVars.${name}: ${means}`),
-    "Each test loads the game, taps (180, 320) to start, waits 500 ms, then sends its inputs at their `at` (ms) and evaluates each check's expression at its `at` over `vars` (testVars), `score`, `state` (hopon's) and `prev`, the same three at the check before (`prev.vars`, `prev.score`, `prev.state`). Save the tests below as tests.json and run them with `node /opt/hopon/playtest.js tests`.",
-    JSON.stringify(tests),
-  ].join("\n");
-
-export const prompt = ({ revision, source, spec }: Job) =>
-  [
-    Object.keys(source).length === 0
-      ? "Build a new game."
-      : `Change the game in the workspace (Revision ${revision}).`,
-    `Title: ${spec.title}`,
-    `Brief: ${spec.brief}`,
-    spec.music
-      ? `Music: write the music for this game (${spec.music}) and render music.wav.`
-      : "Music: none this turn; leave any existing music file as it is.",
-    ...(hasTests(spec.tests) ? [testsPrompt(spec.tests)] : []),
-  ].join("\n");
-
 interface TestsResult {
   ok: boolean;
   failures: string[];
@@ -290,16 +251,6 @@ const boxTests = async (box: Box, tests: Tests): Promise<TestsResult> => {
     };
   }
 };
-
-// What the harness says to the sub agent when its check fails, or the box lost the job's work.
-export const repairPrompt = (errors: readonly string[]) =>
-  [
-    "The harness ran your game and it failed:",
-    ...errors.map((error) => `- ${error}`),
-    "Fix these, playtest again, then give your report.",
-  ].join("\n");
-export const RESTARTED =
-  "The sandbox restarted, and the workspace is back to how it was when the job began: your changes are gone. Make them again, playtest, then give your report.";
 
 // The Revision's changed and deleted files, against the source the job sent. The harness adds its own two: a LittleJS
 // game's index.html, and music.js when the job rendered music. A Revision has music.js when this job rendered it or
@@ -378,9 +329,6 @@ export const restore = async (box: Box, source: Job["source"]) => {
     )
   );
 };
-
-export const pastDeadline = (seconds: number) =>
-  `past the ${seconds} s deadline`;
 
 // The harness's check of a build (ADR 0005), each time the sub agent stops: the music rendered, the source read into
 // memory, the box swept and given back only that source, then the game typechecked, emitted and run through RUNS and
