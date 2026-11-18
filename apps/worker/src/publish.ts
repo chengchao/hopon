@@ -95,12 +95,12 @@ const readTests = async (
   }
 };
 
-// verify.js's failures, none when it passes. Only a new game must have music.
-const verify = async (box: Box, kind: "new" | "change") => {
+// verify.js's failures, none when it passes. A new game must have music, and so must a change to a game that had it.
+const verify = async (box: Box, kind: "new" | "change", hadMusic: boolean) => {
   const verified = await box.exec([
     "/bin/sh",
     "-c",
-    `cd ${WORKSPACE} && ${NODE} ${VERIFY} ${kind}`,
+    `cd ${WORKSPACE} && ${NODE} ${VERIFY} ${kind}${hadMusic ? " --had-music" : ""}`,
   ]);
   if (verified.exitCode === 0) {
     return [];
@@ -134,12 +134,12 @@ export const publishTool = (
   env: Env,
   draftId: string,
   box: (signal?: AbortSignal) => Box,
-  // Everything the Creator has said in this chat.
+  // What the Creator has said since their last new game.
   asked: () => readonly string[],
   // Whether the box started again, from the current Revision, since the agent was last told.
   restarted: () => boolean,
-  // The workspace now holds Revision n.
-  published: (n: number) => void
+  // The workspace now holds Revision n, a new game or a change.
+  published: (n: number, kind: "new" | "change") => void
 ) =>
   defineTool({
     description:
@@ -151,8 +151,16 @@ export const publishTool = (
       // and the agent is told its work is gone instead.
       const refuse = (text: string) =>
         new Error(restarted() ? toolResult("restarted") : text);
+      const { n, names, source } = await revisionSource(env.FILES, draftId);
+      if (spec.kind === "change" && n === 0) {
+        throw new Error(toolResult("no-game"));
+      }
       await writeAsked(workspace, asked());
-      const failures = await verify(workspace, spec.kind);
+      const failures = await verify(
+        workspace,
+        spec.kind,
+        names.some((name) => SCORES.includes(name))
+      );
       if (failures.length > 0) {
         throw refuse(toolResult("not-ready", { FAILURES: list(failures) }));
       }
@@ -160,7 +168,6 @@ export const publishTool = (
       if (tests.error) {
         throw refuse(tests.error);
       }
-      const { n, names, source } = await revisionSource(env.FILES, draftId);
       const fresh = spec.kind === "new";
       const scores = await Promise.all(
         SCORES.map((file) => readText(workspace, file))
@@ -256,7 +263,7 @@ export const publishTool = (
           .filter((prefix) => prefix !== next)
           .map((prefix) => removeFiles(env.FILES, prefix))
       );
-      published(n + 1);
+      published(n + 1, spec.kind);
       return {
         output: [
           {

@@ -122,7 +122,7 @@ const SILENT_MS = 60_000;
 const PROMPT = renderPrompt(MAKER, MAKER_VALUES);
 
 const SKILLS = fromManifest({
-  fingerprint: "v6",
+  fingerprint: "v7",
   id: "hopon-maker",
   skills: [MAKE_GAME, DOM_GAMES, LITTLEJS, MUSIC_SF2, MUSIC_SYNTH, ZZFX].map(
     (raw) => {
@@ -189,7 +189,7 @@ export class Maker extends Agent<Env> {
       );
       yield* Effect.promise(async () => {
         await restore(jobBox(box), source);
-        await writeAsked(jobBox(box), this.asked);
+        await writeAsked(jobBox(box), this.askedSinceNew);
       });
       this.workspace = n;
       const state = this.runState;
@@ -229,13 +229,19 @@ export class Maker extends Agent<Env> {
     return true;
   }
 
-  // Everything the Creator has said in this chat, which verify.js reads (publish.ts's writeAsked).
+  // Everything the Creator has said in this chat.
   get asked() {
     return this.ctx.storage.kv.get<string[]>("asked") ?? [];
   }
 
   set asked(messages: string[]) {
     this.ctx.storage.kv.put("asked", messages);
+  }
+
+  // What they've said since the last new game was published (a start over is one), which verify.js reads for its
+  // `Music: none` quote (publish.ts's writeAsked): what they asked of an earlier game doesn't hold for the next one.
+  get askedSinceNew() {
+    return this.asked.slice(this.ctx.storage.kv.get<number>("askedFrom") ?? 0);
   }
 
   // The Revision the workspace holds, undefined once a run has changed it.
@@ -298,7 +304,7 @@ export class Maker extends Agent<Env> {
       await restore(jobBox(this.box), source);
       this.workspace = n;
     }
-    await writeAsked(jobBox(this.box), this.asked);
+    await writeAsked(jobBox(this.box), this.askedSinceNew);
     this.runState = {
       builds: 0,
       deadlineAt: Date.now() + DEADLINE_MS,
@@ -352,10 +358,13 @@ export class Maker extends Agent<Env> {
     this.env,
     this.name,
     (signal) => jobBox(this.box, signal),
-    () => this.asked,
+    () => this.askedSinceNew,
     () => this.tellRestart(),
-    (n) => {
+    (n, kind) => {
       this.workspace = n;
+      if (kind === "new") {
+        this.ctx.storage.kv.put("askedFrom", this.asked.length);
+      }
     }
   );
 

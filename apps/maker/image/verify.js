@@ -1,6 +1,7 @@
-// `node /opt/hopon/verify.js new|change` in the workspace: is everything a published game needs here? The agent runs it
-// before `build`, and `build` runs it again with the build's kind. Prints {ok, failures} and exits 1 when something is
-// missing. A new game needs music; a change keeps whatever music the game has, none included, so only a new game's
+// `node /opt/hopon/verify.js new|change [--had-music]` in the workspace: is everything a published game needs here? The
+// agent runs it before `build`, and `build` runs it again with the build's kind, and --had-music when the current
+// Revision has a score. Prints {ok, failures} and exits 1 when something is missing. A new game needs music, and so does
+// a change to a game that had it; a change to a game without music may stay without. Where music is needed,
 // `Music: none` is checked.
 //
 // `Music: none` passes only with a quote from one of the Creator's own messages, which the Worker writes to
@@ -65,7 +66,8 @@ const said = (quote) => {
 
 const failures = [];
 
-const [kind] = process.argv.slice(2);
+const [kind, ...flags] = process.argv.slice(2);
+const needsMusic = kind === "new" || flags.includes("--had-music");
 if (!KINDS.has(kind)) {
   failures.push(
     "Run it as `node /opt/hopon/verify.js new` for a new game, or `node /opt/hopon/verify.js change` for a change to the current game."
@@ -81,7 +83,7 @@ if (!design.trim()) {
 
 const music = part(design, "music");
 const noMusic = music !== null && /^none\b/iu.test(music);
-if (noMusic && kind === "new") {
+if (noMusic && needsMusic) {
   const quote = /"(?<quote>[^"]+)"/u.exec(music)?.groups?.quote;
   if (!quote) {
     failures.push(
@@ -115,9 +117,11 @@ if (!existsSync("game.ts")) {
 const scores = ["music.mjs", "music.py"].filter((file) => existsSync(file));
 if (scores.length > 1) {
   failures.push("music.mjs and music.py are both here: keep one.");
-} else if (scores.length === 0 && kind === "new" && !noMusic) {
+} else if (scores.length === 0 && needsMusic && !noMusic) {
   failures.push(
-    'No music: write music.mjs (music-synth skill) or music.py (music-sf2 skill). Only when the Creator asked for no music, write Music: none ("their words") in design.md instead.'
+    kind === "new"
+      ? 'No music: write music.mjs (music-synth skill) or music.py (music-sf2 skill). Only when the Creator asked for no music, write Music: none ("their words") in design.md instead.'
+      : 'No music: the game had music, so keep its music.mjs or music.py. Only when the Creator asked to drop it, write Music: none ("their words") in design.md instead.'
   );
 }
 

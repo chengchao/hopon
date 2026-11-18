@@ -30,6 +30,10 @@ Over the {{MAX_BUILDS}}-build limit. Tell the Creator you couldn't make it work 
 
 Past the {{SECONDS}} s deadline. Tell the Creator you couldn't make it work this time.
 
+## no-game
+
+There's no game yet, so there is nothing to change: build it with kind "new".
+
 ## not-ready
 
 Not ready to publish:
