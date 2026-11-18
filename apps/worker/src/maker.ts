@@ -38,7 +38,6 @@ import {
   Semaphore,
 } from "effect";
 
-import MAKER from "../prompts/maker.md";
 import DOM_GAMES from "../../maker/agent-home/.agents/skills/dom-games/SKILL.md";
 import LITTLEJS from "../../maker/agent-home/.agents/skills/littlejs-api/SKILL.md";
 import MAKE_GAME from "../../maker/agent-home/.agents/skills/make-game/SKILL.md";
@@ -53,6 +52,7 @@ import {
   restore,
   screenshots,
 } from "../../maker/src/job.ts";
+import MAKER from "../prompts/maker.md";
 import {
   AgentSandbox,
   BoxStartFailed,
@@ -123,14 +123,16 @@ const PROMPT = renderPrompt(MAKER, MAKER_VALUES);
 const SKILLS = fromManifest({
   fingerprint: "v6",
   id: "hopon-maker",
-  skills: [MAKE_GAME, DOM_GAMES, LITTLEJS, MUSIC_SF2, MUSIC_SYNTH, ZZFX].map((raw) => {
-    const parsed = parseSkillMarkdown(raw);
-    if (!parsed) {
-      throw new Error(`a SKILL.md without frontmatter: ${raw.slice(0, 80)}`);
+  skills: [MAKE_GAME, DOM_GAMES, LITTLEJS, MUSIC_SF2, MUSIC_SYNTH, ZZFX].map(
+    (raw) => {
+      const parsed = parseSkillMarkdown(raw);
+      if (!parsed) {
+        throw new Error(`a SKILL.md without frontmatter: ${raw.slice(0, 80)}`);
+      }
+      const { body, description, name } = parsed;
+      return { body, description, name };
     }
-    const { body, description, name } = parsed;
-    return { body, description, name };
-  }),
+  ),
 });
 
 const Input = Type.Object({
@@ -240,25 +242,27 @@ export class Maker extends Agent<Env> {
 
   // A run's work begins: the Allowance checked (ADR 0004: work starts only above zero; once started it finishes), the
   // box up, and the workspace restored to the current Revision unless it holds it. Undefined, or why it can't begin.
+  // Each later call of the run brings the box up too, so one that stopped since is restarted, and the run told, before
+  // the call runs on what's left.
   async begin(run: string): Promise<string | undefined> {
-    if (this.runState?.run === run) {
-      return;
-    }
-    const db = drizzle(this.env.DB);
-    const draft = await db
-      .select({ owner: drafts.owner })
-      .from(drafts)
-      .where(eq(drafts.id, this.name))
-      .get();
-    const allowed =
-      !!draft &&
-      (await allowanceLeft(
-        db,
-        draft.owner,
-        Number(this.env.MAKER_WEEKLY_TOKENS)
-      )) > 0;
-    if (!allowed) {
-      return `The weekly Allowance is used up. Tell the Creator: "${USED_UP}"`;
+    const begun = this.runState?.run === run;
+    if (!begun) {
+      const db = drizzle(this.env.DB);
+      const draft = await db
+        .select({ owner: drafts.owner })
+        .from(drafts)
+        .where(eq(drafts.id, this.name))
+        .get();
+      const allowed =
+        !!draft &&
+        (await allowanceLeft(
+          db,
+          draft.owner,
+          Number(this.env.MAKER_WEEKLY_TOKENS)
+        )) > 0;
+      if (!allowed) {
+        return `The weekly Allowance is used up. Tell the Creator: "${USED_UP}"`;
+      }
     }
     const up = await this.sandbox.runPromise(
       this.up.pipe(
@@ -274,6 +278,9 @@ export class Maker extends Agent<Env> {
     );
     if (!up) {
       return `The Maker is busy. Tell the Creator: "${BUSY}"`;
+    }
+    if (begun) {
+      return;
     }
     const { n, source } = await revisionSource(this.env.FILES, this.name);
     if (this.workspace !== n) {
