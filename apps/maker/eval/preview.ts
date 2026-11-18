@@ -22,6 +22,7 @@ import type {
 import type { AgentEvent } from "@earendil-works/pi-durable";
 
 import { isLittlejsHtml, MUSIC } from "../image/page.ts";
+import { stepLabel } from "../src/job.ts";
 import type { PlaytestResult, Spec } from "../src/job.ts";
 import { passes, previewHtml, warningsOf } from "./coder.ts";
 import type { CoderJob } from "./coder.ts";
@@ -169,7 +170,8 @@ const finalChecks = async (dir: string, files: Record<string, string>) => {
   return { end, final: { random }, start };
 };
 
-// One build as the Draft's socket showed it: the `build` call's spec, its step labels and its result.
+// One build as the Draft's socket showed it: the two agents' `build` call's spec, its step labels and its result. The
+// one agent's (ADR 0006) is reconstructed from a run's tool calls (singleBuilds).
 interface Build {
   callId: string;
   // The `build` call's arguments: the job's spec and whether it changes the game or makes a new one.
@@ -181,12 +183,28 @@ interface Build {
   // the previous tool's run plus the model writing the next call.
   labelAt: number[];
   result?: ToolResultMessage;
+  // The single agent's: its model calls' dollars and output tokens, from the run's own messages.
+  cost?: number;
+  outputTokens?: number;
+}
+
+// A tool call of the root conversation, for the single agent's builds.
+interface ToolCall {
+  callId: string;
+  name: string;
+  args: Record<string, unknown>;
+  run: number;
+  startedAt: number;
+  endedAt?: number;
+  result?: ToolResultMessage;
 }
 
 // What the socket shows of the turn in flight.
 interface Turn {
   sentAt: number;
   sent: string[];
+  // The Creator's messages in the chat so far, this turn's last: the single agent's builds are judged against them.
+  asked: string[];
   // When the Worker last accepted one of the turn's messages: a snapshot from before then can't show it.
   acceptedAt?: number;
   answered: Map<string, string | undefined>;
@@ -195,6 +213,12 @@ interface Turn {
   firstToken?: number;
   firstVisible?: number;
   builds: Map<string, Build>;
+  // Every tool call and assistant message of the turn, by the run it came in (counted from run_start).
+  tools: Map<string, ToolCall>;
+  messages: { run: number; at: number; cost: number; output: number }[];
+  run: number;
+  // The largest snapshot frame the socket got during the turn, in bytes.
+  snapshotBytes?: number;
   snapshotAt?: number;
   steer?: () => void;
 }
@@ -224,14 +248,48 @@ const messageEvent = (turn: Turn, event: AgentEvent, at: number) => {
     if (message?.role === "assistant") {
       turn.firstToken ??= at;
       turn.firstVisible ??= at;
-      turn.cost += (message as AssistantMessage).usage.cost.total;
+      const { usage } = message as AssistantMessage;
+      turn.cost += usage.cost.total;
+      turn.messages.push({
+        at,
+        cost: usage.cost.total,
+        output: usage.output,
+        run: turn.run,
+      });
       turn.texts.push(textOf(message.content));
     }
   }
 };
 
+// A steer lands a second after the turn's build starts: the main agent's `build` call, or the one agent's first tool
+// call.
+const scheduleSteer = (turn: Turn) => {
+  const { steer } = turn;
+  if (steer) {
+    turn.steer = undefined;
+    setTimeout(steer, STEER_AFTER_MS);
+  }
+};
+
 const toolEvent = (turn: Turn, event: AgentEvent, at: number) => {
-  if (event.type === "tool_execution_start" && event.toolName === "build") {
+  if (event.type === "tool_execution_start") {
+    turn.tools.set(event.toolCallId, {
+      args: event.args as Record<string, unknown>,
+      callId: event.toolCallId,
+      name: event.toolName,
+      run: turn.run,
+      startedAt: at,
+    });
+    if (event.toolName !== "build" || "brief" in event.args) {
+      scheduleSteer(turn);
+    }
+  }
+  // The main agent's `build` has a brief; the one agent's publishes the workspace and has none.
+  if (
+    event.type === "tool_execution_start" &&
+    event.toolName === "build" &&
+    "brief" in event.args
+  ) {
     turn.builds.set(event.toolCallId, {
       callId: event.toolCallId,
       labelAt: [],
@@ -239,9 +297,6 @@ const toolEvent = (turn: Turn, event: AgentEvent, at: number) => {
       spec: event.args as unknown as Spec,
       startedAt: at,
     });
-    if (turn.steer) {
-      setTimeout(turn.steer, STEER_AFTER_MS);
-    }
   } else if (event.type === "tool_execution_update" && event.output) {
     // The Coder's `step` labels, a line each: one per tool call, which is how the in-process runs counted steps.
     const build = turn.builds.get(event.toolCallId);
@@ -261,6 +316,11 @@ const toolEvent = (turn: Turn, event: AgentEvent, at: number) => {
       ];
     }
   } else if (event.type === "tool_execution_end") {
+    const tool = turn.tools.get(event.toolCallId);
+    if (tool) {
+      tool.endedAt = at;
+      tool.result = event.entry?.model?.[0] as ToolResultMessage | undefined;
+    }
     const build = turn.builds.get(event.toolCallId);
     if (build) {
       build.endedAt = at;
@@ -281,6 +341,124 @@ const submissionEvent = (turn: Turn, event: AgentEvent) => {
     turn.answered.set(record.requestId ?? "", record.reason);
   }
 };
+
+// Tools that work on the game: a run with any of them and no `build` is a build that never published.
+const WORKING = new Set(["bash", "edit", "playtest", "write"]);
+
+// The one agent's builds: one per run that called `build`, or worked on the game, from the run's first tool call but
+// `build` to its last `build`'s end. Its labels are the step labels of each tool call, plus a "Harness failed:" one per
+// failed `build`, as the sub agent's ending reported them; its spec is the last successful `build`'s arguments, with
+// the Creator's messages as its brief; its result is that `build`'s, or the last failed one's.
+const singleBuilds = (turn: Turn): Build[] =>
+  [...Map.groupBy(turn.tools.values(), (tool) => tool.run).values()].flatMap(
+    (tools) => {
+      const publishes = tools.filter((tool) => tool.name === "build");
+      if (
+        publishes.length === 0 &&
+        !tools.some((tool) => WORKING.has(tool.name))
+      ) {
+        return [];
+      }
+      const last = publishes.at(-1);
+      const ok = publishes.findLast(
+        (tool) => tool.result && !tool.result.isError
+      );
+      const chosen = ok ?? last;
+      const endedAt =
+        last?.endedAt ??
+        Math.max(...tools.map((tool) => tool.endedAt ?? tool.startedAt));
+      const startedAt =
+        (tools.find((tool) => tool.name !== "build") ?? tools[0])?.startedAt ??
+        endedAt;
+      const steps = tools
+        .filter((tool) => tool.startedAt <= endedAt)
+        .flatMap((tool) => {
+          if (tool.name !== "build") {
+            return [
+              { at: tool.startedAt, label: stepLabel(tool.name, tool.args) },
+            ];
+          }
+          const text = textOf(tool.result?.content ?? []);
+          const threw =
+            /These checks threw and were skipped[^:]*: (?<errors>.*)/u.exec(
+              text
+            )?.groups?.errors;
+          return [
+            ...(threw
+              ? [
+                  {
+                    at: tool.endedAt ?? tool.startedAt,
+                    label: `Test error: ${threw}`,
+                  },
+                ]
+              : []),
+            ...(tool.result?.isError
+              ? [
+                  {
+                    at: tool.endedAt ?? tool.startedAt,
+                    label: `Harness failed: ${text.replaceAll("\n", " ").slice(0, 600)}`,
+                  },
+                ]
+              : []),
+          ];
+        });
+      const args = (chosen?.args ?? {}) as {
+        title?: string;
+        description?: string;
+        kind?: "new" | "change";
+        music?: boolean;
+      };
+      const messages = turn.messages.filter(
+        (message) => message.run === tools[0]?.run && message.at <= endedAt
+      );
+      return [
+        {
+          callId: chosen?.callId ?? tools[0]?.callId ?? "none",
+          cost: messages.reduce((sum, message) => sum + message.cost, 0),
+          endedAt,
+          labelAt: steps.map((step) => step.at),
+          labels: steps.map((step) => step.label),
+          outputTokens: messages.reduce(
+            (sum, message) => sum + message.output,
+            0
+          ),
+          result:
+            chosen?.result ??
+            ({
+              content: [{ text: "never published", type: "text" }],
+              isError: true,
+              role: "toolResult",
+              timestamp: endedAt,
+              toolCallId: "none",
+              toolName: "build",
+            } as unknown as ToolResultMessage),
+          spec: {
+            ...args,
+            // No brief exists, so the judge grades against the Creator's own words.
+            brief: `The Creator's messages so far, the last one is this build's:\n${turn.asked.join("\n")}`,
+            music: args.music ? "yes" : null,
+            title: args.title ?? "",
+          },
+          startedAt,
+        },
+      ];
+    }
+  );
+
+// A build's dollars and output tokens: the single agent's from the Draft's own transcript; the sub agent's later, from
+// the gateway (gateway.ts), by the tag the Worker gives its model calls.
+const buildUsage = (build: Build, draftId: string | undefined) =>
+  build.cost === undefined
+    ? {
+        cost: UNKNOWN,
+        gatewayJob: draftId ? `${draftId}-${build.callId}` : undefined,
+        outputTokens: UNKNOWN,
+      }
+    : {
+        cost: build.cost,
+        gatewayJob: undefined,
+        outputTokens: build.outputTokens ?? UNKNOWN,
+      };
 
 // The build's report, or why it failed: the Coder's reason, or the build tool's own (busy, the Allowance used up, Stop).
 const outcome = (build: Build) => {
@@ -349,13 +527,14 @@ export const runPreviewE2E = async ({
   let socket: WebSocket | undefined;
   let turn: Turn | undefined;
 
-  const onFrame = (frame: Frame) => {
+  const onFrame = (frame: Frame, bytes: number) => {
     const at = Date.now();
     if (frame.type === "snapshot") {
       view.running = Boolean(frame.data.run);
       view.inbox = frame.data.inbox.length;
       if (turn) {
         turn.snapshotAt = at;
+        turn.snapshotBytes = Math.max(turn.snapshotBytes ?? 0, bytes);
       }
     }
     if (frame.type !== "batch") {
@@ -364,6 +543,9 @@ export const runPreviewE2E = async ({
     for (const event of frame.data) {
       if (event.type === "run_start" || event.type === "run_end") {
         view.running = event.type === "run_start";
+        if (turn && event.type === "run_start") {
+          turn.run += 1;
+        }
       } else if (event.type === "inbox_update") {
         view.inbox = event.items.length;
       }
@@ -386,7 +568,8 @@ export const runPreviewE2E = async ({
     const ping = setInterval(() => ws.send("ping"), PING_MS);
     ws.addEventListener("message", ({ data }) => {
       if (data !== "pong") {
-        onFrame(JSON.parse(String(data)) as Frame);
+        const text = String(data);
+        onFrame(JSON.parse(text) as Frame, Buffer.byteLength(text));
       }
     });
     const reconnect = async ({ code, reason }: CloseEvent) => {
@@ -497,22 +680,19 @@ export const runPreviewE2E = async ({
         }).catch((error: unknown) => ({ error: String(error) }))
       : undefined;
     const record = {
+      ...buildUsage(build, draftId),
       agent: "coder",
-      cost: UNKNOWN,
       errors: [],
       events: build.labels,
       final,
       finalGreen,
       firstGreen: UNKNOWN,
-      // The Worker tags the Coder's model calls with this; gateway.ts reads their dollars and tokens back.
-      gatewayJob: draftId ? `${draftId}-${build.callId}` : undefined,
       imagesSent: UNKNOWN,
       job: `${chat.id}-${index}`,
       judge: scores,
       kind,
       model: "preview",
       music: Boolean(build.spec.music),
-      outputTokens: UNKNOWN,
       pass: passes(kind, finalGreen, scores),
       playtests: build.labels.filter((label) => label === "Playtesting").length,
       reason,
@@ -542,20 +722,26 @@ export const runPreviewE2E = async ({
     return record;
   };
 
+  let asked: string[] = [];
   const playTurn = async (script: Chat["turns"][number]) => {
     const current: Turn = {
       answered: new Map(),
+      asked: [...asked, script.text],
       builds: new Map(),
       cost: 0,
+      messages: [],
+      run: 0,
       sent: [],
       sentAt: Date.now(),
       texts: [],
+      tools: new Map(),
     };
     const { steer } = script;
     if (steer) {
       current.steer = async () => {
         current.steer = undefined;
         const sent = await send(steer);
+        current.asked.push(steer);
         if ("id" in sent) {
           current.sent.push(sent.id);
         }
@@ -568,29 +754,41 @@ export const runPreviewE2E = async ({
       await settled(current);
     }
     turn = undefined;
-    const built = [...current.builds.values()];
+    ({ asked } = current);
+    const built =
+      current.builds.size > 0
+        ? [...current.builds.values()]
+        : singleBuilds(current);
     const failed = [...current.answered.values()].find(Boolean);
     const since = (at: number | undefined) =>
       at === undefined ? undefined : at - current.sentAt;
     return {
       built,
-      record: turnRecord({
-        buildMs: built.reduce(
-          (sum, build) => sum + (build.endedAt ?? Date.now()) - build.startedAt,
-          0
-        ),
-        builds: built.map((build) => build.spec),
-        cost: current.cost,
-        firstTokenMs: since(current.firstToken),
-        firstVisibleMs: since(current.firstVisible),
-        ms: Date.now() - current.sentAt,
-        // Screening's refusal is the reply the Creator sees, and nothing is built: what the off-limits chat asks.
-        reply:
-          "refused" in sent ? sent.refused : current.texts.join("\n").trim(),
-        status: failed === undefined ? "done" : "unanswered",
-        turn: script,
-        unanswered: failed,
-      }),
+      record: {
+        ...turnRecord({
+          buildMs: built.reduce(
+            (sum, build) =>
+              sum + (build.endedAt ?? Date.now()) - build.startedAt,
+            0
+          ),
+          builds: built.map((build) => build.spec),
+          // The single agent's builds are in the turn's transcript: their cost is the build's, not the reply's.
+          cost:
+            current.cost -
+            built.reduce((sum, build) => sum + (build.cost ?? 0), 0),
+          firstTokenMs: since(current.firstToken),
+          firstVisibleMs: since(current.firstVisible),
+          ms: Date.now() - current.sentAt,
+          // Screening's refusal is the reply the Creator sees, and nothing is built: what the off-limits chat asks.
+          reply:
+            "refused" in sent ? sent.refused : current.texts.join("\n").trim(),
+          status: failed === undefined ? "done" : "unanswered",
+          turn: script,
+          unanswered: failed,
+        }),
+        // The largest snapshot frame of the turn (on connect and reconnect), in bytes; null when none came.
+        snapshotBytes: current.snapshotBytes ?? UNKNOWN,
+      },
     };
   };
 

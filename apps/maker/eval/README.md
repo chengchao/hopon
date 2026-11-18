@@ -9,7 +9,6 @@ The suite #115 defines, kept here and run by hand on a model or framework upgrad
 - `results/`: the committed report of each sweep.
 
 ```bash
-pnpm -F maker eval talker --models a,b [--runs 3] [--chats id,id]
 pnpm -F maker eval e2e --preview https://<branch>-hopon.calendeam.workers.dev [--chats id,id] [--runs 3]  # real Talker → real Coder
 pnpm -F maker eval blind                               # games for the owner to score: 20 runs, or an e2e sweep's judge failures
 pnpm -F maker eval calibrate < scores.json             # the blind page's scores against the judge's (an e2e sweep keeps them in its blind/)

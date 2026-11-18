@@ -1,4 +1,4 @@
-// How the main and sub agents reach their models (#136, ADR 0005): pi-ai's Anthropic API, whose `fetch` hands each
+// How the Maker reaches its model (#136, ADR 0006): pi-ai's Anthropic API, whose `fetch` hands each
 // request to modelFetch in-process, which adds the key, routes the model and tags the call for the gateway's logs. The
 // key pi wants is never sent.
 import type { FetchFunction } from "@earendil-works/pi-ai";
@@ -17,7 +17,7 @@ const MODELS_URL = "http://models.internal/anthropic";
 
 // One pi provider per agent, each with its model and the gateway tag for its calls, so a call is tagged by the agent
 // that makes it. The gateway's descriptor, not Anthropic's, whose mid-conversation system messages Cloudflare's endpoint
-// for Haiku rejects (apps/maker/src/models.ts). `metadata` is read per request, so a call is tagged with the job it
+// for Haiku rejects. `metadata` is read per request, so a call is tagged with the job it
 // serves.
 export interface AgentModel {
   provider: string;

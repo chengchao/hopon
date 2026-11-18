@@ -38,7 +38,7 @@ if (!design.trim()) {
 const music = part(design, "music");
 const noMusic = music !== null && /^none\b/iu.test(music);
 if (noMusic) {
-  const quote = /["“”]([^"“”]+)["“”]/u.exec(music)?.[1];
+  const quote = /["“”](?<quote>[^"“”]+)["“”]/u.exec(music)?.groups?.quote;
   const asked = plain(read(".hopon/asked.txt") ?? "");
   if (!quote) {
     failures.push(

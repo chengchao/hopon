@@ -213,9 +213,6 @@ export const stepLabel = (tool: string, args: Record<string, unknown>) => {
   return tool === "edit" ? "Fixing the game" : "Writing the game";
 };
 
-const hasTests = (tests: Tests | undefined): tests is Tests =>
-  (tests?.tests.length ?? 0) > 0;
-
 // The harness's own test, ahead of the main agent's on every check: the game loads, starts and plays a second with no
 // console error. With no test from the main agent it is the whole of "does the game run".
 const RUNS: Tests["tests"][number] = {
