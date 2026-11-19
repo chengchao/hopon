@@ -94,8 +94,8 @@ Items:
 
 ${SCALE} Shape: {"spec": {"score": n, "reason": "one line"}, "playable": {...}, "edit": {...} or null, "looks": {...}}`;
 
-// The game's code: every module, stylesheet and page, not its music or its notes.
-const CODE = /\.(?:ts|css|html)$/u;
+// The game's code: every module, stylesheet and page, not its music or its notes. A Vite game's are .tsx and .jsx too.
+const CODE = /\.(?:[jt]sx|ts|css|html)$/u;
 const source = (label: string, set: Record<string, string>) =>
   Object.entries(set)
     .filter(([file]) => CODE.test(file))

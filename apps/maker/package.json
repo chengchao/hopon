@@ -18,6 +18,9 @@
   },
   "devDependencies": {
     "@react-three/fiber": "9.8.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/three": "0.187.0",
     "@vitejs/plugin-react": "6.3.0",
     "esbuild": "0.28.2",
     "littlejsengine": "1.26.1",
