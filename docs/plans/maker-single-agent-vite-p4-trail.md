@@ -65,3 +65,27 @@ The decisions behind P4 of `maker-single-agent-vite.md`, in order. Each names wh
 - **The fixtures are workspaces.** Each of `apps/maker/fixtures/vite/{quiz,phaser,r3f}` now has its `vite.config.ts`, `tsconfig.json` and `tests.json`. The Phaser square turns, so the start and end screenshots differ. The quiz's options sit at fixed bands so its test can tap the right one.
 - **The manual-gzip guard runs on workerd.** `apps/worker/test/maker.test.js` already runs the Worker under `wrangler dev` in `pnpm check`, so CI runs it. Its new case fetches each `/vendor/` file with `Accept-Encoding: gzip` through `node:http`, which doesn't decode, and checks that one gunzip gives the frozen sha256.
 - **The fake publishes a Vite game.** `test/maker/worker.ts`'s fake playtest builds a Vite-shaped `dist/` (the page and `index-B1x2.js`) when the workspace has `vite.config.ts`, and a `vite` script writes one. The new case checks the Revision's `source.tgz` names, the page's tag, and that the preview serves the module with `Access-Control-Allow-Origin: *`.
+- **The fake's Vite case runs before the allowance case.** That case leaves the test user's week spent, so a Draft made after it is refused. Measured: the Vite case passed alone and timed out in the full file until it moved.
+
+### Verify, unit
+
+- `pnpm check` green at `960b986`.
+- `HOPON_BOX_IMAGE=hopon-box:p4b-dev pnpm -F maker test`: 60 of 60, none skipped, on an arm64 image built from this head in local Docker.
+- Mutations, each red then restored. The bundled-library check turned off: "a Vite game that builds a vendored library into itself fails the check" fails, and the build with `react/jsx-dev-runtime` became a Revision. `assetsDir: ""` deleted: "a quiz Vite game passes the check" fails with a 404 and "didn't call hopon.ready()". `hopon.subscribe(follow)` deleted from the Phaser fixture: its pause test fails "at 1700 ms, expected vars.frames === prev.vars.frames" (a case in `check.test.ts`). `encodeBody: "manual"` deleted from `api.ts`: "vendor under workerd" fails with "/vendor/react-19.3.1.js unzips once to its frozen code".
+
+### Verify, live
+
+- **Preview.** `https://claude-p4b-vite-build-hopon.calendeam.workers.dev`, deployed from `960b986`. A raw HTTPS fetch of each `/vendor/` file with `Accept-Encoding: gzip` answered 200, `Content-Encoding: gzip`, `immutable`, `Access-Control-Allow-Origin: *`, and one gunzip gives its `FROZEN` sha256. `/hopon/v1.js` answered 200 with `no-cache`.
+- **Not done.** No path runs the box check against the Preview's box before P5's agent writes a Vite game, so the Worker serving a Vite-built Revision is proven by the fake's publish case and the docker cases, not on the Preview.
+
+### Perf
+
+Three random-script playtests per fixture in a fresh box with no network. `vite build` is the harness's in-process build, Vite's import included. The quiz ends at about 3.5 s of game time, so its play is shorter than 10 s.
+
+| Fixture | Own files, gzip | `vite build`, arm64 | 10 s of play, arm64 | `vite build`, amd64 emulated | 10 s of play, amd64 emulated |
+| --- | --- | --- | --- | --- | --- |
+| quiz | 1.2 KB | 161–204 ms | 0.67 s (to over) | 557–836 ms | 0.73–0.93 s (to over) |
+| phaser | 0.9 KB | 156–224 ms | 2.0–2.3 s | 519–880 ms | 2.4–2.8 s |
+| r3f | 1.0 KB | 126–312 ms | 2.2–2.3 s | 491–633 ms | 2.4–2.8 s |
+
+Each is within the plan's rule (10 KB, 3 s, 5 s). arm64 is native Docker on the Mac mini. amd64 is the same Dockerfile built with `--platform linux/amd64` and run under emulation on the Mac mini, so it is slower than an amd64 host would be (inferred). The typecheck, which the rule doesn't name, took 0.8 to 1.9 s on arm64 and 1.7 to 2.6 s emulated.
