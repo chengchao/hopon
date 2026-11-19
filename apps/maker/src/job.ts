@@ -119,7 +119,7 @@ const readText = async (box: Box, file: string) => {
   }
 };
 
-// A game's music is one score that renders music.wav: music.mjs synthesizes it (the music-synth skill), music.py
+// A game's music is one score that renders music.wav: music.mjs synthesizes it (make-game's music-synth guide), music.py
 // plays it on recorded instruments (music-sf2). Each runs on its own interpreter, and its error is where that one
 // prints it: a Node error's message comes first, a Python traceback's last.
 const SCORES = {
@@ -230,8 +230,9 @@ export const stepLabel = (tool: string, args: Record<string, unknown>) => {
   if (tool === "playtest") {
     return "Playtesting";
   }
-  // pi-durable's agents load skills with activate_skill; pi-coding-agent's read their SKILL.md.
-  if (tool === "activate_skill") {
+  // pi-durable's agents load skills with activate_skill and their guides with read_skill_resource; pi-coding-agent's
+  // read their SKILL.md.
+  if (tool === "activate_skill" || tool === "read_skill_resource") {
     return "Reading the docs";
   }
   if (tool === "read") {

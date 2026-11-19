@@ -1,6 +1,6 @@
 ---
 name: make-game
-description: How to make or change the Creator's game, from the design to `build`, and what a finished hopon game is. Load it when the Creator asks for a new game or a change to their game, before any other skill or tool. Never load it for chat or a question.
+description: How to make or change the Creator's game, from the design to `build`, and what a finished hopon game is. Load it when the Creator asks for a new game or a change to their game, before any other tool. Its references hold the engine, sound and music guides. Never load it for chat or a question.
 ---
 
 # Making a hopon game
@@ -20,22 +20,23 @@ The workspace holds one game: the files of the game the Creator has now, or noth
 - **A change:** edit the existing files and call `build` with kind `"change"`.
 - **Until a `build` succeeds, the Creator has no game.** Treat every request until then as a complete new game that includes everything the Creator has asked for so far.
 
-A game is a Vite project: `index.html`, `vite.config.ts`, one `tsconfig.json`, and its code in `src/`, entered at `src/main.tsx`. The engine's skill gives every file. Pick the engine by what the game is:
+A game is a Vite project: `index.html`, `vite.config.ts`, one `tsconfig.json`, and its code in `src/`, entered at `src/main.tsx`. Each engine has a guide in this skill's `references/`, which gives every file, the engine's API and its traps, and how to make the game look good. Pick the engine by what the game is, then read its guide before you write any code:
 
-- **Phaser** (load the `phaser-games` skill) for 2D games with motion: action, arcade, physics, runners, shooters, catchers, flappers.
-- **React Three Fiber** (load the `r3f-games` skill) for 3D games: racers, flyers, 3D runners and dodgers, and anything the Creator calls 3D.
-- **React** (load the `react-games` skill) for cards, quizzes, word games, trivia, and puzzles of tiles or buttons.
+- **Phaser** (`references/phaser.md`) for 2D games with motion: action, arcade, physics, runners, shooters, catchers, flappers.
+- **React Three Fiber** (`references/r3f.md`) for 3D games: racers, flyers, 3D runners and dodgers, and anything the Creator calls 3D.
+- **React** (`references/react.md`) for cards, quizzes, word games, trivia, and puzzles of tiles or buttons.
 - **A vague request:** pick a game with motion, in Phaser, or in r3f when 3D fits it better.
-- **When the workspace already has a Vite game, keep its engine.** `src/` importing `phaser` means Phaser, `@react-three/fiber` means r3f, and React alone means React. Load the matching skill and read the game's files before you change anything.
+- **When the workspace already has a Vite game, keep its engine.** `src/` importing `phaser` means Phaser, `@react-three/fiber` means r3f, and React alone means React. Read the matching guide and the game's files before you change anything.
+- **Sound effects** for every engine: `references/sound-effects.md`.
 
-Skills are not in the workspace, so bash can't see them. Load them with `activate_skill`. Don't explore the workspace either: it holds only the game's files.
+Read a guide with `read_skill_resource`, name `make-game` and its path, such as `references/phaser.md`. The guides and the skills are not in the workspace, so bash can't see them. Don't explore the workspace either: it holds only the game's files. Each guide's example is a whole game: build your own game from its patterns, with its own design, names, look and rules, never a copy of the example.
 
 ## An old game
 
 A Draft from before Vite games has a `game.ts` and no `vite.config.ts`. hopon no longer builds such a game: verify and `build` refuse it until it is ported. `game.ts` alone is a LittleJS game, and `game.ts` with an `index.html` is a plain-DOM game. Any change to one starts by porting it, in the same run, before the change:
 
 1. Read `game.ts` (and `index.html`). When the game has no `design.md`, write one from its code first (see Design), with its music as the game has it: `Music: none` with no quote when it has none. When it has no `tests.json`, write one for what it does now.
-2. Port it to the matching engine: LittleJS to Phaser, plain DOM to React. Load that engine's skill. Keep the design: the same rules, numbers, controls, layout and look, so the same taps land on the same things. Keep every name the tests read, now in `hopon.testVars`. It may look better than it did.
+2. Port it to the matching engine: LittleJS to Phaser, plain DOM to React. Read that engine's guide. Keep the design: the same rules, numbers, controls, layout and look, so the same taps land on the same things. Keep every name the tests read, now in `hopon.testVars`. It may look better than it did.
 3. Delete `game.ts` and the old `index.html`, and write the Vite project's files. Keep `design.md`, `tests.json` and the music file (`music.mjs` or `music.py`) as they are.
 4. Playtest the port, and run the old tests with `node /opt/hopon/playtest.js tests`. They pass on the port before you make the change.
 5. Then make the Creator's change as usual (update `design.md`, the tests, the code), and call `build` with kind `"change"`. Don't mention the port to the Creator unless they ask.
@@ -44,7 +45,7 @@ A Draft from before Vite games has a `game.ts` and no `vite.config.ts`. hopon no
 
 1. **Design.** Write `design.md` (see Design).
 2. **Tests.** Write `tests.json` from the design's Done-when criteria (see Tests).
-3. **Code.** Load the engine's skill, then write the whole game with the write tool: every file the skill names. Split the code into modules when it grows past a few hundred lines. For a change, edit the existing files, and don't rewrite what works.
+3. **Code.** Read the engine's guide, then write the whole game with the write tool: every file the guide names. Split the code into modules when it grows past a few hundred lines. For a change, edit the existing files, and don't rewrite what works.
 4. **Playtest.** Call `playtest` with `inputs` that play the game the way a player would: taps where the buttons, cards or targets are, swipes for swipe controls, timed so the game gets going. It typechecks first, and type errors come back with no screenshots.
 5. **Fix.** Look at both screenshots. Fix every error and anything that looks wrong or unreadable, then playtest again. Screenshots show how the game looks. Your tests and the playtest's `state`, `score` and `overAt` show what the game does (it ends, the score goes up, a swipe moves the player), so don't replay a game only to see that in a screenshot.
 6. **Music.** Once the playtest is green, write the music (see Music).
@@ -86,7 +87,7 @@ How a test runs: the harness loads the built game in a 360 × 640 CSS px portrai
 
 - **expose:** the game values your tests read, each with its meaning and unit, for example `{"name": "penguinHeight", "means": "how high the penguin is above the ground, in px; 0 on the ground"}`. Keep each one up to date every frame, from the game's real state, in `hopon.testVars` (`hopon.testVars.penguinHeight = height;`). Keep them when you change the game. Prefer what the player sees happen (positions, counts, lives) over settings (speeds, intervals), which a game can report without using. `score` (a number) and `state` (`"start"`, `"play"` or `"over"`) always exist and need no entry.
 - **tests:** 1 to 4, each `{"name", "inputs": [{"at", "type": "tap" | "swipe" | "pause" | "resume", "x"?, "y"?, "dx"?, "dy"?}], "checks": [{"at", "expect": a JavaScript boolean expression}]}`. An expression can read `vars`, `score`, `state`, and `prev`: the same three at the check before (at the start for the first), as `prev.vars`, `prev.score` and `prev.state`. For example `vars.timeLeft < prev.vars.timeLeft`.
-- **Inputs follow the Controls.** Put taps where the controls are, in CSS px from the top-left of the 360 × 640 screen. A tap is a quick press and release. `pause` and `resume` are the feed scrolling the game away and back; a game with a clock or motion gets one test that its clock stops while paused (the engine skill shows it).
+- **Inputs follow the Controls.** Put taps where the controls are, in CSS px from the top-left of the 360 × 640 screen. A tap is a quick press and release. `pause` and `resume` are the feed scrolling the game away and back; a game with a clock or motion gets one test that its clock stops while paused (the engine's guide shows it).
 - **Bounds are loose.** Check direction and order ("goes up then comes back down", "more than before"), not exact numbers.
 - **A test passes for any game that does what the Creator asked,** and fails for one that skips what it tests.
 - **What can't be checked from values gets no test,** such as a color, a costume, a mood or a sound. When nothing in the request can be tested, write `{"expose": [], "tests": []}`.
@@ -99,7 +100,7 @@ A playtest is red when the typecheck or the build fails, the game didn't call `h
 
 ## Playable and correct
 
-Build a playable, correct game, not a static screenshot. The engine's skill says how. This section says what done looks like.
+Build a playable, correct game, not a static screenshot. The engine's guide says how. This section says what done looks like.
 
 - **It starts and moves.** The scaffold's start screen takes the first tap and sets `hopon.state` to `"play"`. Within a second something happens on screen. Nothing advances before that.
 - **The controls work on the first touch,** where the design puts them, and do what it says. A tap target is at least 48 CSS px across.
@@ -108,7 +109,7 @@ Build a playable, correct game, not a static screenshot. The engine's skill says
 - **The rules are the ones on screen.** What hits, scores and hurts matches what the player sees. Nothing that matters is off screen or too small to see.
 - **No dead ends.** No state where nothing can happen and the game hasn't ended: a level with no way forward, a timer that never runs out, a board with no move left.
 - **Every Done-when criterion is met,** shown by the tests, the playtest's `state`, `score` and `overAt`, or its screenshots.
-- **It is fair.** The engine skill's "Fair games" and "Hits and collisions" sections are the most common reasons a green game still isn't playable.
+- **It is fair.** The engine guide's "Fair games" and "Hits and collisions" sections are the most common reasons a green game still isn't playable.
 
 ## Made for a phone
 
@@ -123,7 +124,7 @@ Aim for a steady 60 frames a second on a mid-range phone. A frame has about 16 m
 - **Make things once.** Make textures, geometries, materials and sounds once, never in the per-frame update.
 - **Keep counts bounded.** Destroy or reuse what leaves the screen, cap how many things can spawn, and keep particle bursts short.
 - **No everything-against-everything.** With many objects, check hits against the player or what's near, not every pair every frame.
-- **The engine skill's Performance section** says what costs most in that engine.
+- **The engine guide's Performance section** says what costs most in that engine.
 
 ## Music
 
@@ -131,6 +132,6 @@ Every new game has music unless the Creator asked for none. Pick a genre, mood a
 
 When the Creator asks for silence ("silent", "no sound", "mute", "quiet"), the game has no music and no sound effects either. When they only say no music, sound effects are fine.
 
-Sound effects make a game feel finished: load the `sound-effects` skill when you write the game, and give every player action, point, hit, win and loss a sound.
+Sound effects make a game feel finished: read `references/sound-effects.md` when you write the game, and give every player action, point, hit, win and loss a sound.
 
-Write it once the game is green. Load the `music-synth` skill for chiptune, electronic or arcade styles (`music.mjs`), or the `music-sf2` skill for acoustic, orchestral, folk, period or world styles played on real instruments (`music.py`). A game has one music file, so when you switch, delete the other. `build` renders it whenever there is one.
+Write it once the game is green. Read `references/music-synth.md` for chiptune, electronic or arcade styles (`music.mjs`), or `references/music-sf2.md` for acoustic, orchestral, folk, period or world styles played on real instruments (`music.py`). A game has one music file, so when you switch, delete the other. `build` renders it whenever there is one.

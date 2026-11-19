@@ -141,6 +141,18 @@ const SCRIPTS: Record<string, readonly Step[]> = {
     play,
     build("new"),
   ],
+  // Loads make-game and reads its Phaser guide, then a guide it doesn't have.
+  guide: [
+    { input: { name: "make-game" }, tool: "activate_skill" },
+    {
+      input: { name: "make-game", path: "references/phaser.md" },
+      tool: "read_skill_resource",
+    },
+    {
+      input: { name: "make-game", path: "references/littlejs.md" },
+      tool: "read_skill_resource",
+    },
+  ],
   // Runs a command until it's stopped.
   hang: [{ input: { command: "sleep 600" }, tool: "bash" }],
   // Writes 21 times: the step limit's case.

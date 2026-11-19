@@ -1,8 +1,3 @@
----
-name: music-synth
-description: How to write a game's looping background music as music.mjs, a Node script that synthesizes everything and renders music.wav. Load when a job asks for music.
----
-
 # Writing music.mjs
 
 The music is one original loop, played on repeat under the game. You write it as `music.mjs`, a Node.js script that synthesizes everything itself: oscillators, envelopes, drums, effects and the mix. Only `node:` built-ins; no packages. The hopon harness turns `music.wav` into the game's audio after you finish.

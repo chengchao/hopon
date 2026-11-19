@@ -354,7 +354,7 @@ test(
 const SF2_SKILL = readFileSync(
   path.join(
     import.meta.dirname,
-    "../agent-home/.agents/skills/music-sf2/SKILL.md"
+    "../agent-home/.agents/skills/make-game/references/music-sf2.md"
   ),
   "utf-8"
 );

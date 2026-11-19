@@ -563,6 +563,54 @@ test(
 );
 
 test(
+  "skills: the agent loads make-game, and reads an engine's guide from it through the real tools",
+  { timeout: 120_000 },
+  async (t) => {
+    await serve(t);
+    const { id: draft } = await json("/api/drafts", { text: "build guide" });
+    const socket = await connect(draft);
+    await socket.until("the guide turn's end", over);
+    assert.deepEqual(await toolsCalled(draft), [
+      "activate_skill",
+      "read_skill_resource",
+      "read_skill_resource",
+    ]);
+    const { entries } = await snapshot(draft);
+    const results = entries
+      .filter((entry) => entry.kind !== "pi.assistant")
+      .flatMap((entry) =>
+        blocks(entry).flatMap((block) =>
+          block.type === "text" ? [block.text] : []
+        )
+      )
+      .join("\n");
+    // activate_skill's result lists each guide as a bundled file.
+    for (const guide of [
+      "phaser",
+      "r3f",
+      "react",
+      "sound-effects",
+      "music-synth",
+      "music-sf2",
+    ]) {
+      assert.match(
+        results,
+        new RegExp(
+          `<file kind="reference"[^>]*>references/${guide}\\.md</file>`,
+          "u"
+        )
+      );
+    }
+    assert.match(results, /# Writing a hopon game in Phaser 4/u);
+    assert.match(
+      await lastReply(draft),
+      /said: .*Skill resource not found: make-game\/references\/littlejs\.md/u
+    );
+    socket.close();
+  }
+);
+
+test(
   "limits: the 21st step and the 5th build are refused, and the agent is told to give up",
   { timeout: 120_000 },
   async (t) => {

@@ -128,7 +128,7 @@ if (scores.length > 1) {
 } else if (scores.length === 0 && needsMusic && !noMusic) {
   failures.push(
     kind === "new"
-      ? 'No music: write music.mjs (music-synth skill) or music.py (music-sf2 skill). Only when the Creator asked for no music, write Music: none ("their words") in design.md instead.'
+      ? 'No music: write music.mjs (make-game: references/music-synth.md) or music.py (references/music-sf2.md). Only when the Creator asked for no music, write Music: none ("their words") in design.md instead.'
       : 'No music: the game had music, so keep its music.mjs or music.py. Only when the Creator asked to drop it, write Music: none ("their words") in design.md instead.'
   );
 }

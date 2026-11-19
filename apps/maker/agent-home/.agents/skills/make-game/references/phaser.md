@@ -1,8 +1,3 @@
----
-name: phaser-games
-description: How to write a hopon game in Phaser 4, for any 2D game with motion (action, arcade, physics, runners, shooters, catchers, dodgers, flappers). Load it before writing or changing such a game. It covers the project's files, the hopon scaffold, Phaser 4's API and the Phaser 3 habits that break it, touch controls, fair hits, performance, and making the game look good.
----
-
 # Writing a hopon game in Phaser 4
 
 Phaser is for 2D games where things move: action, arcade, physics, runners, shooters, catchers. The box has Phaser 4.2.1. Phaser 4 is not Phaser 3. Code written from Phaser 3 habits fails the typecheck or draws nothing, so read "Phaser 4 traps" before you write.
@@ -107,7 +102,7 @@ export class Play extends Scene {
 - **Score:** `hopon.addScore(1)`. The scaffold draws no score during play, so draw `hopon.score` yourself (see "Text").
 - **The end:** call `hopon.gameOver()` (or `hopon.gameOver(true)` for a win) once, then return from `update`. Never call `hopon.start()`.
 - **Pause:** the subscriber's `game.pause()` stops the whole game: `update`, tweens, timers, physics and particles. Use the scene's own clocks (`this.tweens`, `this.time`, `delta`), never `setTimeout` or `Date.now()`, so everything stops with it.
-- **Music** is the scaffold's. For sound effects, load the `sound-effects` skill.
+- **Music** is the scaffold's. For sound effects, read `references/sound-effects.md`.
 
 ## The screen and its units
 

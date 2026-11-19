@@ -1,8 +1,3 @@
----
-name: react-games
-description: How to write a hopon game in React as a Vite project, and make it look polished. Load it before writing or changing a card, quiz, word, trivia or tile or button puzzle game.
----
-
 # Writing a React hopon game
 
 React is the engine for games of taps on cards, answers, letters, tiles and buttons, such as memory, quizzes, trivia, word games, and sliding or flipping puzzles. Things that move every frame belong to Phaser or React Three Fiber.
@@ -22,7 +17,7 @@ The rules of the box:
 - **Imports.** `react`, `react-dom/client`, and your own files. The JSX runtime comes on its own. Any other React path (`react-dom`, `react/jsx-dev-runtime`) fails the build. No other npm package exists, so no router, no state library, no CSS framework and no icon set.
 - **Files.** Import a picture or a font from `src/` (`import moon from "./moon.png"`) and use the URL it gives. Never write an absolute path such as `"/moon.png"`. The game is served under a folder, so it won't load. The only absolute paths are the two in `index.html`.
 - **Nothing from the web.** No fetch, no web fonts, no CDN. Use system fonts (`system-ui`), emoji, inline SVG and CSS.
-- **Sound effects.** Load the `sound-effects` skill. The scaffold plays the music.
+- **Sound effects.** Read `references/sound-effects.md`. The scaffold plays the music.
 
 ## Wiring to hopon
 

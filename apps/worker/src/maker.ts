@@ -39,13 +39,13 @@ import {
   Semaphore,
 } from "effect";
 
+import MUSIC_SF2 from "../../maker/agent-home/.agents/skills/make-game/references/music-sf2.md";
+import MUSIC_SYNTH from "../../maker/agent-home/.agents/skills/make-game/references/music-synth.md";
+import PHASER from "../../maker/agent-home/.agents/skills/make-game/references/phaser.md";
+import R3F from "../../maker/agent-home/.agents/skills/make-game/references/r3f.md";
+import REACT from "../../maker/agent-home/.agents/skills/make-game/references/react.md";
+import SOUND_EFFECTS from "../../maker/agent-home/.agents/skills/make-game/references/sound-effects.md";
 import MAKE_GAME from "../../maker/agent-home/.agents/skills/make-game/SKILL.md";
-import MUSIC_SF2 from "../../maker/agent-home/.agents/skills/music-sf2/SKILL.md";
-import MUSIC_SYNTH from "../../maker/agent-home/.agents/skills/music-synth/SKILL.md";
-import PHASER_GAMES from "../../maker/agent-home/.agents/skills/phaser-games/SKILL.md";
-import R3F_GAMES from "../../maker/agent-home/.agents/skills/r3f-games/SKILL.md";
-import REACT_GAMES from "../../maker/agent-home/.agents/skills/react-games/SKILL.md";
-import SOUND_EFFECTS from "../../maker/agent-home/.agents/skills/sound-effects/SKILL.md";
 import {
   boxPlaytest,
   DEADLINE_MS,
@@ -124,25 +124,35 @@ const SILENT_MS = 60_000;
 
 const PROMPT = renderPrompt(MAKER, MAKER_VALUES);
 
+// The one skill, make-game (ADR 0008). Its guides (each engine, sound effects, music) are files beside its SKILL.md,
+// which the agent reads with read_skill_resource, so every game starts from make-game's own rules.
+const GUIDES = {
+  "references/music-sf2.md": MUSIC_SF2,
+  "references/music-synth.md": MUSIC_SYNTH,
+  "references/phaser.md": PHASER,
+  "references/r3f.md": R3F,
+  "references/react.md": REACT,
+  "references/sound-effects.md": SOUND_EFFECTS,
+};
+const makeGame = parseSkillMarkdown(MAKE_GAME);
+if (!makeGame) {
+  throw new Error("make-game's SKILL.md has no frontmatter");
+}
 const SKILLS = fromManifest({
   fingerprint: "v11",
   id: "hopon-maker",
   skills: [
-    MAKE_GAME,
-    PHASER_GAMES,
-    R3F_GAMES,
-    REACT_GAMES,
-    SOUND_EFFECTS,
-    MUSIC_SF2,
-    MUSIC_SYNTH,
-  ].map((raw) => {
-    const parsed = parseSkillMarkdown(raw);
-    if (!parsed) {
-      throw new Error(`a SKILL.md without frontmatter: ${raw.slice(0, 80)}`);
-    }
-    const { body, description, name } = parsed;
-    return { body, description, name };
-  }),
+    {
+      body: makeGame.body,
+      description: makeGame.description,
+      name: makeGame.name,
+      resources: Object.entries(GUIDES).map(([path, content]) => ({
+        content,
+        kind: "reference" as const,
+        path,
+      })),
+    },
+  ],
 });
 
 const Input = Type.Object({

@@ -1,8 +1,3 @@
----
-name: sound-effects
-description: Sound effects for a hopon game (Phaser, React or r3f), synthesized in the page with no sound files. Load it when the game needs sounds for taps, points, hits, jumps, the win or the loss.
----
-
 # Sound effects
 
 Every sound is synthesized with the Web Audio API in `src/sfx.ts`: no files, nothing to load. The scaffold plays the music. This file plays the effects, goes silent when the feed mutes the game, and stops while the feed has it paused.

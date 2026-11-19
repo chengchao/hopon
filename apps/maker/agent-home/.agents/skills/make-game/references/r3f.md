@@ -1,11 +1,6 @@
----
-name: r3f-games
-description: How to write a hopon game in 3D with React Three Fiber and three.js (racers, runners, flyers, 3D dodgers and shooters). Load it before writing or changing a 3D game. It covers the project's files, the hopon scaffold, r3f 9 and three 0.187 and their traps, touch controls, fair hits, performance, and making the game look good.
----
-
 # Writing a hopon game in React Three Fiber
 
-React Three Fiber (r3f) is for games in 3D: racers, endless runners, flyers, 3D dodgers. The box has three 0.187.0, @react-three/fiber 9.8.2 and React 19.3.1. There is no drei, no rapier, no postprocessing, no zustand and no network, so this skill shows the hand-written parts you need: a follow camera, collisions, instancing, a sky, fog, shadows and a HUD.
+React Three Fiber (r3f) is for games in 3D: racers, endless runners, flyers, 3D dodgers. The box has three 0.187.0, @react-three/fiber 9.8.2 and React 19.3.1. There is no drei, no rapier, no postprocessing, no zustand and no network, so this guide shows the hand-written parts you need: a follow camera, collisions, instancing, a sky, fog, shadows and a HUD.
 
 ## The project
 
@@ -77,7 +72,7 @@ if (root) createRoot(root).render(<Game />);
 - **`hopon.testVars`.** Write the values tests read in the main `useFrame`, every frame, from the world's real state.
 - **Score and end:** `hopon.addScore(n)` and `hopon.gameOver(won)`. The scaffold draws no HUD during play, so the game draws its own score.
 - **The start tap's `pointerup` reaches the game.** The scaffold's overlay hides on `pointerdown`, so the release lands on your touch layer. Act on `pointerdown`, or act on a `pointerup` only when you saw its `pointerdown` (the example does).
-- For sound effects, load the `sound-effects` skill.
+- For sound effects, read `references/sound-effects.md`.
 
 ## Game state lives outside React
 
