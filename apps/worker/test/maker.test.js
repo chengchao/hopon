@@ -17,8 +17,8 @@ const CONFIG = new URL("maker/wrangler.jsonc", import.meta.url).pathname;
 const state = mkdtempSync(path.join(tmpdir(), "maker-test-"));
 // test/maker/worker.ts's game.ts.
 const GAME = "let speed = 1;\nfunction gameRender() {}\n";
-// test/maker/worker.ts's music.opus, in base64.
-const MUSIC = 'hopon.music = "T2dnUw==";\n';
+// test/maker/worker.ts's music.opus.
+const OPUS = "OggS";
 const NOTE = "Note to self: the jump checks out.";
 // test/maker/worker.ts's design.md and tests.json.
 const DESIGN = "# Moon Cat design\n";
@@ -246,9 +246,15 @@ const revisionFile = async (draft, file) => {
     await page.text(),
   ];
 };
+// A source file of the current Revision, from its source.tgz (the fake box's is JSON): [n, its text or undefined].
+const sourceFile = async (draft, file) => {
+  const [n, status, packed] = await revisionFile(draft, "source.tgz");
+  assert.equal(status, 200);
+  return [n, JSON.parse(packed)[file]];
+};
 // The current Revision's number.
 const revisionOf = async (draft) => {
-  const [n] = await revisionFile(draft, "game.ts");
+  const [n] = await revisionFile(draft, "index.html");
   return n;
 };
 const noRevision = async (draft) => {
@@ -319,7 +325,11 @@ test(
     assert.equal(await lastReply(draft), published(1));
     const called = await toolsCalled(draft);
     assert.ok(called.includes("build"));
-    assert.deepEqual(await revisionFile(draft, "game.ts"), [1, 200, GAME]);
+    // The Revision is source.tgz and the built files: nothing of the source beside them.
+    assert.deepEqual(await sourceFile(draft, "game.ts"), [1, GAME]);
+    assert.deepEqual(await sourceFile(draft, "music.mjs"), [1, "// a track"]);
+    const [, beside] = await revisionFile(draft, "game.ts");
+    assert.equal(beside, 404);
     assert.deepEqual(await revisionFile(draft, "game.js"), [
       1,
       200,
@@ -327,16 +337,22 @@ test(
     ]);
     const [indexAt, , index] = await revisionFile(draft, "index.html");
     assert.equal(indexAt, 1);
-    assert.match(index, /<script src="game\.js"><\/script>/u);
-    assert.match(index, /music\.js/u);
-    assert.deepEqual(await revisionFile(draft, "music.js"), [1, 200, MUSIC]);
-    // Gzipped by the runtime (workerd), from the Worker's Content-Encoding; fetch decodes it, so the text above held.
+    assert.match(index, /data-music="music\.opus"/u);
+    assert.deepEqual(await revisionFile(draft, "music.opus"), [1, 200, OPUS]);
+    // The page fetches its music from an opaque origin; text is gzipped by the runtime (workerd), from the Worker's
+    // Content-Encoding, and fetch decodes it, so the text above held.
     const page = await previewUrl(draft);
-    const gzipped = await fetch(page.replace(/index\.html$/u, "music.js"), {
+    const music = await fetch(page.replace(/index\.html$/u, "music.opus"), {
+      headers: { "Accept-Encoding": "gzip" },
+    });
+    assert.equal(music.headers.get("Content-Type"), "audio/ogg");
+    assert.equal(music.headers.get("Access-Control-Allow-Origin"), "*");
+    assert.equal(music.headers.get("Content-Encoding"), null);
+    const gzipped = await fetch(page.replace(/index\.html$/u, "game.js"), {
       headers: { "Accept-Encoding": "gzip" },
     });
     assert.equal(gzipped.headers.get("Content-Encoding"), "gzip");
-    assert.equal(await gzipped.text(), MUSIC);
+    assert.equal(await gzipped.text(), "// built");
     const { drafts } = await json("/api/drafts");
     assert.equal(drafts[0].title, "Moon Cat");
 
@@ -344,22 +360,22 @@ test(
     assert.equal(await socket.turn("build asked"), "turn_done");
     assert.match(await lastReply(draft), /\["build asked"\]/u);
 
-    // A change, in the workspace as the last run left it: 2/ carries the music over, and 1/ is gone. Verify knows the
-    // game had music.
+    // A change, in the workspace as the last run left it: 2/ keeps the score and its music, and 1/ is gone. Verify knows
+    // the game had music.
     const first = await previewUrl(draft);
     assert.equal(await socket.turn("build change"), "turn_done");
     assert.ok(verified(await boxLog(draft), "change --had-music"));
-    assert.deepEqual(await revisionFile(draft, "game.ts"), [
+    assert.deepEqual(await sourceFile(draft, "game.ts"), [
       2,
-      200,
       "let speed = 2;\nfunction gameRender() {}\n",
     ]);
+    assert.deepEqual(await sourceFile(draft, "music.mjs"), [2, "// a track"]);
     assert.deepEqual(await revisionFile(draft, "game.js"), [
       2,
       200,
       "// built",
     ]);
-    assert.deepEqual(await revisionFile(draft, "music.js"), [2, 200, MUSIC]);
+    assert.deepEqual(await revisionFile(draft, "music.opus"), [2, 200, OPUS]);
     const gone = await fetch(first);
     assert.equal(gone.status, 404);
 
@@ -380,7 +396,7 @@ test(
     // A failed build, a fix, and 4/.
     assert.equal(await socket.turn("build fix"), "turn_done");
     assert.equal(await lastReply(draft), published(4));
-    assert.deepEqual(await revisionFile(draft, "game.ts"), [4, 200, GAME]);
+    assert.deepEqual(await sourceFile(draft, "game.ts"), [4, GAME]);
 
     // A box that can't start: the agent is given the busy line, and nothing is written.
     await fake(draft, "nobox");
@@ -469,15 +485,13 @@ test(
     assert.equal(await revisionOf(draft), 6);
 
     // A start over: 7/ carries nothing of 6/.
-    const [, musicBefore] = await revisionFile(draft, "music.mjs");
-    assert.equal(musicBefore, 200);
+    assert.deepEqual(await sourceFile(draft, "music.mjs"), [6, "// a track"]);
     assert.equal(await socket.turn("build fresh"), "turn_done");
     assert.equal(await lastReply(draft), published(7));
-    assert.deepEqual(await revisionFile(draft, "game.ts"), [7, 200, GAME]);
-    const [, musicAfter] = await revisionFile(draft, "music.mjs");
+    const fresh = await revisionFile(draft, "source.tgz");
+    assert.deepEqual(Object.keys(JSON.parse(fresh[2])), ["game.ts"]);
+    const [, musicAfter] = await revisionFile(draft, "music.opus");
     assert.equal(musicAfter, 404);
-    const [, scriptAfter] = await revisionFile(draft, "music.js");
-    assert.equal(scriptAfter, 404);
 
     // Every command the box ran was under `timeout --kill-after=5`, so an abort stops all it started. The harness's own
     // (the playtest, the sweep) name the program by its full path, with no shell to run a model's ~/.bash_profile.
@@ -517,8 +531,11 @@ test(
         title: "Moon Cat",
       }
     );
-    const game = await fetch(`${ORIGIN}/games/${gameId}/game.ts`);
-    assert.equal(await game.text(), GAME);
+    // The Game is what the page loads: the source stays with the Draft.
+    const game = await fetch(`${ORIGIN}/games/${gameId}/game.js`);
+    assert.equal(await game.text(), "// built");
+    const source = await fetch(`${ORIGIN}/games/${gameId}/source.tgz`);
+    assert.equal(source.status, 404);
     assert.deepEqual(await json("/api/drafts"), { drafts: [] });
     socket.close();
 
@@ -629,8 +646,8 @@ test(
     const socket = await connect(draft);
     await socket.until("the first build's end", over);
     assert.equal(await lastReply(draft), published(1));
-    assert.deepEqual(await revisionFile(draft, "design.md"), [1, 200, DESIGN]);
-    assert.deepEqual(await revisionFile(draft, "tests.json"), [1, 200, TESTS]);
+    assert.deepEqual(await sourceFile(draft, "design.md"), [1, DESIGN]);
+    assert.deepEqual(await sourceFile(draft, "tests.json"), [1, TESTS]);
     assert.ok(verified(await boxLog(draft), "new"));
 
     // The box idles out: the next run starts from the Revision, with the design and tests in it.
@@ -678,6 +695,38 @@ test(
     // A second new game in one run still has the message that asked for it.
     assert.equal(await socket.turn("build twice"), "turn_done");
     assert.match(await lastReply(draft), /\["build twice"\]/u);
+
+    // A Revision from before source.tgz, its source files beside its built ones: the next run restores them, and a
+    // change keeps its design and music in the source.tgz Revision it publishes.
+    await fake(draft, "legacy");
+    const legacy = await revisionOf(draft);
+    assert.equal(await socket.turn("build change"), "turn_done");
+    assert.equal(await lastReply(draft), published(legacy + 1));
+    assert.ok(verified(await boxLog(draft), "change --had-music"));
+    assert.deepEqual(await sourceFile(draft, "design.md"), [
+      legacy + 1,
+      "# An older design\n",
+    ]);
+    assert.deepEqual(await sourceFile(draft, "music.mjs"), [
+      legacy + 1,
+      "// an older track",
+    ]);
+    assert.deepEqual(await sourceFile(draft, "game.ts"), [
+      legacy + 1,
+      "let speed = 2;\nfunction gameRender() {}\n",
+    ]);
+    assert.deepEqual(await sourceFile(draft, "music.js"), [
+      legacy + 1,
+      undefined,
+    ]);
+    assert.deepEqual(await sourceFile(draft, "game.js"), [
+      legacy + 1,
+      undefined,
+    ]);
+    const [, opus] = await revisionFile(draft, "music.opus");
+    assert.equal(opus, 200);
+    const [, script] = await revisionFile(draft, "music.js");
+    assert.equal(script, 404);
 
     // A message sent while a new game builds is about that game: it counts for the change after it. The run's first
     // tool waits until a message queued before it (which the fake plays as the next script) has reached pi, so the

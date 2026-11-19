@@ -64,21 +64,28 @@ const hoponMessage = (event) => {
 addEventListener("message", hoponMessage);
 document.addEventListener("message", hoponMessage);
 
-// Music (#146): a game with music loads music.js between the runtime and game.js, which sets hopon.music to an Opus
-// loop in base64; GAME_CSP allows no fetch, so the bytes come in as a script. It's decoded at load and starts on the
-// first tap. Web Audio loops the buffer to the sample, so the seam has no gap. It plays through the engine's context
-// and master gain, so away (or a hidden page) pauses it and mute silences it, with the effects.
+// Music (#146): a built game's page names its Opus loop on this script's data-music, and the runtime fetches it (GAME_CSP
+// allows the game's own files). A page from before /runtime/v4.js loaded music.js between the runtime and game.js
+// instead, which sets hopon.music to the loop in base64. It's decoded at load and starts on the first tap. Web Audio
+// loops the buffer to the sample, so the seam has no gap. It plays through the engine's context and master gain, so
+// away (or a hidden page) pauses it and mute silences it, with the effects.
+const hoponMusicSrc = document.currentScript?.dataset.music;
+const hoponMusicBytes = async () => {
+  if (hopon.music) {
+    return Uint8Array.from(atob(hopon.music), (char) => char.codePointAt(0))
+      .buffer;
+  }
+  const response = await fetch(hoponMusicSrc);
+  return await response.arrayBuffer();
+};
 const hoponMusicDecode = async () => {
-  if (!hopon.music || !audioContext) {
+  if ((!hopon.music && !hoponMusicSrc) || !audioContext) {
     return;
   }
-  const bytes = Uint8Array.from(atob(hopon.music), (char) =>
-    char.codePointAt(0)
-  );
   try {
-    return await audioContext.decodeAudioData(bytes.buffer);
+    return await audioContext.decodeAudioData(await hoponMusicBytes());
   } catch (error) {
-    console.warn("hopon: the music didn't decode", error);
+    console.warn("hopon: the music didn't load", error);
   }
 };
 // The decoding, then the decoded loop (undefined without music).

@@ -3,7 +3,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { isLittlejsHtml, MUSIC } from "../image/page.ts";
 import type { Spec } from "../src/job.ts";
 import type { judgeCoder } from "./judge.ts";
 
@@ -44,23 +43,26 @@ export const CODER_JOBS: CoderJob[] = [
   })),
 ];
 
-// A page the owner can open and play: the served page with its scripts inlined.
+// A page the owner can open and play: the built page with its scripts and stylesheet inlined, and no music.
 const inline = (text: string) =>
   text.replaceAll("</script", String.raw`<\/script`);
-export const previewHtml = (files: Record<string, string>) => {
-  const game = `<script>${inline(files["game.js"] ?? "")}</script>`;
-  const page = files["index.html"];
-  if (page && !isLittlejsHtml(page)) {
-    return page
-      .replace(
-        /<script src="\/dom\/v1\.js"><\/script>/u,
-        () => `<script>${inline(readFileSync(DOM_RUNTIME, "utf-8"))}</script>`
-      )
-      .replace(/<script src="game\.js"><\/script>/u, () => game);
-  }
-  const music = files[MUSIC] ? `<script>${files[MUSIC]}</script>` : "";
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:#000;overflow:hidden;touch-action:none}</style></head><body><script>${inline(readFileSync(RUNTIME, "utf-8"))}</script>${music}${game}</body></html>`;
-};
+const script = (text: string) => `<script>${inline(text)}</script>`;
+export const previewHtml = (built: Record<string, string>) =>
+  (built["index.html"] ?? "")
+    .replace(/<script src="music\.js"><\/script>/u, "")
+    .replace(/<script src="\/runtime\/v\d+\.js"[^>]*><\/script>/u, () =>
+      script(readFileSync(RUNTIME, "utf-8"))
+    )
+    .replace(/<script src="\/dom\/v\d+\.js"[^>]*><\/script>/u, () =>
+      script(readFileSync(DOM_RUNTIME, "utf-8"))
+    )
+    .replace(
+      /<link rel="stylesheet" href="game\.css">/u,
+      () => `<style>${built["game.css"] ?? ""}</style>`
+    )
+    .replace(/<script src="game\.js"><\/script>/u, () =>
+      script(built["game.js"] ?? "")
+    );
 
 type Judged = Awaited<ReturnType<typeof judgeCoder>> | { error: string };
 const atLeast4 = (score?: { score: number }) => (score?.score ?? 0) >= 4;

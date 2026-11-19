@@ -94,9 +94,15 @@ Items:
 
 ${SCALE} Shape: {"spec": {"score": n, "reason": "one line"}, "playable": {...}, "edit": {...} or null, "looks": {...}}`;
 
+// The game's code: every module, stylesheet and page, not its music or its notes.
+const CODE = /\.(?:ts|css|html)$/u;
 const source = (label: string, set: Record<string, string>) =>
   Object.entries(set)
-    .filter(([file]) => file === "game.ts" || file === "index.html")
+    .filter(([file]) => CODE.test(file))
+    .toSorted(
+      ([a], [b]) =>
+        Number(b === "game.ts") - Number(a === "game.ts") || a.localeCompare(b)
+    )
     .map(([file, text]) => `${label} ${file}:\n${text}`)
     .join("\n\n");
 

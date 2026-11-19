@@ -283,7 +283,7 @@ const filesIn = async (env, prefix) => {
   return objects.map((object) => object.key);
 };
 
-test("publish: every file of the current Revision becomes the Game's, the row keeps the Draft's id, and the Draft is Deleted", async (t) => {
+test("publish: every file the current Revision's page loads becomes the Game's, the row keeps the Draft's id, and the Draft is Deleted", async (t) => {
   const { call, draft, env, forwarded } = await setup(t);
   const { games } = await json(call("/api/games"));
   assert.deepEqual(
@@ -291,12 +291,19 @@ test("publish: every file of the current Revision becomes the Game's, the row ke
     ["Bubble Pop", "Odd Duck", "Toast Panic"]
   );
   const art = new Uint8Array([0, 255, 128, 7]);
+  const opus = new Uint8Array([79, 103, 103, 83, 0, 2]);
   const id = await draft({
     files: {
       "art.bin": art,
+      "design.md": "# Toast",
+      "game.css": "body { color: gold; }",
       "game.js": "engineInit();",
       "index.html": INDEX_HTML,
       "music.js": "hopon.music('T2dnUw==');",
+      "music.opus": opus,
+      "source.tgz": new Uint8Array([31, 139, 8, 0]),
+      "star-AB12.svg": "<svg></svg>",
+      "tests.json": "{}",
     },
   });
   const publish = (options) =>
@@ -338,11 +345,15 @@ test("publish: every file of the current Revision becomes the Game's, the row ke
       title: made.title,
     }
   );
+  // The source and the agent's notes stay with the Draft, and go with it.
   assert.deepEqual(await filesIn(env, `games/${gameId}/`), [
     `games/${gameId}/art.bin`,
+    `games/${gameId}/game.css`,
     `games/${gameId}/game.js`,
     `games/${gameId}/index.html`,
     `games/${gameId}/music.js`,
+    `games/${gameId}/music.opus`,
+    `games/${gameId}/star-AB12.svg`,
   ]);
   // Public, under the game CSP, each file typed by its extension.
   const file = (name) => call(`/games/${gameId}/${name}`, { user: "" });
@@ -353,15 +364,41 @@ test("publish: every file of the current Revision becomes the Game's, the row ke
   assert.equal(page.headers.get("Content-Security-Policy"), GAME_CSP);
   assert.equal(page.headers.get("Cache-Control"), "no-store");
   assert.ok(!GAME_CSP.includes("allow-same-origin"));
-  assert.ok(GAME_CSP.includes("connect-src 'none'"));
-  // 'self' lets a game load /runtime/v2.js and its own files.
-  assert.match(GAME_CSP, /script-src 'self'/u);
-  assert.match(GAME_CSP, /media-src 'self'/u);
+  // 'self' lets a game load /runtime/v2.js and its own files, and fetch its music; nothing else is reachable.
+  for (const directive of [
+    "script-src 'self'",
+    "style-src 'self'",
+    "img-src 'self'",
+    "media-src 'self'",
+    "font-src 'self'",
+    "connect-src 'self';",
+  ]) {
+    assert.ok(GAME_CSP.includes(directive), directive);
+  }
+  assert.doesNotMatch(GAME_CSP, /https?:|\*/u);
+  // The page's origin is opaque (sandbox), so its fetch of its own file is cross-origin.
+  assert.equal(page.headers.get("Access-Control-Allow-Origin"), "*");
   for (const name of ["game.js", "music.js"]) {
     // oxlint-disable-next-line no-await-in-loop -- one file at a time
     const script = await file(name);
     assert.match(script.headers.get("Content-Type"), /^text\/javascript/u);
     assert.equal(script.headers.get("Content-Security-Policy"), GAME_CSP);
+  }
+  for (const [name, type] of [
+    ["music.opus", "audio/ogg"],
+    ["game.css", "text/css; charset=utf-8"],
+    ["star-AB12.svg", "image/svg+xml"],
+  ]) {
+    // oxlint-disable-next-line no-await-in-loop -- one file at a time
+    const served = await file(name);
+    assert.equal(served.headers.get("Content-Type"), type, name);
+    assert.equal(served.headers.get("Access-Control-Allow-Origin"), "*", name);
+  }
+  const music = await file("music.opus");
+  assert.deepEqual(new Uint8Array(await music.arrayBuffer()), opus);
+  for (const name of ["source.tgz", "design.md", "tests.json"]) {
+    // oxlint-disable-next-line no-await-in-loop -- one file at a time
+    assert.equal(await status(file(name)), 404, name);
   }
   const binary = await file("art.bin");
   assert.equal(binary.headers.get("Content-Type"), "application/octet-stream");
@@ -2267,7 +2304,7 @@ const servedScaffold = (file) =>
     readFileSync(new URL(`../src/runtime/${file}`, import.meta.url), "utf-8")
   );
 
-test("runtime: /runtime/v3.js and /dom/v3.js are the maker's scaffolds, the older ones as they shipped, long-cached, signed out", async (t) => {
+test("runtime: /runtime/v4.js and /dom/v4.js are the maker's scaffolds, the older ones as they shipped, long-cached, signed out", async (t) => {
   const { call } = await setup(t);
   const scaffold = async (route) => {
     const response = await call(route, { user: "" });
@@ -2280,29 +2317,34 @@ test("runtime: /runtime/v3.js and /dom/v3.js are the maker's scaffolds, the olde
     return await response.text();
   };
   // LittleJS and the scaffold, with the feed's bridge, playing through the silent switch.
-  const code = await scaffold("/runtime/v3.js");
-  assert.equal(code, servedScaffold("v3.json"));
+  const code = await scaffold("/runtime/v4.js");
+  assert.equal(code, servedScaffold("v4.json"));
   assert.match(code, /engineInit/u);
   assert.match(code, /"pause"/u);
   assert.match(code, /"playback"/u);
   // The plain-DOM scaffold, the box's bytes, with the music and the feed's bridge.
-  const dom = await scaffold("/dom/v3.js");
+  const dom = await scaffold("/dom/v4.js");
   assert.equal(
     dom,
     readFileSync(new URL("../../maker/image/dom.js", import.meta.url), "utf-8")
   );
+  // The music: a built page's data-music, or an older page's music.js.
+  assert.match(dom, /dataset\.music/u);
+  assert.match(code, /dataset\.music/u);
   assert.match(dom, /hopon\.music/u);
   assert.match(dom, /"playback"/u);
   for (const [route, file] of [
     ["/runtime/v2.js", "v2.json"],
     ["/dom/v1.js", "dom-v1.json"],
     ["/dom/v2.js", "dom-v2.json"],
+    ["/runtime/v3.js", "v3.json"],
+    ["/dom/v3.js", "dom-v3.json"],
   ]) {
     // oxlint-disable-next-line no-await-in-loop -- one request each
     assert.equal(await scaffold(route), servedScaffold(file), route);
   }
   // v1 changed before any Creator's Game used it, so it's gone rather than stale.
-  for (const gone of ["/runtime/v1.js", "/runtime/v4.js"]) {
+  for (const gone of ["/runtime/v1.js", "/runtime/v5.js"]) {
     // oxlint-disable-next-line no-await-in-loop -- two requests
     assert.equal(await status(call(gone, { user: "" })), 404);
   }

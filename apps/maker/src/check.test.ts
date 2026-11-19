@@ -4,20 +4,28 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { buffer } from "node:stream/consumers";
 import { after, before, test } from "node:test";
 
 import { DOM_SRC, littlejsHtml } from "../image/page.ts";
-import { boxPlaytest, checkBuild, restore, WORKSPACE } from "./job.ts";
-import type { Box, Job, Tests } from "./job.ts";
+import {
+  boxPlaytest,
+  checkBuild,
+  packSource,
+  restore,
+  SOURCE_TAR,
+  WORKSPACE,
+} from "./job.ts";
+import type { Box, Tests } from "./job.ts";
 
 const IMAGE = process.env.HOPON_BOX_IMAGE;
 const skip = IMAGE ? false : "set HOPON_BOX_IMAGE to the sandbox image";
 const USER = ["-u", "1001:1001", "-e", "HOME=/home/user"];
 
-const docker = async (args: string[], input?: string) => {
+const docker = async (args: string[], input?: string | Uint8Array) => {
   const child = spawn("docker", args);
   child.stdin.end(input);
   const [stdout, stderr, [code]] = await Promise.all([
@@ -70,6 +78,43 @@ const box: Box = {
   },
 };
 
+// The box, and every file the harness read back from it.
+const recording = () => {
+  const read: string[] = [];
+  const recorded: Box = {
+    ...box,
+    readBytes: (file) => {
+      read.push(file);
+      return box.readBytes(file);
+    },
+  };
+  return { box: recorded, read };
+};
+
+const text = (bytes: Uint8Array | undefined) =>
+  Buffer.from(bytes ?? []).toString();
+
+// source.tgz's files, unpacked on this machine.
+const unpacked = async (tar: Uint8Array | undefined) => {
+  const dir = mkdtempSync(path.join(tmpdir(), "hopon-source-"));
+  try {
+    const child = spawn("tar", ["-xzf", "-", "-C", dir]);
+    child.stdin.end(tar);
+    const [code] = (await once(child, "close")) as [number];
+    assert.equal(code, 0);
+    return Object.fromEntries(
+      readdirSync(dir, { recursive: true, withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) => {
+          const file = path.join(entry.parentPath, entry.name);
+          return [path.relative(dir, file), readFileSync(file, "utf-8")];
+        })
+    );
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+};
+
 // What a model's bash tool runs: a login shell.
 const bash = (command: string) =>
   docker(["exec", ...USER, "-w", WORKSPACE, container, "bash", "-lc", command]);
@@ -91,12 +136,8 @@ const INPUTS = JSON.stringify({
   })),
   ms: 3000,
 });
-const job: Job = {
-  draftId: "check",
-  revision: 0,
-  source: {},
-  spec: { music: null, title: "Fruit" },
-};
+const noMusic = { music: false };
+const files = (source: Record<string, string>) => ({ files: source });
 
 const processes = async () => {
   const result = await box.exec([
@@ -126,7 +167,7 @@ test(
   "a ~/.bash_profile and a background process a model left can't pass a game that doesn't run",
   { skip, timeout: 300_000 },
   async () => {
-    await restore(box, { "game.ts": BROKEN });
+    await restore(box, files({ "game.ts": BROKEN }));
     await bash(
       [
         `echo 'node() { echo "{\\"ok\\":true,\\"errors\\":[],\\"typeErrors\\":[]}"; }' >> ~/.bash_profile`,
@@ -151,12 +192,12 @@ test(
     );
 
     try {
-      const verdict = await checkBuild(box, { job });
+      const verdict = await checkBuild(box, noMusic);
 
       assert.ok("errors" in verdict, JSON.stringify(verdict));
       assert.match(
         verdict.errors.join("\n"),
-        /game\.ts changed while the harness ran it/u
+        /the workspace changed while the harness ran it/u
       );
       const profile = await bash("test -e ~/.bash_profile && echo still there");
       assert.equal(
@@ -181,9 +222,9 @@ test(
   "a game that throws when it runs fails the check, with no test from the agent",
   { skip, timeout: 300_000 },
   async () => {
-    await restore(box, { "game.ts": BROKEN });
+    await restore(box, files({ "game.ts": BROKEN }));
 
-    const verdict = await checkBuild(box, { job });
+    const verdict = await checkBuild(box, noMusic);
 
     assert.ok("errors" in verdict, JSON.stringify(verdict));
     assert.match(
@@ -197,7 +238,7 @@ test(
   "a playtest says where its time went",
   { skip, timeout: 300_000 },
   async () => {
-    await restore(box, { "game.ts": GAME });
+    await restore(box, files({ "game.ts": GAME }));
 
     const result = await boxPlaytest(box, INPUTS);
 
@@ -227,20 +268,18 @@ const swipeLeft = (expect: string): Tests => ({
     },
   ],
 });
-const tested = (tests: Tests): Job => ({
-  ...job,
-  spec: { ...job.spec, tests },
-});
+const tested = (tests: Tests) => ({ music: false, tests });
 
 test(
   "the agent's tests pass on a game that does what they check",
   { skip, timeout: 300_000 },
   async () => {
-    await restore(box, { "game.ts": TESTED });
+    await restore(box, files({ "game.ts": TESTED }));
 
-    const verdict = await checkBuild(box, {
-      job: tested(swipeLeft("vars.basketX < prev.vars.basketX")),
-    });
+    const verdict = await checkBuild(
+      box,
+      tested(swipeLeft("vars.basketX < prev.vars.basketX"))
+    );
 
     assert.ok("files" in verdict, JSON.stringify(verdict));
   }
@@ -250,11 +289,12 @@ test(
   "a test the game doesn't meet fails the check, with what the game showed",
   { skip, timeout: 300_000 },
   async () => {
-    await restore(box, { "game.ts": TESTED });
+    await restore(box, files({ "game.ts": TESTED }));
 
-    const verdict = await checkBuild(box, {
-      job: tested(swipeLeft("vars.basketX > prev.vars.basketX")),
-    });
+    const verdict = await checkBuild(
+      box,
+      tested(swipeLeft("vars.basketX > prev.vars.basketX"))
+    );
 
     assert.ok("errors" in verdict, JSON.stringify(verdict));
     assert.match(
@@ -268,11 +308,12 @@ test(
   "a check that throws is the test's error: it doesn't fail the build, and the harness reports it",
   { skip, timeout: 300_000 },
   async () => {
-    await restore(box, { "game.ts": TESTED });
+    await restore(box, files({ "game.ts": TESTED }));
 
-    const verdict = await checkBuild(box, {
-      job: tested(swipeLeft("vars.basketX < prev.missing.basketX")),
-    });
+    const verdict = await checkBuild(
+      box,
+      tested(swipeLeft("vars.basketX < prev.missing.basketX"))
+    );
 
     assert.ok("files" in verdict, JSON.stringify(verdict));
     assert.match(
@@ -286,18 +327,24 @@ test(
   "a game that runs passes, and the Revision holds what the check played",
   { skip, timeout: 300_000 },
   async () => {
-    await restore(box, { "game.ts": GAME });
+    await restore(box, files({ "game.ts": GAME }));
 
-    const verdict = await checkBuild(box, { job });
+    const verdict = await checkBuild(box, noMusic);
 
     assert.ok("files" in verdict, JSON.stringify(verdict));
-    assert.equal(verdict.files["game.ts"], GAME);
-    assert.equal(
+    assert.deepEqual(Object.keys(verdict.files).toSorted(), [
+      "game.js",
+      "index.html",
+      SOURCE_TAR,
+    ]);
+    assert.deepEqual(
       verdict.files["game.js"],
-      await box.read(`${WORKSPACE}/game.js`)
+      await box.readBytes(`${WORKSPACE}/dist/game.js`)
     );
-    assert.equal(verdict.files["index.html"], littlejsHtml(false));
-    assert.deepEqual(verdict.deleted, []);
+    assert.equal(text(verdict.files["index.html"]), littlejsHtml());
+    assert.deepEqual(await unpacked(verdict.files[SOURCE_TAR]), {
+      "game.ts": GAME,
+    });
   }
 );
 
@@ -330,14 +377,14 @@ const MUSIC_PY = (
 const WAV_HEADER = 44;
 
 test(
-  "the music-sf2 skeleton renders a stereo loop that wraps without a jump, and a game's music.py becomes its music.js",
+  "the music-sf2 skeleton renders a stereo loop that wraps without a jump, and a game's music.py becomes the music.opus its page names",
   { skip, timeout: 300_000 },
   async () => {
     assert.ok(
       MUSIC_PY.includes(SCORE),
       "the skill has a skeleton with a place for the score"
     );
-    await restore(box, { "game.ts": GAME, "music.py": MUSIC_PY });
+    await restore(box, files({ "game.ts": GAME, "music.py": MUSIC_PY }));
     const rendered = await box.exec(["/usr/bin/python3", "music.py"]);
     assert.equal(rendered.exitCode, 0, rendered.stderr);
     const wav = Buffer.from(await box.readBytes(`${WORKSPACE}/music.wav`));
@@ -355,14 +402,16 @@ test(
     const seam = Math.abs((left[0] ?? 0) - (left.at(-1) ?? 0));
     assert.ok(seam <= typical, `seam ${seam}, 99th-percentile step ${typical}`);
 
-    const verdict = await checkBuild(box, {
-      job: { ...job, spec: { ...job.spec, music: "a harbour town" } },
-    });
+    const verdict = await checkBuild(box, { music: true });
 
     assert.ok("files" in verdict, JSON.stringify(verdict));
-    assert.equal(verdict.files["music.py"], MUSIC_PY);
-    assert.match(verdict.files["music.js"] ?? "", /^hopon\.music = "T2dnUw/u);
-    assert.equal(verdict.files["index.html"], littlejsHtml(true));
+    const source = await unpacked(verdict.files[SOURCE_TAR]);
+    assert.equal(source["music.py"], MUSIC_PY);
+    assert.equal(text(verdict.files["music.opus"]).slice(0, 4), "OggS");
+    assert.equal(
+      text(verdict.files["index.html"]),
+      littlejsHtml({ music: "music.opus" })
+    );
   }
 );
 
@@ -370,15 +419,16 @@ test(
   "a game with both music.mjs and music.py fails the check of a music job",
   { skip, timeout: 300_000 },
   async () => {
-    await restore(box, {
-      "game.ts": GAME,
-      "music.mjs": "// a loop",
-      "music.py": MUSIC_PY,
-    });
+    await restore(
+      box,
+      files({
+        "game.ts": GAME,
+        "music.mjs": "// a loop",
+        "music.py": MUSIC_PY,
+      })
+    );
 
-    const verdict = await checkBuild(box, {
-      job: { ...job, spec: { ...job.spec, music: "a harbour town" } },
-    });
+    const verdict = await checkBuild(box, { music: true });
 
     assert.ok("errors" in verdict);
     assert.match(verdict.errors.join("\n"), /both there/u);
@@ -389,31 +439,283 @@ const OCEAN = path.join(import.meta.dirname, "../eval/revisions/ocean-memory");
 const ocean = (file: string) => readFileSync(path.join(OCEAN, file), "utf-8");
 
 test(
-  "a plain-DOM game on /dom/v1.js runs on the current scaffold, and its Revision loads its music after it",
+  "a plain-DOM game from before source.tgz, on /dom/v1.js with music.js, runs on the current scaffold without it",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(
+      box,
+      files({
+        "design.md": "# Ocean memory",
+        "game.ts": ocean("game.ts"),
+        "index.html": ocean("index.html").replace(
+          "</script>",
+          '</script><script src="music.js"></script>'
+        ),
+      })
+    );
+
+    const verdict = await checkBuild(box, noMusic);
+
+    assert.ok("files" in verdict, JSON.stringify(verdict));
+    const page = text(verdict.files["index.html"]);
+    assert.match(page, new RegExp(`<script src="${DOM_SRC}"></script>`, "u"));
+    assert.doesNotMatch(page, /dom\/v1|music\.js/u);
+    const source = await unpacked(verdict.files[SOURCE_TAR]);
+    assert.equal(source["design.md"], "# Ocean memory");
+  }
+);
+
+test(
+  "source.tgz is the workspace's source, the same bytes for the same source, and restore puts back exactly it",
   { skip, timeout: 300_000 },
   async () => {
     const source = {
-      "game.ts": ocean("game.ts"),
-      "index.html": ocean("index.html").replace(
-        "</script>",
-        '</script><script src="music.js"></script>'
-      ),
-      "music.mjs": "// a loop",
+      "design.md": "# Fruit\nMusic: a harbour town",
+      "game.ts": GAME,
+      "levels/one.ts": "export const one = 1;\n",
+      "tests.json": '{"expose":[],"tests":[]}',
     };
-    await restore(box, source);
+    await restore(box, files(source));
+    await bash(
+      "mkdir -p dist .hopon && echo built > dist/game.js && echo x > music.wav && echo x > raw.wav && echo x > song.mid && echo x > music.opus && echo '[]' > .hopon/asked.json && echo png > playtest-end.png && echo stale > game.js"
+    );
+    const tar = await packSource(box);
+    assert.deepEqual(await unpacked(tar), source);
+    await bash("touch game.ts design.md && sleep 1 && touch levels/one.ts");
+    assert.deepEqual(
+      await packSource(box),
+      tar,
+      "the same source, the same bytes"
+    );
+
+    await bash("echo left over > old.ts");
+    await restore(box, { tar });
+
+    const listed = await bash("find . -type f | sort");
+    assert.equal(
+      listed.stdout.toString(),
+      "./design.md\n./game.ts\n./levels/one.ts\n./tests.json\n"
+    );
+    const owner = await bash("stat -c %u game.ts");
+    assert.equal(owner.stdout.toString().trim(), "1001");
+  }
+);
+
+test(
+  "a game of modules, a stylesheet and an SVG it imports is built into one page that loads them",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(
+      box,
+      files({
+        "game.ts": `import "./style.css";\nimport star from "./star.svg";\nimport { speed } from "./speed.ts";\nconst img = new Image();\nimg.src = star;\nconst testVars = { get drawn() { return img.naturalWidth; }, get outline() { return getComputedStyle(document.body).outlineStyle; }, speed };\n${GAME}`,
+        "speed.ts": "export const speed = 3;\n",
+        "star.svg":
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5" fill="gold"/></svg>',
+        "style.css": "body { outline: 3px solid gold; }\n",
+      })
+    );
 
     const verdict = await checkBuild(box, {
-      job: { ...job, revision: 1, source },
+      music: false,
+      tests: {
+        expose: [],
+        tests: [
+          {
+            checks: [
+              {
+                at: 1000,
+                expect:
+                  'vars.speed === 3 && vars.drawn > 0 && vars.outline === "solid"',
+              },
+            ],
+            inputs: [],
+            name: "the modules and the image load",
+          },
+        ],
+      },
     });
 
     assert.ok("files" in verdict, JSON.stringify(verdict));
-    assert.match(
-      verdict.files["index.html"],
-      new RegExp(
-        `<script src="${DOM_SRC}"></script><script src="music.js"></script>`,
-        "u"
-      )
+    const names = Object.keys(verdict.files);
+    assert.ok(names.includes("game.css"), names.join(" "));
+    assert.ok(
+      names.some((name) => /^star-\w+\.svg$/u.test(name)),
+      names.join(" ")
     );
-    assert.doesNotMatch(verdict.files["index.html"], /dom\/v1/u);
+    assert.equal(
+      text(verdict.files["index.html"]),
+      littlejsHtml({ css: "game.css" })
+    );
+  }
+);
+
+test(
+  "a game.ts that exports fails the check: the page runs it as a plain script",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(box, files({ "game.ts": `${GAME}\nexport const x = 1;\n` }));
+
+    const verdict = await checkBuild(box, noMusic);
+
+    assert.ok("errors" in verdict, JSON.stringify(verdict));
+    assert.match(verdict.errors.join("\n"), /must not export anything/u);
+  }
+);
+
+// Ends the processes a test left running in the box, by what their command line says.
+const kill = async (marker: string) => {
+  await docker([
+    "exec",
+    container,
+    "/usr/local/bin/node",
+    "-e",
+    `const fs = require('fs'); for (const p of fs.readdirSync('/proc')) { try { if (Number(p) !== process.pid && fs.readFileSync('/proc/' + p + '/cmdline', 'utf-8').includes(${JSON.stringify(marker)})) process.kill(Number(p), 'SIGKILL') } catch {} }`,
+  ]);
+};
+
+test(
+  "a source over 5 MB packed fails the check, and the harness never reads it back",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(box, files({ "game.ts": GAME }));
+    await bash("head -c 6000000 /dev/urandom > noise.bin");
+    const recorder = recording();
+
+    const verdict = await checkBuild(recorder.box, noMusic);
+
+    assert.ok("errors" in verdict, JSON.stringify(verdict));
+    assert.match(
+      verdict.errors.join("\n"),
+      /the workspace's source is 6\.0 MB packed, over 5 MB/u
+    );
+    assert.deepEqual(recorder.read, []);
+  }
+);
+
+test(
+  "a built game over 5 MB fails the check, and the harness reads none of its files",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(
+      box,
+      files({
+        "game.ts": `import big from "./big.svg";\nconst img = new Image();\nimg.src = big;\n${GAME}`,
+      })
+    );
+    await bash(
+      `{ printf '<svg xmlns="http://www.w3.org/2000/svg"><!--'; head -c 6000000 /dev/zero | tr '\\0' a; printf -- '--></svg>'; } > big.svg`
+    );
+    const recorder = recording();
+
+    const verdict = await checkBuild(recorder.box, noMusic);
+
+    assert.ok("errors" in verdict, JSON.stringify(verdict));
+    assert.match(
+      verdict.errors.join("\n"),
+      /the built game is 6\.0 MB, over 5 MB/u
+    );
+    assert.deepEqual(
+      recorder.read.filter((file) => file.startsWith(`${WORKSPACE}/dist/`)),
+      []
+    );
+  }
+);
+
+test(
+  "a LittleJS game from before source.tgz restores without the harness's v3 page, and its change builds on the current one",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(
+      box,
+      files({
+        "design.md": "# Fruit",
+        "game.ts": GAME,
+        "index.html":
+          '<!doctype html><html><head><meta charset="utf-8"></head><body><script src="/runtime/v3.js"></script><script src="music.js"></script><script src="game.js"></script></body></html>',
+      })
+    );
+    const listed = await bash("find . -type f | sort");
+    assert.equal(listed.stdout.toString(), "./design.md\n./game.ts\n");
+    await box.write(`${WORKSPACE}/game.ts`, withLine("const changed = 1;"));
+
+    const verdict = await checkBuild(box, noMusic);
+
+    assert.ok("files" in verdict, JSON.stringify(verdict));
+    assert.equal(text(verdict.files["index.html"]), littlejsHtml());
+    assert.deepEqual(
+      Object.keys(await unpacked(verdict.files[SOURCE_TAR])).toSorted(),
+      ["design.md", "game.ts"]
+    );
+  }
+);
+
+test(
+  "a file that changes while the harness packs it fails the check as a changed workspace",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(box, files({ "game.ts": GAME }));
+    await bash("head -c 3000000 /dev/zero > grows.txt");
+    await docker([
+      "exec",
+      "-d",
+      ...USER,
+      container,
+      "sh",
+      "-c",
+      "cd /workspace; while :; do echo grows >> grows.txt; done",
+    ]);
+
+    try {
+      const verdict = await checkBuild(box, noMusic);
+
+      assert.ok("errors" in verdict, JSON.stringify(verdict));
+      assert.match(
+        verdict.errors.join("\n"),
+        /the workspace changed while the harness ran it/u
+      );
+    } finally {
+      await kill("grows.txt");
+    }
+  }
+);
+
+const MAKE_GAME = readFileSync(
+  path.join(
+    import.meta.dirname,
+    "../agent-home/.agents/skills/make-game/SKILL.md"
+  ),
+  "utf-8"
+);
+
+test(
+  "make-game's Start over empties the workspace of the old game, all but what the Creator said",
+  { skip, timeout: 300_000 },
+  async () => {
+    const command = /Start over.*\n+ *```bash\n *(?<command>.+)\n *```/u.exec(
+      MAKE_GAME
+    )?.groups?.command;
+    assert.ok(command, "make-game gives Start over's command");
+    await restore(
+      box,
+      files({
+        ".hopon/asked.json": '["Start over"]',
+        "balloon.svg": "<svg/>",
+        "design.md": "# Balloons",
+        "game.ts": GAME,
+        "levels/one.ts": "export const one = 1;\n",
+        "notes.txt": "scratch",
+        "style.css": "body {}",
+      })
+    );
+    await bash("mkdir -p dist && echo built > dist/game.js && echo x > .env");
+
+    const ran = await bash(command);
+
+    assert.equal(ran.exitCode, 0, ran.stderr.toString());
+    const listed = await bash("find . -mindepth 1 | sort");
+    assert.equal(listed.stdout.toString(), "./.hopon\n./.hopon/asked.json\n");
+    const asked = await bash("cat .hopon/asked.json");
+    assert.equal(asked.stdout.toString(), '["Start over"]');
   }
 );

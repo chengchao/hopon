@@ -1,7 +1,7 @@
 // The Maker's `build` tool (ADR 0006): it publishes the game in the workspace to the Creator. It runs verify.js, then
-// the harness check (job.ts's checkBuild: the music, the agent's own tests.json, the typecheck), then writes Revision
-// n+1 to R2 and the Draft's title and description to D1. A failed check is the tool's error result, which the agent
-// fixes before it calls `build` again. The tool keeps the old main agent's name because the app's chat reads it: a
+// the harness check (job.ts's checkBuild: the source packed, the music, the build, the agent's own tests.json), then
+// writes Revision n+1 to R2, source.tgz and the built files, and the Draft's title and description to D1. A failed
+// check is the tool's error result, which the agent fixes before it calls `build` again. The tool keeps the old main agent's name because the app's chat reads it: a
 // `build` result is the game card, and a running `build` is the status line.
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-durable";
@@ -10,8 +10,15 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Schema } from "effect";
 
-import { checkBuild, TestsSchema, WORKSPACE } from "../../maker/src/job.ts";
-import type { Box, Job, Tests } from "../../maker/src/job.ts";
+import {
+  checkBuild,
+  MUSIC_FILE,
+  SCORE_FILES,
+  SOURCE_TAR,
+  TestsSchema,
+  WORKSPACE,
+} from "../../maker/src/job.ts";
+import type { Box, Source, Tests } from "../../maker/src/job.ts";
 import { drafts, now } from "./schema.ts";
 import {
   currentRevision,
@@ -21,14 +28,13 @@ import {
 } from "./storage.ts";
 import { toolResult } from "./tool-results.ts";
 
-// A Revision's files the harness makes rather than the agent (from game.ts and the music's score).
+// A Revision from before source.tgz: the files the harness made rather than the agent, from game.ts and the score.
 const BUILT = new Set(["game.js", "music.js"]);
-const SCORES = ["music.mjs", "music.py"];
+// A Revision's files that say the game has music: its music, or, from before source.tgz, its score.
+const MUSIC = new Set<string>([MUSIC_FILE, ...SCORE_FILES]);
 const TESTS = "tests.json";
-const DESIGN = "design.md";
 // What the Creator has said, for verify.js's `Music: none` rule: their messages as a JSON array. The check's sweep
-// removes it with everything but the game's source, so `build` writes it again after the check; it never reaches a
-// Revision.
+// removes it and source.tgz leaves it out, so `build` writes it again after the check; it never reaches a Revision.
 const ASKED = ".hopon/asked.json";
 // A Revision's last file written: one without it is a write an eviction cut short, which currentRevision skips.
 const INDEX = "index.html";
@@ -43,24 +49,37 @@ const read = async (files: R2Bucket, key: string) => {
   return object;
 };
 
-// Revision n's file names and source: what restore() puts back in the workspace, the agent's design.md and tests.json
-// included.
-export const revisionSource = async (files: R2Bucket, draftId: string) => {
+// The current Revision n and its file names.
+const revisionNames = async (files: R2Bucket, draftId: string) => {
   const n = await currentRevision(files, draftId);
   const prefix = revisionFiles(draftId, n);
   const { objects } = n === 0 ? { objects: [] } : await files.list({ prefix });
-  const names = objects.map((object) => object.key.slice(prefix.length));
-  const source: Record<string, string> = Object.fromEntries(
+  return { n, names: objects.map((object) => object.key.slice(prefix.length)) };
+};
+
+// Revision n and what restore() puts back in the workspace: its source.tgz, or, in a Revision from before it, its
+// source files, the agent's design.md and tests.json included.
+export const revisionSource = async (
+  files: R2Bucket,
+  draftId: string
+): Promise<{ n: number; source: Source }> => {
+  const { n, names } = await revisionNames(files, draftId);
+  const prefix = revisionFiles(draftId, n);
+  if (names.includes(SOURCE_TAR)) {
+    const object = await read(files, `${prefix}${SOURCE_TAR}`);
+    return { n, source: { tar: new Uint8Array(await object.arrayBuffer()) } };
+  }
+  const source = Object.fromEntries(
     await Promise.all(
       names
         .filter((name) => !BUILT.has(name))
         .map(async (name) => {
           const object = await read(files, `${prefix}${name}`);
-          return [name, await object.text()];
+          return [name, await object.text()] as const;
         })
     )
   );
-  return { n, names, source };
+  return { n, source: { files: source } };
 };
 
 export const writeAsked = (box: Box, asked: readonly string[]) =>
@@ -77,21 +96,15 @@ const readText = async (box: Box, file: string) => {
 // tests.json, or why it can't be run.
 const readTests = async (
   box: Box
-): Promise<{ tests?: Tests; text: string | null; error?: string }> => {
+): Promise<{ tests?: Tests; error?: string }> => {
   const text = await readText(box, TESTS);
   if (text === null) {
-    return { text };
+    return {};
   }
   try {
-    return {
-      tests: Schema.decodeUnknownSync(TestsSchema)(JSON.parse(text)),
-      text,
-    };
+    return { tests: Schema.decodeUnknownSync(TestsSchema)(JSON.parse(text)) };
   } catch (error) {
-    return {
-      error: `${TESTS} isn't valid: ${String(error).slice(0, 300)}`,
-      text,
-    };
+    return { error: `${TESTS} isn't valid: ${String(error).slice(0, 300)}` };
   }
 };
 
@@ -151,7 +164,7 @@ export const publishTool = (
       // and the agent is told its work is gone instead.
       const refuse = (text: string) =>
         new Error(restarted() ? toolResult("restarted") : text);
-      const { n, names, source } = await revisionSource(env.FILES, draftId);
+      const { n, names } = await revisionNames(env.FILES, draftId);
       if (spec.kind === "change" && n === 0) {
         throw new Error(toolResult("no-game"));
       }
@@ -159,7 +172,7 @@ export const publishTool = (
       const failures = await verify(
         workspace,
         spec.kind,
-        names.some((name) => SCORES.includes(name))
+        names.some((name) => MUSIC.has(name))
       );
       if (failures.length > 0) {
         throw refuse(toolResult("not-ready", { FAILURES: list(failures) }));
@@ -168,36 +181,11 @@ export const publishTool = (
       if (tests.error) {
         throw refuse(tests.error);
       }
-      const fresh = spec.kind === "new";
-      const scores = await Promise.all(
-        SCORES.map((file) => readText(workspace, file))
-      );
-      const job: Job = {
-        draftId,
-        revision: n,
-        source: fresh ? {} : source,
-        spec: {
-          music:
-            spec.music || scores.some((text) => text !== null) ? "yes" : null,
-          tests: tests.tests,
-          title: spec.title,
-        },
-      };
-      const design = await readText(workspace, DESIGN);
-      const verdict = await checkBuild(workspace, { job });
-      // The check leaves only the game's source in the workspace; the agent's own files go back.
-      const notes = Object.fromEntries(
-        [
-          [TESTS, tests.text],
-          [DESIGN, design],
-        ].filter((note): note is [string, string] => note[1] !== null)
-      );
-      await Promise.all([
-        ...Object.entries(notes).map(([file, text]) =>
-          workspace.write(`${WORKSPACE}/${file}`, text)
-        ),
-        writeAsked(workspace, asked()),
-      ]);
+      const verdict = await checkBuild(workspace, {
+        music: spec.music,
+        tests: tests.tests,
+      });
+      await writeAsked(workspace, asked());
       // A pass of the old game must not become n+1.
       if (restarted()) {
         throw new Error(toolResult("restarted"));
@@ -215,28 +203,16 @@ export const publishTool = (
           })
         );
       }
-      // <n+1>/: the carried-over files of <n>/, then the changed ones and the agent's notes, without the deleted ones.
-      // index.html goes last, so an eviction mid-write leaves a Revision currentRevision skips, and the next build
-      // starts <n+1>/ over.
-      const files: Record<string, string> = { ...verdict.files, ...notes };
-      const current = revisionFiles(draftId, n);
+      // <n+1>/ is the whole Revision: nothing carries over from <n>/. index.html goes last, so an eviction mid-write
+      // leaves a Revision currentRevision skips, and the next build starts <n+1>/ over.
+      const { files } = verdict;
       const next = revisionFiles(draftId, n + 1);
-      const carried = (fresh ? [] : names).filter(
-        (name) => !(name in files) && !verdict.deleted.includes(name)
-      );
-      const put = async (name: string) => {
-        const text = files[name];
-        if (text !== undefined) {
-          await env.FILES.put(`${next}${name}`, text);
-          return;
-        }
-        const object = await read(env.FILES, `${current}${name}`);
-        await env.FILES.put(`${next}${name}`, await object.arrayBuffer());
-      };
+      const put = (name: string) =>
+        env.FILES.put(`${next}${name}`, files[name]);
       try {
         await removeFiles(env.FILES, next);
         await Promise.all(
-          [...carried, ...Object.keys(files)]
+          Object.keys(files)
             .filter((name) => name !== INDEX)
             .map(put)
         );

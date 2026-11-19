@@ -17,6 +17,7 @@ export const fail = (
   code?: HttpError["code"]
 ) => new HttpError({ code, message, status });
 
-// 'self' is the served scaffolds (/runtime/vN.js, /dom/vN.js) and a game's own files.
+// 'self' is the served scaffolds (/runtime/vN.js, /dom/vN.js) and a game's own files: its stylesheet, images and fonts,
+// and the music the scaffold fetches. Nothing off the Worker's origin.
 export const GAME_CSP =
-  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src 'self' data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts";
+  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts";
