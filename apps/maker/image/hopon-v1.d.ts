@@ -10,6 +10,14 @@ interface Hopon {
   // The start screen's lines: the title defaults to the page's <title>.
   title: string;
   hint: string;
+  // The over screen's words, English by default: a game in another language sets them.
+  text: {
+    win: string;
+    over: string;
+    score: string;
+    best: string;
+    again: string;
+  };
   // What the game's tests read, set by the game.
   testVars: Record<string, unknown>;
   loaded: boolean;

@@ -19,6 +19,7 @@ The decisions behind P5 of `maker-single-agent-vite.md`, in order. Each names wh
 ## The scaffold, before it froze
 
 - **The start tap's release reached the game.** The overlay hides on `pointerdown`, so the `pointerup`, `touchend` and `click` after it landed on the game. An r3f game that steered on `pointerup` changed lane when the round started (measured by the r3f author). The overlay now swallows each of them once, and the next press ends the swallowing for a browser that didn't send one. Case: "the tap that starts a round is the scaffold's", red on the P4b image (`ups` 1 and `clicks` 1 after the start tap) and green on the head's (measured).
+- **The over screen's words are the game's to set.** The Spanish live lane's game set its title and hint in Spanish, but the scaffold's "Game over", "Score", "Best" and "Tap to play again" were fixed English, as the LittleJS scaffold's are. Freezing that would fix English on every non-English Game for good. `hopon.text` holds the five words, English by default, and make-game's Language line says to set them. A quiz with `hopon.text` in Spanish shows "Fin del juego", "Puntos", "Récord" and "Toca para jugar otra vez" (measured, screenshot `head-out/live-quiz-es-end.png` in the scratchpad).
 - **The overlay has a soft vignette and a text shadow.** The start and end screenshots are what the judge sees first and last.
 - **Rejected: a `hopon.round` counter, a pause attribute on `<html>`, and an over-screen line.** Each would save a game a few lines; the skills' examples work without them. Not worth a frozen API without a measured need.
 - **Frozen.** `HOPON_V1_SHA256` in `runtime.ts`; `build:runtime` refuses a change; the Worker serves it `immutable` and its test checks the sha256.
@@ -37,4 +38,19 @@ The decisions behind P5 of `maker-single-agent-vite.md`, in order. Each names wh
 
 ## Verify
 
-See the PR. The trunk and head sweep commands are in the report to the operator.
+- `pnpm check` green. `HOPON_BOX_IMAGE=<image from the head> pnpm -F maker test`: every docker case ran, none skipped, all passed (arm64, local Docker).
+- Mutations: the start-tap, frame and throw cases are red on the P4b image (`hopon-box:p5-base`, built from main) and green on the head's. The port cases fail on main's verify.js, which passes a `game.ts`.
+
+### Live lanes
+
+Driver `scratchpad/p5/live/drive.mjs` (the P2 driver, reading `source.tgz` and the page's files as bytes). Head Preview `claude-p5-engines`, deployed from `3816858`, a new Preview whose box app was created with this image (so no box ran an older one; inferred). Trunk Preview `claude-p5-trunk`. Five Drafts in all. Each Revision's `source.tgz` was unpacked and played in the head's image with the random script.
+
+| Lane | Request | Engine (from the built module's imports) | Box replay |
+| --- | --- | --- | --- |
+| vague | "make me something fun" | Phaser: Star Catcher | green, score 4 |
+| 3D | "Make a 3D racing game." | r3f: Sunset Racer | green, score 7 |
+| quiz | "Make a quiz about ocean animals." | React only, with a stylesheet | green, ends at over |
+| port | trunk: a LittleJS Star Catcher (`game.ts`, `/runtime/v4.js`); head: "fall a bit faster, and add a golden star worth 5 points" | Phaser, Revision 2, `design.md`, `tests.json` and `music.mjs` kept, the same `music.opus` bytes length | green, score 4 |
+| Spanish | "Haz un juego donde un perro atrapa huesos..." | Phaser, `Language: Spanish.`, Spanish title and hint, `src/sfx.ts` | green |
+
+Every page loads `/hopon/v1.js` with `data-music="music.opus"` and imports only `/vendor/` files. Seen, not fixed here: the 3D game is the r3f skill's example nearly as written (its name, palette and scoring); the port's reply mentions "rebuilt the game's engine under the hood" though make-game says not to mention the port; two replies exceed the 40-word rule, as the trunk's reply did too. Only one of the four new games used `sound-effects`.

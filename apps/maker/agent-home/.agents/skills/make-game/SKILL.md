@@ -72,7 +72,7 @@ Before you write any code, write `design.md`: the complete game design, in Engli
 - **Difficulty:** how it starts, and how and when it ramps up.
 - **Fairness:** the first threat comes after about 2 seconds. Every danger can be seen and avoided. Hit areas for dangers are a bit smaller than they look, and for targets a bit bigger. Targets are finger-sized.
 - **Look:** the setting, characters, palette and mood, and what happens on a hit, a point and the end.
-- **Language:** the language of the on-screen text. When the Creator writes in another language, the on-screen text is in that language.
+- **Language:** the language of the on-screen text. When the Creator writes in another language, the on-screen text is in that language, the scaffold's screens too: set `hopon.title`, `hopon.hint` and every word of `hopon.text` (`win`, `over`, `score`, `best`, `again`) at the top of `src/main.tsx`, for example `hopon.text = { again: "Toca para jugar otra vez", best: "Récord", over: "Fin del juego", score: "Puntos", win: "¡Ganaste!" };`.
 - **Music:** the genre, mood and tempo that fit the game. Write `Music: none` only when the Creator asked for no music or for silence, and quote their words: `Music: none ("no music please")`. For a new game, or a change that drops a game's music, verify checks that the quote is one of the Creator's messages since their last new game, or at least three words of one, word for word.
 - **Done when:** 2 to 5 success criteria, one per line, each something a short playtest can show ("Tapping the left half moves the basket left.", "The game ends after 3 misses.").
 

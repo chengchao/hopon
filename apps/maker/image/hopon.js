@@ -20,6 +20,14 @@
     score: 0,
     state: "start",
     testVars: {},
+    // The over screen's words, which a game in another language replaces.
+    text: {
+      again: "Tap to play again",
+      best: "Best",
+      over: "Game over",
+      score: "Score",
+      win: "You win",
+    },
     title: "",
     won: false,
   };
@@ -45,10 +53,10 @@
       hopon.state === "start"
         ? [[hopon.title || document.title, 32], [hopon.hint]]
         : [
-            [hopon.won ? "You win" : "Game over", 32],
-            [`Score ${hopon.score}`],
-            [`Best ${hopon.best}`, 16],
-            ["Tap to play again"],
+            [hopon.won ? hopon.text.win : hopon.text.over, 32],
+            [`${hopon.text.score} ${hopon.score}`],
+            [`${hopon.text.best} ${hopon.best}`, 16],
+            [hopon.text.again],
           ];
     overlay.replaceChildren(
       ...lines.map(([text, size]) => {
