@@ -87,6 +87,12 @@ const typecheckVite = async () => {
         `tsconfig.json: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`
     );
   }
+  // Vite's template's tsconfig.json holds only "references", which `tsc -p .` doesn't follow without --build.
+  if (parsed.fileNames.length === 0) {
+    return [
+      'tsconfig.json: it includes no files, so nothing is typechecked: give it the compilerOptions and "include": ["src"] in place of "references"',
+    ];
+  }
   const program = ts.createProgram(
     [
       ...parsed.fileNames,
@@ -141,6 +147,9 @@ const ASSET_LOADERS = Object.fromEntries(
     ".mp3",
     ".ogg",
     ".opus",
+    ".wav",
+    ".glb",
+    ".gltf",
     ".woff2",
     ".ttf",
   ].map((extension) => [extension, "file"])
@@ -205,6 +214,7 @@ const emitVite = async () => {
   const { build } = await import("vite");
   const { paths } = vendor();
   const built = await build({
+    assetsInclude: ["**/*.glb", "**/*.gltf"],
     base: "./",
     build: {
       assetsDir: "",
@@ -245,19 +255,27 @@ const emitVite = async () => {
 
 // esbuild's and Vite's errors, or anything else emit threw, as type errors: each with its file and line when it has
 // one.
+const emitError = (item) => {
+  if (item.location) {
+    return `${item.location.file}:${item.location.line}: ${item.text}`;
+  }
+  if (item.loc?.file) {
+    return `${path.relative(process.cwd(), item.loc.file)}:${item.loc.line}: ${item.message}`;
+  }
+  return String(item.text ?? item.message ?? item);
+};
 const emitErrors = (error) =>
-  (error.errors ?? [error]).map((item) => {
-    if (item.location) {
-      return `${item.location.file}:${item.location.line}: ${item.text}`;
-    }
-    if (item.loc?.file) {
-      return `${path.relative(process.cwd(), item.loc.file)}:${item.loc.line}: ${item.message}`;
-    }
-    return stripVTControlCharacters(String(item.text ?? item.message ?? item));
-  });
+  (error.errors ?? [error]).map((item) =>
+    stripVTControlCharacters(emitError(item))
+  );
 
-// What the page loads, by path: the scaffolds and every file at the top of dist/, all the Worker serves of a Revision.
-// A Vite game's page also loads its scaffold and the vendor files; the others' don't, so one that tries gets a 404.
+// Where the page is served, as the Worker serves a Game's under /games/<id>/ and a Draft's under a longer path: a file
+// the page names by an absolute path, which the Worker doesn't serve, is a 404 here too.
+const GAME_DIR = "/games/0/";
+
+// What the page loads, by path: the scaffolds at the root and every file at the top of dist/ under GAME_DIR, all the
+// Worker serves of a Revision. A Vite game's page also loads its scaffold and the vendor files; the others' don't, so
+// one that tries gets a 404.
 const servedFiles = (vite) => {
   const files = {
     [DOM_SRC]: readFileSync(path.join(here, "dom.js")),
@@ -271,10 +289,11 @@ const servedFiles = (vite) => {
   }
   for (const entry of readdirSync(DIST, { withFileTypes: true })) {
     if (entry.isFile()) {
-      files[`/${entry.name}`] = readFileSync(path.join(DIST, entry.name));
+      files[`${GAME_DIR}${entry.name}`] = readFileSync(
+        path.join(DIST, entry.name)
+      );
     }
   }
-  files["/"] = files["/index.html"];
   return files;
 };
 
@@ -282,6 +301,8 @@ const servedFiles = (vite) => {
 const CONTENT_TYPES = {
   css: "text/css",
   gif: "image/gif",
+  glb: "model/gltf-binary",
+  gltf: "model/gltf+json",
   html: "text/html",
   jpeg: "image/jpeg",
   jpg: "image/jpeg",
@@ -292,13 +313,13 @@ const CONTENT_TYPES = {
   png: "image/png",
   svg: "image/svg+xml",
   ttf: "font/ttf",
+  wasm: "application/wasm",
+  wav: "audio/wav",
   webp: "image/webp",
   woff2: "font/woff2",
 };
 const contentType = (pathname) =>
-  pathname === "/"
-    ? "text/html"
-    : (CONTENT_TYPES[pathname.split(".").pop()] ?? "application/octet-stream");
+  CONTENT_TYPES[pathname.split(".").pop()] ?? "application/octet-stream";
 
 // Park–Miller: the same "random" script on every game and every run.
 const seeded = (seed) => {
@@ -434,6 +455,11 @@ const fakeTime = ({ seed, frameMs }) => {
   globalThis.setInterval = schedule(true);
   globalThis.clearTimeout = (id) => timers.delete(id);
   globalThis.clearInterval = (id) => timers.delete(id);
+  // React's scheduler runs its work in a MessageChannel task, which the fake clock doesn't hold, so a state set from a
+  // timer would render on real time. It takes setImmediate first when there is one.
+  globalThis.setImmediate = (fn, ...args) =>
+    globalThis.setTimeout(fn, 0, ...args);
+  globalThis.clearImmediate = globalThis.clearTimeout;
   globalThis.requestAnimationFrame = (fn) => {
     ids += 1;
     frames.set(ids, fn);
@@ -441,7 +467,17 @@ const fakeTime = ({ seed, frameMs }) => {
   };
   globalThis.cancelAnimationFrame = (id) => frames.delete(id);
   globalThis.__hoponWaiting = () => frames.size + timers.size;
-  globalThis.__hoponAdvance = (ms) => {
+  // The microtasks a callback queued run before the next timer or frame, as in a browser: React schedules a render from
+  // one. A few turns of the microtask queue, not a real task, so no real event (a load, a fetch) lands mid-advance; a
+  // real task per callback also made 10 s of a Phaser game's play take a fifth longer.
+  /* oxlint-disable no-await-in-loop, unicorn/consistent-function-scoping -- one callback after another, in game time;
+     fakeTime runs in the page as one function */
+  const settle = async () => {
+    for (let turn = 0; turn < 8; turn += 1) {
+      await Promise.resolve();
+    }
+  };
+  globalThis.__hoponAdvance = async (ms) => {
     const end = now + ms;
     for (;;) {
       const frameAt = (Math.floor(now / frameMs + 1e-9) + 1) * frameMs;
@@ -465,6 +501,7 @@ const fakeTime = ({ seed, frameMs }) => {
         }
         if (typeof timer.fn === "function") {
           timer.fn(...timer.args);
+          await settle();
         }
       } else if (frameAt <= end) {
         now = frameAt;
@@ -472,6 +509,7 @@ const fakeTime = ({ seed, frameMs }) => {
         frames = new Map();
         for (const fn of due.values()) {
           fn(now);
+          await settle();
         }
       } else {
         now = end;
@@ -479,6 +517,7 @@ const fakeTime = ({ seed, frameMs }) => {
       }
     }
   };
+  /* oxlint-enable no-await-in-loop, unicorn/consistent-function-scoping */
 };
 
 // How long a page has to load, in real time.
@@ -511,7 +550,7 @@ const openTestGame = async ({ browser, files, vite }, errors) => {
       },
     });
   });
-  await page.goto(`${ORIGIN}/`);
+  await page.goto(`${ORIGIN}${GAME_DIR}index.html`);
   // oxlint-disable-next-line no-undef -- fakeTime's global
   const advance = (ms) => page.evaluate((n) => __hoponAdvance(n), ms);
   // Loading waits on real events (scripts, images), polled from here since the page's own timers are the fake ones.
@@ -622,6 +661,11 @@ export const runTests = async ({ tests = [] } = {}) => {
       failures.push(
         ...notReady.map((error) => `test "${test.name}": ${error}`)
       );
+      // Each later test's page would wait out LOAD_MS again.
+      if (notReady.length > 0) {
+        await page.context().close();
+        break;
+      }
       let prev = await page.evaluate(testState);
       // Inputs before checks at the same time; game time `t` moves only forward.
       const events = [
