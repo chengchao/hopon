@@ -1,5 +1,5 @@
-// Run in the box by src/check.test.ts: `node load.mjs <dist> <vendor dir> <csp> [--no-cors]`. Serves a built Vite game
-// over HTTP as the Worker would (its files, /hopon/v1.js and the /vendor/ files, under the CSP, with
+// Run in the box by src/check.test.ts: `node load.mjs <dist> <csp> [--no-cors]`. Serves a built Vite game over HTTP as
+// the Worker would (its files, /hopon/v1.js and the image's copies of the /vendor/ files, under the CSP, with
 // Access-Control-Allow-Origin unless --no-cors), loads it in Chromium, taps the start screen, and prints what it saw as
 // JSON. A real server, not Playwright's routing, which skips the CORS check on a module script.
 import { once } from "node:events";
@@ -7,11 +7,11 @@ import { readdirSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { gzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 
 import { chromium } from "playwright-core";
 
-const [dist, vendor, csp, flag] = process.argv.slice(2);
+const [dist, csp, flag] = process.argv.slice(2);
 const LOAD_MS = 15_000;
 const PLAY_MS = 500;
 
@@ -27,15 +27,15 @@ const files = new Map([
   ...own,
   ["/", own.get("/index.html")],
   ["/hopon/v1.js", readFileSync("/opt/hopon/hopon.js")],
-  ...readdirSync(vendor).map((file) => [
-    `/vendor/${file}`,
-    readFileSync(path.join(vendor, file)),
-  ]),
+  ...Object.entries(
+    JSON.parse(readFileSync("/opt/hopon/vendor.json", "utf-8")).files
+  ).map(([route, gzip]) => [route, gunzipSync(Buffer.from(gzip, "base64"))]),
 ]);
 const TYPES = {
   ".css": "text/css",
   ".html": "text/html",
   ".js": "text/javascript",
+  ".opus": "audio/ogg",
 };
 
 const requested = [];
@@ -93,10 +93,10 @@ console.log(
     before,
     errors,
     loaded,
-    ownGzipBytes: [...own.values()].reduce(
-      (sum, bytes) => sum + gzipSync(bytes).length,
-      0
-    ),
+    // The game's own code and page: what it ships besides the vendor files and its music.
+    ownGzipBytes: [...own]
+      .filter(([file]) => !file.endsWith(".opus"))
+      .reduce((sum, [, bytes]) => sum + gzipSync(bytes).length, 0),
     requested,
   })
 );

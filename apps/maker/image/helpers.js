@@ -1,7 +1,8 @@
-// The box's playtest (#115's strict contract), run with cwd = the Draft's workspace by playtest.js. Typechecks
-// game.ts and the modules it imports against a narrow .d.ts, builds the game into dist/, serves it as the app would (a
-// served runtime under the game CSP), plays a script of taps and swipes in headless Chromium and screenshots the start
-// and the end.
+// The box's playtest (#115's strict contract), run with cwd = the Draft's workspace by playtest.js. Typechecks the
+// game against a narrow .d.ts, builds it into dist/, serves it as the app would (a served scaffold under the game CSP),
+// plays a script of taps and swipes in headless Chromium and screenshots the start and the end. A workspace with a
+// vite.config.ts is a Vite game (ADR 0007): `vite build` with its libraries left as imports of the Worker's /vendor/
+// files. Any other is a LittleJS or plain-DOM game.ts, bundled by esbuild.
 import {
   copyFileSync,
   existsSync,
@@ -12,13 +13,17 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { stripVTControlCharacters } from "node:util";
+import { gunzipSync } from "node:zlib";
 
 import {
   DOM_SRC,
   domHtml,
   GAME_CSP,
+  HOPON_SRC,
   littlejsHtml,
   RUNTIME_SRC,
+  viteHtml,
 } from "./page.ts";
 
 const here = import.meta.dirname;
@@ -38,8 +43,62 @@ const CSS_SETTLE_MS = 300;
 const BROWSER_SERVER = "ws://127.0.0.1:9222/hopon";
 
 export const isDom = () => existsSync("index.html");
+// The one file every Vite project has and no game.ts game does.
+export const isVite = () => existsSync("vite.config.ts");
 
-// Every module game.ts imports is the game's: their type errors count, the image's own .d.ts files' don't.
+// The diagnostics of the game's own files: their type errors count, the image's .d.ts files' and the libraries' don't.
+const ownErrors = (ts, diagnostics) => {
+  const cwd = process.cwd();
+  const own = (file) => {
+    const resolved = path.resolve(file);
+    return resolved.startsWith(`${cwd}/`) && !resolved.startsWith(`${here}/`);
+  };
+  return diagnostics
+    .filter((diagnostic) => diagnostic.file && own(diagnostic.file.fileName))
+    .map((diagnostic) => {
+      const { line } = diagnostic.file.getLineAndCharacterOfPosition(
+        diagnostic.start ?? 0
+      );
+      return `${path.relative(cwd, path.resolve(diagnostic.file.fileName))}:${line + 1}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`;
+    });
+};
+
+// A Vite game is typechecked as `tsc -p .` would, by its own tsconfig.json, with the scaffold's and the assets'
+// declarations from the image; its libraries' types resolve from the image's /node_modules.
+const typecheckVite = async () => {
+  const { default: ts } = await import("typescript");
+  if (!existsSync("tsconfig.json")) {
+    return ["tsconfig.json is missing"];
+  }
+  const configErrors = [];
+  const parsed = ts.getParsedCommandLineOfConfigFile(
+    "tsconfig.json",
+    { noEmit: true },
+    {
+      ...ts.sys,
+      onUnRecoverableConfigFileDiagnostic: (diagnostic) =>
+        configErrors.push(diagnostic),
+    }
+  );
+  const errors = [...configErrors, ...(parsed?.errors ?? [])];
+  if (!parsed || errors.length > 0) {
+    return errors.map(
+      (diagnostic) =>
+        `tsconfig.json: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`
+    );
+  }
+  const program = ts.createProgram(
+    [
+      ...parsed.fileNames,
+      path.join(here, "hopon-v1.d.ts"),
+      path.join(here, "assets.d.ts"),
+    ],
+    parsed.options
+  );
+  return ownErrors(ts, ts.getPreEmitDiagnostics(program));
+};
+
+// Every module game.ts imports is the game's.
 const typecheck = async () => {
   const { default: ts } = await import("typescript");
   const program = ts.createProgram(
@@ -61,20 +120,7 @@ const typecheck = async () => {
       types: [],
     }
   );
-  const cwd = process.cwd();
-  const own = (file) => {
-    const resolved = path.resolve(file);
-    return resolved.startsWith(`${cwd}/`) && !resolved.startsWith(`${here}/`);
-  };
-  return ts
-    .getPreEmitDiagnostics(program)
-    .filter((diagnostic) => diagnostic.file && own(diagnostic.file.fileName))
-    .map((diagnostic) => {
-      const { line } = diagnostic.file.getLineAndCharacterOfPosition(
-        diagnostic.start ?? 0
-      );
-      return `${path.relative(cwd, path.resolve(diagnostic.file.fileName))}:${line + 1}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`;
-    });
+  return ownErrors(ts, ts.getPreEmitDiagnostics(program));
 };
 
 // The built game: game.ts and every module, stylesheet and asset it imports, bundled by esbuild into dist/ with the
@@ -137,22 +183,96 @@ const emit = async () => {
   );
 };
 
-// esbuild's errors, or anything else emit threw, as type errors: each with its file and line when it has one.
-const emitErrors = (error) =>
-  (error.errors ?? [error]).map((item) =>
-    item.location
-      ? `${item.location.file}:${item.location.line}: ${item.text}`
-      : String(item.text ?? item.message ?? item)
-  );
+// The Worker's vendor files (image/vendor.json, which src/runtime.ts writes from the Worker's own copies): each route's
+// gzip, and the specifiers a game's build maps to them.
+const vendor = () =>
+  JSON.parse(readFileSync(path.join(here, "vendor.json"), "utf-8"));
+// The package a bare specifier names: `react/jsx-runtime` is react's.
+const packageOf = (specifier) =>
+  specifier
+    .split("/")
+    .slice(0, specifier.startsWith("@") ? 2 : 1)
+    .join("/");
+// three's addons import three by name, so they build into the game and use the shared three.
+const ADDONS = "/node_modules/three/examples/";
 
-// What the page loads, by path: the scaffolds and every built file.
-const servedFiles = () => {
+// A Vite game: `vite build` with the game's vite.config.ts under the harness's settings, which win. Each vendored
+// library stays an import of its /vendor/ URL, and the page and its files land flat in dist/, as the Worker serves a
+// game's files by name. A library's code built into the game anyway (a deep import such as react/jsx-dev-runtime)
+// would be a second copy beside the shared one, so it fails. The music goes next to the page, named on the scaffold's
+// tag as in the other pages.
+const emitVite = async () => {
+  const { build } = await import("vite");
+  const { paths } = vendor();
+  const built = await build({
+    base: "./",
+    build: {
+      assetsDir: "",
+      emptyOutDir: true,
+      outDir: DIST,
+      rolldownOptions: { external: Object.keys(paths), output: { paths } },
+    },
+    logLevel: "silent",
+    root: process.cwd(),
+  });
+  const vendored = Object.keys(paths).map(packageOf);
+  const bundled = new Set(
+    [built]
+      .flat()
+      .flatMap((result) => result.output)
+      .flatMap((file) => (file.type === "chunk" ? file.moduleIds : []))
+      .filter((id) => !id.includes(ADDONS))
+      .flatMap((id) =>
+        vendored.filter((pkg) => id.includes(`/node_modules/${pkg}/`))
+      )
+  );
+  if (bundled.size > 0) {
+    throw new Error(
+      `${[...bundled].join(", ")} built into the game: import only ${Object.keys(
+        paths
+      )
+        .filter((specifier) => bundled.has(packageOf(specifier)))
+        .join(", ")}, which load the shared /vendor/ files`
+    );
+  }
+  const music = existsSync(MUSIC_FILE) ? MUSIC_FILE : undefined;
+  if (music) {
+    copyFileSync(MUSIC_FILE, path.join(DIST, MUSIC_FILE));
+  }
+  const page = path.join(DIST, "index.html");
+  writeFileSync(page, viteHtml(readFileSync(page, "utf-8"), { music }));
+};
+
+// esbuild's and Vite's errors, or anything else emit threw, as type errors: each with its file and line when it has
+// one.
+const emitErrors = (error) =>
+  (error.errors ?? [error]).map((item) => {
+    if (item.location) {
+      return `${item.location.file}:${item.location.line}: ${item.text}`;
+    }
+    if (item.loc?.file) {
+      return `${path.relative(process.cwd(), item.loc.file)}:${item.loc.line}: ${item.message}`;
+    }
+    return stripVTControlCharacters(String(item.text ?? item.message ?? item));
+  });
+
+// What the page loads, by path: the scaffolds and every file at the top of dist/, all the Worker serves of a Revision.
+// A Vite game's page also loads its scaffold and the vendor files; the others' don't, so one that tries gets a 404.
+const servedFiles = (vite) => {
   const files = {
     [DOM_SRC]: readFileSync(path.join(here, "dom.js")),
     [RUNTIME_SRC]: readFileSync(path.join(here, "runtime.js")),
   };
-  for (const name of readdirSync(DIST)) {
-    files[`/${name}`] = readFileSync(path.join(DIST, name));
+  if (vite) {
+    files[HOPON_SRC] = readFileSync(path.join(here, "hopon.js"));
+    for (const [route, gzip] of Object.entries(vendor().files)) {
+      files[route] = gunzipSync(Buffer.from(gzip, "base64"));
+    }
+  }
+  for (const entry of readdirSync(DIST, { withFileTypes: true })) {
+    if (entry.isFile()) {
+      files[`/${entry.name}`] = readFileSync(path.join(DIST, entry.name));
+    }
   }
   files["/"] = files["/index.html"];
   return files;
@@ -227,22 +347,28 @@ const pageState = () => {
   /* oxlint-enable no-undef */
 };
 
-// Typechecks and emits game.js, then opens the browser: the type errors, or the browser and the served files, with
-// the real ms each took.
+// Typechecks and builds the game into dist/, then opens the browser: the type errors, or the browser and the served
+// files, with the real ms each took.
 const prepare = async () => {
   const began = Date.now();
-  const typeErrors = existsSync("game.ts") ? await typecheck() : ["no game.ts"];
+  const vite = isVite();
+  let typeErrors = ["no game.ts"];
+  if (vite) {
+    typeErrors = await typecheckVite();
+  } else if (existsSync("game.ts")) {
+    typeErrors = await typecheck();
+  }
   if (typeErrors.length > 0) {
     return { typeErrors: typeErrors.slice(0, 10) };
   }
   const checked = Date.now();
   try {
-    await emit();
+    await (vite ? emitVite() : emit());
   } catch (error) {
     return { typeErrors: emitErrors(error).slice(0, 10) };
   }
   const emitted = Date.now();
-  const files = servedFiles();
+  const files = servedFiles(vite);
   // The box installs Chromium next to this file, and a command may not get the image's ENV.
   if (existsSync(path.join(here, "browsers"))) {
     process.env.PLAYWRIGHT_BROWSERS_PATH ??= path.join(here, "browsers");
@@ -259,6 +385,7 @@ const prepare = async () => {
       emitMs: emitted - checked,
       typecheckMs: checked - began,
     },
+    vite,
   };
 };
 
@@ -354,7 +481,11 @@ const fakeTime = ({ seed, frameMs }) => {
   };
 };
 
-const openTestGame = async (browser, files, errors) => {
+// How long a page has to load, in real time.
+const LOAD_MS = 10_000;
+const NOT_READY = `the game didn't call hopon.ready() within ${LOAD_MS / 1000} s of loading`;
+
+const openTestGame = async ({ browser, files, vite }, errors) => {
   const context = await browser.newContext({ viewport: VIEWPORT });
   await context.addInitScript(fakeTime, { frameMs: FRAME_MS, seed: TEST_SEED });
   const page = await context.newPage();
@@ -381,23 +512,42 @@ const openTestGame = async (browser, files, errors) => {
     });
   });
   await page.goto(`${ORIGIN}/`);
-  // Loading waits on real events (scripts, images), with the game's time still at 0, until the game has asked for
-  // its first frame or timer: a LittleJS game once its engine has started.
-  // Polled from here: the page's own timers are the fake ones.
-  const loadedBy = Date.now() + 10_000;
-  /* oxlint-disable no-await-in-loop, no-undef -- one poll after another; fakeTime's global */
-  while (
-    (await page.evaluate(() => __hoponWaiting())) === 0 &&
-    Date.now() < loadedBy
-  ) {
-    await sleep(20);
-  }
-  /* oxlint-enable no-await-in-loop, no-undef */
   // oxlint-disable-next-line no-undef -- fakeTime's global
   const advance = (ms) => page.evaluate((n) => __hoponAdvance(n), ms);
+  // Loading waits on real events (scripts, images), polled from here since the page's own timers are the fake ones.
+  // A game.ts game's time stays at 0 until it has asked for its first frame or timer: a LittleJS game once its engine
+  // has started. A Vite game's scaffold asks for frames at once, and an engine may wait on frames or timers before it
+  // draws (r3f measures its canvas on one), so its time moves a frame per poll until it calls hopon.ready().
+  const loadedBy = Date.now() + LOAD_MS;
+  let ready = !vite;
+  /* oxlint-disable no-await-in-loop, no-undef -- one poll after another; the page's globals */
+  while (Date.now() < loadedBy) {
+    if (vite) {
+      ready = await page.evaluate(() => globalThis.hopon?.loaded === true);
+      if (ready) {
+        break;
+      }
+      await advance(FRAME_MS);
+    } else if ((await page.evaluate(() => __hoponWaiting())) > 0) {
+      break;
+    }
+    await sleep(vite ? 10 : 20);
+  }
+  /* oxlint-enable no-await-in-loop, no-undef */
   await advance(500);
-  // Each input takes the game time it plays over: a tap holds for two frames, a swipe moves over six.
+  // Each input takes the game time it plays over: a tap holds for two frames, a swipe moves over six. A pause or a
+  // resume is the feed's message, which takes none.
   const input = async (step) => {
+    if (step.type === "pause" || step.type === "resume") {
+      await page.evaluate(
+        (type) =>
+          dispatchEvent(
+            new MessageEvent("message", { data: JSON.stringify({ type }) })
+          ),
+        step.type
+      );
+      return 0;
+    }
     await page.mouse.move(step.x, step.y);
     await page.mouse.down();
     if (step.type === "swipe") {
@@ -419,19 +569,25 @@ const openTestGame = async (browser, files, errors) => {
   };
   await input({ type: "tap", ...START });
   await advance(500);
-  return { advance, input, page };
+  return { advance, input, notReady: ready ? [] : [NOT_READY], page };
 };
 
-// What a test's checks read: the game's top-level `testVars`, and the scaffold's score and state.
-const testState = () =>
+// What a test's checks read: the game's top-level `testVars` (a Vite game's hopon.testVars, since a module's
+// top-level isn't global), and the scaffold's score and state.
+const testState = () => {
   /* oxlint-disable no-undef -- the game's and the runtime's globals */
-  ({
-    score: typeof hopon === "object" ? hopon.score : undefined,
-    state: typeof hopon === "object" ? hopon.state : undefined,
-    vars:
-      typeof testVars === "object" && testVars !== null ? { ...testVars } : {},
-  });
-/* oxlint-enable no-undef */
+  const scaffold = typeof hopon === "object" ? hopon : undefined;
+  const vars =
+    typeof testVars === "object" && testVars !== null
+      ? testVars
+      : scaffold?.testVars;
+  return {
+    score: scaffold?.score,
+    state: scaffold?.state,
+    vars: { ...vars },
+  };
+  /* oxlint-enable no-undef */
+};
 
 const describe = ({ vars, score, state }) =>
   `vars ${JSON.stringify(vars)}, score ${score}, state ${state}`;
@@ -450,7 +606,7 @@ export const runTests = async ({ tests = [] } = {}) => {
       typeErrors: prepared.typeErrors,
     };
   }
-  const { browser, files } = prepared;
+  const { browser } = prepared;
   const failures = [];
   const testErrors = [];
   const timings = [];
@@ -459,10 +615,12 @@ export const runTests = async ({ tests = [] } = {}) => {
     for (const test of tests) {
       const errors = [];
       const wall = Date.now();
-      const { advance, input, page } = await openTestGame(
-        browser,
-        files,
+      const { advance, input, notReady, page } = await openTestGame(
+        prepared,
         errors
+      );
+      failures.push(
+        ...notReady.map((error) => `test "${test.name}": ${error}`)
       );
       let prev = await page.evaluate(testState);
       // Inputs before checks at the same time; game time `t` moves only forward.
@@ -537,11 +695,15 @@ export const playtest = async ({ inputs = [], ms } = {}) => {
   if (prepared.typeErrors) {
     return { errors: [], ok: false, typeErrors: prepared.typeErrors };
   }
-  const { browser, files } = prepared;
+  const { browser } = prepared;
   const errors = [];
   try {
     const began = Date.now();
-    const { advance, input, page } = await openTestGame(browser, files, errors);
+    const { advance, input, notReady, page } = await openTestGame(
+      prepared,
+      errors
+    );
+    errors.push(...notReady);
     const loaded = Date.now();
     await sleep(CSS_SETTLE_MS);
     const start = await page.screenshot({ path: "playtest-start.png" });

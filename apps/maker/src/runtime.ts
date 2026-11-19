@@ -2,9 +2,10 @@
 // image/littlejs.d.ts: the engine's declarations narrowed to what that build defines, as globals, plus hopon's.
 // The same bytes go to the Worker, which serves them as /runtime/v4.js, so the box's playtest runs what the phone runs.
 // It also copies the plain-DOM scaffold (image/dom.js) to the Worker as is, served as /dom/v4.js, and the Vite games'
-// scaffold (image/hopon.js), served as /hopon/v1.js. The versions before them stay frozen in their JSON for the Games
-// that load them (FROZEN). /hopon/v1.js freezes when the first Game uses it (P5); until then no page the box's playtest
-// passes can load it.
+// scaffold (image/hopon.js), served as /hopon/v1.js, and writes image/vendor.json, the box's copy of the Worker's vendor
+// files. The versions before them stay frozen in their JSON for the Games that load them (FROZEN). /hopon/v1.js freezes
+// when the first Game uses it (P5); until then only a Vite game's page, which the agent doesn't write before P5, loads
+// it.
 // `pnpm -F maker build:runtime` rebuilds; runtime.test.ts fails when the Worker's copy is stale.
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -13,6 +14,12 @@ import path from "node:path";
 import { gzipSync } from "node:zlib";
 
 import { transform } from "esbuild";
+
+import {
+  FROZEN as VENDOR_FROZEN,
+  servedPath,
+  vendorPaths,
+} from "../vendor/build.ts";
 
 const image = path.join(import.meta.dirname, "..", "image");
 const engine = path.join(
@@ -47,6 +54,9 @@ const served = (file: string) =>
 export const SERVED_PATH = served("v4.json");
 export const DOM_SERVED_PATH = served("dom-v4.json");
 export const HOPON_SERVED_PATH = served("hopon-v1.json");
+// The box's copy of the vendor files: the gzip the Worker serves, by route, and the specifiers a Vite game's build maps
+// to them, so the playtest loads the bytes the phone loads.
+export const VENDOR_IMAGE_PATH = path.join(image, "vendor.json");
 
 // One top-level declaration of the engine's d.ts: its JSDoc plus the declaration, which ends where the next one starts.
 const DECLARATION =
@@ -172,6 +182,18 @@ export const buildRuntime = async () => {
   writeFileSync(SERVED_PATH, `${JSON.stringify(code)}\n`);
   writeFileSync(DOM_SERVED_PATH, `${JSON.stringify(dom)}\n`);
   writeFileSync(HOPON_SERVED_PATH, `${JSON.stringify(vite)}\n`);
+  writeFileSync(
+    VENDOR_IMAGE_PATH,
+    JSON.stringify({
+      files: Object.fromEntries(
+        VENDOR_FROZEN.map(({ route }) => [
+          route,
+          JSON.parse(readFileSync(servedPath(route), "utf-8")),
+        ])
+      ),
+      paths: vendorPaths(),
+    })
+  );
   writeFileSync(
     DTS_PATH,
     `${narrowDeclarations(source)}\n${readFileSync(path.join(image, "hopon.d.ts"), "utf-8")}`

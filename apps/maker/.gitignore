@@ -2,3 +2,4 @@ out/
 .env
 image/runtime.js
 image/littlejs.d.ts
+image/vendor.json

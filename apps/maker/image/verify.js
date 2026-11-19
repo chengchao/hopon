@@ -110,7 +110,8 @@ if (tests === null) {
   }
 }
 
-if (!existsSync("game.ts")) {
+// A Vite game (ADR 0007) is its vite.config.ts and the modules its index.html loads, with no game.ts.
+if (!existsSync("game.ts") && !existsSync("vite.config.ts")) {
   failures.push("game.ts is missing.");
 }
 

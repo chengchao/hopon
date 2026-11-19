@@ -4,6 +4,8 @@
 // The served scaffolds, at the same paths in the box's playtest and the Worker (apps/maker/src/runtime.ts copies them).
 export const RUNTIME_SRC = "/runtime/v4.js";
 export const DOM_SRC = "/dom/v4.js";
+// The Vite games' scaffold (hopon.js). Its page is the one `vite build` writes from the game's own index.html.
+export const HOPON_SRC = "/hopon/v1.js";
 // The served-runtime CSP: scripts, styles, images, fonts, media and fetches from the game's own origin only. The box's
 // playtest serves a game under it (helpers.js), and check.test.ts loads the Vite fixtures under it.
 export const GAME_CSP =
@@ -12,7 +14,7 @@ export const GAME_CSP =
 const MUSIC_SCRIPT = `<script src="music.js"></script>`;
 
 // The built game's own files the page loads besides game.js: its Opus loop, which the scaffold fetches from its
-// script's data-music, and the stylesheet esbuild makes of the CSS game.ts imports.
+// script's data-music, and the stylesheet esbuild makes of the CSS game.ts imports (a Vite build links its own).
 export interface PageFiles {
   music?: string;
   css?: string;
@@ -46,3 +48,10 @@ export const domHtml = (html: string, files: PageFiles = {}) => {
     ? page.replace("</head>", `${css}</head>`)
     : `${css}${page}`;
 };
+
+// A Vite game's built index.html with its scaffold tag naming its music exactly when it has some.
+export const viteHtml = (html: string, files: PageFiles = {}) =>
+  html.replace(
+    /<script src="\/hopon\/v1\.js"[^>]*><\/script>/u,
+    scaffoldTag(HOPON_SRC, files)
+  );

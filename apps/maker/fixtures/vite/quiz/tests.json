@@ -1,0 +1,13 @@
+{
+  "expose": [{ "means": "the question on screen", "name": "question" }],
+  "tests": [
+    {
+      "checks": [
+        { "at": 200, "expect": "vars.question === '2 + 2' && score === 0" },
+        { "at": 600, "expect": "vars.question === '3 × 3' && score === 1" }
+      ],
+      "inputs": [{ "at": 300, "type": "tap", "x": 180, "y": 370 }],
+      "name": "the right answer scores and moves on"
+    }
+  ]
+}

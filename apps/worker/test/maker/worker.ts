@@ -8,7 +8,7 @@
 //   question "advisor fails", or an empty answer cut at max_tokens for "advisor silent", and isn't counted in `calls`.
 // - The sandbox: files in the Maker's own storage (so they outlive a restart, as a running box does), every command
 //   logged and answered by fakeExec: the playtest green unless game.ts says BROKEN, the check's tests red on that,
-//   building dist/; music.mjs rendering a fixed track; tar packing the workspace's source into source.tgz as JSON (its
+//   building dist/ (as `vite build` would in a workspace with a vite.config.ts); music.mjs rendering a fixed track; tar packing the workspace's source into source.tgz as JSON (its
 //   files' text by name) and unpacking it; `stat` and `find` giving sizes; `rm -f <files>` deleting them; the rest a no-op. As the platform's, a stopped box
 //   refuses every command and file, and one started again is empty.
 // /__maker/<draftId>/fake/<what> (MAKER_DEV's route) reaches the Draft's Maker: `log` returns the box's commands, and
@@ -74,6 +74,22 @@ const ADVISE = {
   input: { question: "Should the level data live apart from the physics?" },
   tool: "ask_advisor",
 };
+// A Vite game's workspace (ADR 0007), as P5's agent will write it.
+const writeFile = (path: string, content: string) => ({
+  input: { content, path },
+  tool: "write",
+});
+const VITE_GAME = [
+  writeFile("vite.config.ts", "export default {};\n"),
+  writeFile(
+    "index.html",
+    '<script src="/hopon/v1.js"></script><script type="module" src="/src/main.tsx"></script>\n'
+  ),
+  writeFile("src/main.tsx", "hopon.ready();\n"),
+  writeFile("design.md", DESIGN),
+  writeFile("tests.json", TESTS),
+  writeFile("music.mjs", "// a track"),
+];
 const SCRIPTS: Record<string, readonly Step[]> = {
   // Writes the game, then asks the advisor.
   advised: [write(), ADVISE],
@@ -151,6 +167,8 @@ const SCRIPTS: Record<string, readonly Step[]> = {
   slow: [edit("speed = 3"), play, { ...build("change"), sleep: 2000 }],
   // Builds two new games in one run, then reads what the Creator has said.
   twice: [write(), build("new"), build("new"), READ_ASKED],
+  // A Vite game with music, played and built new.
+  vite: [...VITE_GAME, play, build("new", true)],
   // Changes the game, then builds once released.
   wait: [edit("speed = 3"), play, { ...build("change"), hold: true }],
   // Writes a new game, then builds it once released.
@@ -496,6 +514,32 @@ export class Maker extends RealMaker {
         .map((p) => `${size(p)} ${p.slice("/workspace/dist/".length)}\0`)
         .join("");
     };
+    // The playtest's dist/: a Vite game's page and its one module, or game.ts's page and game.js, and the music.
+    const buildDist = (game: string) => {
+      const opus = kv.get<Uint8Array>(key("/workspace/music.opus"));
+      const music = opus ? ' data-music="music.opus"' : "";
+      if (opus) {
+        put("/workspace/dist/music.opus", opus);
+      }
+      if (kv.get(key("/workspace/vite.config.ts")) !== undefined) {
+        put("/workspace/dist/index-B1x2.js", encode("hopon.ready();"));
+        put(
+          "/workspace/dist/index.html",
+          encode(
+            `<script src="/hopon/v1.js"${music}></script><script type="module" crossorigin src="./index-B1x2.js"></script>`
+          )
+        );
+        return;
+      }
+      put(
+        "/workspace/dist/game.js",
+        encode(game.includes("speed = 3") ? "// built 3" : "// built")
+      );
+      put(
+        "/workspace/dist/index.html",
+        encode(`<script src="/runtime/v4.js"${music}></script>`)
+      );
+    };
     const fakeExec = (command: string): Exec => {
       const listed = sizes(command);
       if (listed !== null) {
@@ -514,20 +558,7 @@ export class Maker extends RealMaker {
         wipe();
       } else if (command.includes("/opt/hopon/playtest.js")) {
         const game = decode(kv.get<Uint8Array>(key("/workspace/game.ts")));
-        put(
-          "/workspace/dist/game.js",
-          encode(game.includes("speed = 3") ? "// built 3" : "// built")
-        );
-        const opus = kv.get<Uint8Array>(key("/workspace/music.opus"));
-        if (opus) {
-          put("/workspace/dist/music.opus", opus);
-        }
-        put(
-          "/workspace/dist/index.html",
-          encode(
-            `<script src="/runtime/v4.js"${opus ? ' data-music="music.opus"' : ""}></script>`
-          )
-        );
+        buildDist(game);
         put("/workspace/playtest-start.png", PNG);
         put("/workspace/playtest-end.png", PNG);
         if (command.includes("/opt/hopon/playtest.js tests ")) {

@@ -62,6 +62,19 @@ test("a complete workspace passes", () => {
   assert.deepEqual(verify(READY), { failures: [], ok: true });
 });
 
+test("a Vite game's workspace passes without a game.ts, and a workspace with neither fails", () => {
+  const vite = {
+    ...READY,
+    "game.ts": undefined,
+    "vite.config.ts": "export default {};\n",
+  };
+  assert.deepEqual(verify(vite), { failures: [], ok: true });
+  assert.deepEqual(verify({ ...READY, "game.ts": undefined }), {
+    failures: ["game.ts is missing."],
+    ok: false,
+  });
+});
+
 test("a missing design fails", () => {
   const { failures, ok } = verify({ ...READY, "design.md": undefined });
   assert.equal(ok, false);
