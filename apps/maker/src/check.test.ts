@@ -476,6 +476,8 @@ test(
       "design.md": "# Fruit\nMusic: a harbour town",
       "game.ts": GAME,
       "levels/one.ts": "export const one = 1;\n",
+      "sfx/hit.wav": "RIFF",
+      "sfx/theme.mid": "MThd",
       "tests.json": '{"expose":[],"tests":[]}',
     };
     await restore(box, files(source));
@@ -497,7 +499,7 @@ test(
     const listed = await bash("find . -type f | sort");
     assert.equal(
       listed.stdout.toString(),
-      "./design.md\n./game.ts\n./levels/one.ts\n./tests.json\n"
+      "./design.md\n./game.ts\n./levels/one.ts\n./sfx/hit.wav\n./sfx/theme.mid\n./tests.json\n"
     );
     const owner = await bash("stat -c %u game.ts");
     assert.equal(owner.stdout.toString().trim(), "1001");
@@ -1035,13 +1037,286 @@ test(
       })
     );
 
-    const silent = await checkBuild(box, noMusic);
+    const tests = fixtureTests("quiz");
+    const began = Date.now();
 
+    const silent = await checkBuild(box, {
+      music: false,
+      tests: {
+        ...tests,
+        tests: [1, 2, 3].flatMap(() =>
+          tests.tests.map((one, n) => ({ ...one, name: `${one.name} ${n}` }))
+        ),
+      },
+    });
+
+    const tookMs = Date.now() - began;
     assert.ok("errors" in silent, JSON.stringify(silent));
-    assert.match(
-      silent.errors.join("\n"),
-      /test "the game runs": the game didn't call hopon\.ready\(\)/u
+    assert.deepEqual(
+      silent.errors.filter((error) => error.includes("hopon.ready()")),
+      [
+        'test "the game runs": the game didn\'t call hopon.ready() within 10 s of loading',
+      ]
     );
+    assert.ok(
+      tookMs < 25_000,
+      `a game that never loads fails once, not once per test: ${tookMs} ms`
+    );
+  }
+);
+
+// A Vite game on the quiz's page, config and tsconfig, with its own src/main.tsx and files.
+const viteGame = (main: string, more: Record<string, string> = {}) => ({
+  ...fixture("quiz"),
+  "src/main.tsx": main,
+  ...more,
+});
+
+// A React game that counts on a timer every 100 ms or on every animation frame: the count it renders is vars.shown,
+// the count itself vars.counted, and vars.behind the most counts the screen was behind at a tick, which a browser
+// renders in between.
+const counter = (start: string, stop: string) =>
+  viteGame(`import { useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
+
+let counted = 0;
+let rendered = 0;
+hopon.testVars.behind = 0;
+const Counter = () => {
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    hopon.ready();
+    const tick = () => {
+      hopon.testVars.behind = Math.max(Number(hopon.testVars.behind), counted - rendered);
+      counted += 1;
+      hopon.testVars.counted = counted;
+      setShown(counted);
+    };
+    ${start}
+    return () => ${stop};
+  }, []);
+  rendered = shown;
+  hopon.testVars.shown = shown;
+  return <p style={{ color: "#fff" }}>{shown}</p>;
+};
+
+const root = document.querySelector("#root");
+if (root) {
+  createRoot(root).render(<Counter />);
+}
+`);
+
+for (const [on, start, stop] of [
+  ["a timer", "const id = setInterval(tick, 100);", "clearInterval(id)"],
+  [
+    "an animation frame",
+    "let id = requestAnimationFrame(function step() { tick(); id = requestAnimationFrame(step); });",
+    "cancelAnimationFrame(id)",
+  ],
+] as const) {
+  test(
+    `a React game's state set on ${on} renders on the tests' fake clock`,
+    { skip, timeout: 300_000 },
+    async () => {
+      await restore(box, files(counter(start, stop)));
+
+      const verdict = await checkBuild(box, {
+        music: false,
+        tests: {
+          expose: [],
+          tests: [
+            {
+              checks: [250, 1000, 1050, 1730, 3000].map((at) => ({
+                at,
+                expect:
+                  "vars.counted > 1 && vars.behind === 0 && vars.shown === vars.counted",
+              })),
+              inputs: [],
+              name: "the count on screen is the count",
+            },
+          ],
+        },
+      });
+
+      assert.ok("files" in verdict, JSON.stringify(verdict));
+    }
+  );
+}
+
+const PUB_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="gold"/></svg>';
+const loadsPub = (src: string) =>
+  viteGame(
+    `const img = new Image();
+img.onload = () => {
+  hopon.testVars.width = img.naturalWidth;
+  hopon.ready();
+};
+img.src = "${src}";
+`,
+    { "public/pub.svg": PUB_SVG }
+  );
+const pubTests: Tests = {
+  expose: [],
+  tests: [
+    {
+      checks: [{ at: 100, expect: "vars.width === 10" }],
+      inputs: [],
+      name: "the picture loads",
+    },
+  ],
+};
+
+test(
+  "a Vite game plays under a path as on the phone: a file by its absolute path fails the check, and by a relative one passes",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(box, files(loadsPub("/pub.svg")));
+
+    const absolute = await checkBuild(box, { music: false, tests: pubTests });
+
+    assert.ok("errors" in absolute, JSON.stringify(absolute));
+    assert.match(
+      absolute.errors.join("\n"),
+      /the game didn.t call hopon\.ready\(\)/u
+    );
+
+    await restore(box, files(loadsPub("./pub.svg")));
+
+    const relative = await checkBuild(box, { music: false, tests: pubTests });
+
+    assert.ok("files" in relative, JSON.stringify(relative));
+    assert.ok("pub.svg" in relative.files);
+  }
+);
+
+test(
+  "a Vite game's own .wav and .glb stay in its source and are served typed, as the Worker serves them",
+  { skip, timeout: 300_000 },
+  async () => {
+    // Over Vite's 4 KB inline limit, so each is a file of its own.
+    const big = "x".repeat(5000);
+    await restore(
+      box,
+      files(
+        viteGame(
+          `import hit from "./sfx/hit.wav";
+import ship from "./ship.glb";
+
+Promise.all(
+  [hit, ship].map(async (url) => (await fetch(url)).headers.get("content-type"))
+).then((types) => {
+  hopon.testVars.types = types.join();
+  hopon.ready();
+});
+`,
+          { "src/sfx/hit.wav": `RIFF${big}`, "src/ship.glb": `glTF${big}` }
+        )
+      )
+    );
+
+    const verdict = await checkBuild(box, {
+      music: false,
+      tests: {
+        expose: [],
+        tests: [
+          {
+            checks: [
+              {
+                at: 100,
+                expect: "vars.types === 'audio/wav,model/gltf-binary'",
+              },
+            ],
+            inputs: [],
+            name: "the sound and the model are served typed",
+          },
+        ],
+      },
+    });
+
+    assert.ok("files" in verdict, JSON.stringify(verdict));
+    assert.ok(
+      Object.keys(verdict.files).some((name) => /^hit-[\w-]+\.wav$/u.test(name))
+    );
+    const source = await unpacked(verdict.files[SOURCE_TAR]);
+    assert.equal(source["src/sfx/hit.wav"], `RIFF${big}`);
+  }
+);
+
+test(
+  "a Vite game whose build writes into a folder of dist/ fails the check, as the Worker serves only its top",
+  { skip, timeout: 300_000 },
+  async () => {
+    const source = fixture("quiz");
+    await restore(
+      box,
+      files({
+        ...source,
+        "src/main.tsx": `import "./style.css";\n${source["src/main.tsx"] ?? ""}`,
+        "src/style.css": "h1 { color: gold; }\n",
+        "vite.config.ts": `import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  build: { rolldownOptions: { output: { assetFileNames: "assets/[name]-[hash][extname]" } } },
+  plugins: [react()],
+});
+`,
+      })
+    );
+
+    const verdict = await checkBuild(box, noMusic);
+
+    assert.ok("errors" in verdict, JSON.stringify(verdict));
+    assert.match(verdict.errors.join("\n"), /status of 404/u);
+  }
+);
+
+test(
+  "a Vite game's build error names its file and line, with no terminal colours",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(
+      box,
+      files(
+        viteGame(
+          'import missing from "./missing.png";\n\nhopon.testVars.src = missing;\nhopon.ready();\n'
+        )
+      )
+    );
+
+    const verdict = await checkBuild(box, noMusic);
+
+    assert.ok("errors" in verdict, JSON.stringify(verdict));
+    const [error = ""] = verdict.errors;
+    assert.match(
+      error,
+      /^src\/main\.tsx:1: .*Could not resolve '\.\/missing\.png'/u
+    );
+    assert.ok(!error.includes("\u001B"), "no terminal colour codes");
+  }
+);
+
+test(
+  "a Vite game whose tsconfig.json typechecks no file fails the check",
+  { skip, timeout: 300_000 },
+  async () => {
+    const source = fixture("quiz");
+    await restore(
+      box,
+      files({
+        ...source,
+        "src/main.tsx": `const wrong: number = "one";\n${source["src/main.tsx"] ?? ""}`,
+        "tsconfig.app.json": source["tsconfig.json"] ?? "",
+        "tsconfig.json":
+          '{ "files": [], "references": [{ "path": "./tsconfig.app.json" }] }\n',
+      })
+    );
+
+    const verdict = await checkBuild(box, noMusic);
+
+    assert.ok("errors" in verdict, JSON.stringify(verdict));
+    assert.match(verdict.errors.join("\n"), /^tsconfig\.json: .*no files/mu);
   }
 );
 

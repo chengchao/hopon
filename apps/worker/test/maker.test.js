@@ -344,7 +344,6 @@ test(
     ]);
     const [indexAt, , index] = await revisionFile(draft, "index.html");
     assert.equal(indexAt, 1);
-    assert.equal(indexAt, 1);
     assert.match(index, /data-music="music\.opus"/u);
     assert.deepEqual(await revisionFile(draft, "music.opus"), [1, 200, OPUS]);
     // The page fetches its music from an opaque origin; text is gzipped by the runtime (workerd), from the Worker's
@@ -843,16 +842,6 @@ test(
   }
 );
 
-// A message the Allowance refuses before any model call.
-const refused = async (route, text) => {
-  const response = await call(route, { text });
-  assert.equal(response.status, 429);
-  const { code } = await response.json();
-  assert.equal(code, "allowance_used");
-};
-
-// The Allowance (ADR 0004) is 200,000 hopon tokens here (test/maker/wrangler.jsonc), and each fake model call reads
-// 1,000 input tokens unless told to spend more, so its calls are 1,000 hopon tokens each.
 test(
   "a Vite game publishes as its source and its flat dist/, and its preview serves the module its page loads",
   { timeout: 120_000 },
@@ -917,6 +906,16 @@ test("vendor under workerd: each /vendor/ file reaches a client that takes gzip 
   }
 });
 
+// A message the Allowance refuses before any model call.
+const refused = async (route, text) => {
+  const response = await call(route, { text });
+  assert.equal(response.status, 429);
+  const { code } = await response.json();
+  assert.equal(code, "allowance_used");
+};
+
+// The Allowance (ADR 0004) is 200,000 hopon tokens here (test/maker/wrangler.jsonc), and each fake model call reads
+// 1,000 input tokens unless told to spend more, so its calls are 1,000 hopon tokens each.
 test("allowance: each model call is charged to its Creator's week; a run's work starts only above zero, and one that starts finishes below it; then the Maker refuses until the week resets", async (t) => {
   await serve(t);
   const left = async () => {
