@@ -1,6 +1,6 @@
 // The Maker (ADR 0006): one Durable Object per Draft, `env.MAKER.getByName(draftId)`, running one agent in a
 // pi-durable Harness through PiHarness on the Agent class. The agent chats with the Creator and, when asked for a game
-// or a change, loads the make-game skill and writes the game itself in the sandbox, with pi's coding tools, the skills,
+// or a change, loads the make-game skill and writes the game itself in the sandbox, with pi's coding tools, make-game's guides,
 // `playtest`, and `build` (publish.ts), which checks the workspace and writes the next Revision. The sandbox is the Draft's Container, which the Maker
 // starts and drives itself (agent-sandbox.ts).
 //
@@ -139,7 +139,7 @@ if (!makeGame) {
   throw new Error("make-game's SKILL.md has no frontmatter");
 }
 const SKILLS = fromManifest({
-  fingerprint: "v11",
+  fingerprint: "v12",
   id: "hopon-maker",
   skills: [
     {
@@ -178,6 +178,9 @@ interface RunState {
   from: number;
   // How many of the Creator's messages the agent had seen when the run's last `build` began: not those still queued.
   seen?: number;
+  // The Revision the run last published. It outlives a limit that stops the run, as an old Draft's port published
+  // before its change does, so the refusal tells the Creator to send the rest again.
+  published?: number;
 }
 
 const PROVIDER = "anthropic";
@@ -392,6 +395,10 @@ export class Maker extends Agent<Env> {
     () => this.tellRestart(),
     (n, kind) => {
       this.workspace = n;
+      const state = this.runState;
+      if (state) {
+        this.runState = { ...state, published: n };
+      }
       if (kind === "new") {
         this.ctx.storage.kv.put(
           "askedFrom",
@@ -435,15 +442,22 @@ export class Maker extends Agent<Env> {
         steps: state.steps + (building ? 0 : 1),
       };
       this.runState = next;
+      const GIVE_UP =
+        state.published === undefined
+          ? toolResult("give-up")
+          : toolResult("kept", { N: state.published });
       if (next.steps > MAX_STEPS) {
-        return { block: toolResult("steps", { MAX_STEPS }) };
+        return { block: toolResult("steps", { GIVE_UP, MAX_STEPS }) };
       }
       if (next.builds > MAX_BUILDS) {
-        return { block: toolResult("builds", { MAX_BUILDS }) };
+        return { block: toolResult("builds", { GIVE_UP, MAX_BUILDS }) };
       }
       if (Date.now() > state.deadlineAt) {
         return {
-          block: toolResult("deadline", { SECONDS: DEADLINE_MS / 1000 }),
+          block: toolResult("deadline", {
+            GIVE_UP,
+            SECONDS: DEADLINE_MS / 1000,
+          }),
         };
       }
       if (WRITES.has(toolCall.name)) {

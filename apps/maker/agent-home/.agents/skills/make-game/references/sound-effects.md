@@ -36,19 +36,19 @@ const follow = () => {
   }
 };
 
-// Browsers start audio only from a touch, so the context is made at the first one.
-addEventListener(
-  "pointerdown",
-  () => {
-    if (!context) {
-      context = new AudioContext();
-      out = context.createGain();
-      out.connect(context.destination);
-    }
-    follow();
-  },
-  { capture: true }
-);
+// Browsers start audio only from a touch, and iOS only from a touch's end, never its pointerdown, so the context is
+// made, and resumed, as the first touch lifts.
+const unlock = () => {
+  if (!context) {
+    context = new AudioContext();
+    out = context.createGain();
+    out.connect(context.destination);
+  }
+  follow();
+};
+for (const type of ["pointerup", "touchend"]) {
+  addEventListener(type, unlock, { capture: true });
+}
 hopon.subscribe(follow);
 
 const whiteNoise = (audio: AudioContext) => {

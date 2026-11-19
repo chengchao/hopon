@@ -20,15 +20,23 @@ The sandbox restarted, and the workspace is back to the Creator's current game: 
 
 ## steps
 
-Over the {{MAX_STEPS}}-step limit. Tell the Creator you couldn't make it work this time.
+Over the {{MAX_STEPS}}-step limit. {{GIVE_UP}}
 
 ## builds
 
-Over the {{MAX_BUILDS}}-build limit. Tell the Creator you couldn't make it work this time.
+Over the {{MAX_BUILDS}}-build limit. {{GIVE_UP}}
 
 ## deadline
 
-Past the {{SECONDS}} s deadline. Tell the Creator you couldn't make it work this time.
+Past the {{SECONDS}} s deadline. {{GIVE_UP}}
+
+## give-up
+
+Tell the Creator you couldn't make it work this time.
+
+## kept
+
+Revision {{N}}, which you published in this run, stays. Tell the Creator you couldn't finish all of it this time, and that sending the rest of their request again finishes it from there.
 
 ## no-game
 

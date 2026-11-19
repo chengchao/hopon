@@ -56,6 +56,8 @@ const TOOL_RESULTS = [
   "steps",
   "builds",
   "deadline",
+  "give-up",
+  "kept",
   "no-game",
   "not-ready",
   "check-failed",

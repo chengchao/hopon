@@ -1443,6 +1443,59 @@ hopon.ready();
 );
 
 test(
+  "the start screen shows the title and hint a game sets after it first draws, and wraps a long word inside the screen",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(
+      box,
+      files(
+        viteGame(`setTimeout(() => {
+  hopon.title = "Supercalifragilisticexpialidociousness";
+  hopon.hint = "Tap the moon";
+}, 50);
+const look = () => {
+  const overlay = document.getElementById("hopon-overlay");
+  if (hopon.state === "start" && overlay) {
+    hopon.testVars.startText = overlay.textContent;
+    hopon.testVars.fits = [...overlay.children].every((line) => {
+      const { left, right } = line.getBoundingClientRect();
+      return left >= 0 && right <= innerWidth;
+    });
+  }
+  document.body.style.background = hopon.state === "play" ? "#123" : "#000";
+  requestAnimationFrame(look);
+};
+requestAnimationFrame(look);
+hopon.ready();
+`)
+      )
+    );
+
+    const verdict = await checkBuild(box, {
+      music: false,
+      tests: {
+        expose: [],
+        tests: [
+          {
+            checks: [
+              {
+                at: 100,
+                expect:
+                  "vars.startText.includes('Supercalifragilisticexpialidociousness') && vars.startText.includes('Tap the moon') && vars.fits === true",
+              },
+            ],
+            inputs: [],
+            name: "the late title and hint, wrapped",
+          },
+        ],
+      },
+    });
+
+    assert.ok("files" in verdict, JSON.stringify(verdict));
+  }
+);
+
+test(
   "a frame due at a timer's instant still runs: a second of game time is 60 frames with a 100 ms timer running",
   { skip, timeout: 300_000 },
   async () => {

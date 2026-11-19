@@ -12,7 +12,6 @@
   const RESTART_AFTER_MS = 500;
   const hopon = {
     best: 0,
-    hint: "Tap to start",
     // Set by ready(), which the game calls once it has drawn its first screen, so the playtest knows it loaded.
     loaded: false,
     muted: false,
@@ -20,7 +19,12 @@
     score: 0,
     state: "start",
     testVars: {},
-    // The over screen's words, which a game in another language replaces.
+    won: false,
+  };
+  // The screens' words: the start screen's title and hint, and the over screen's, which a game in another language
+  // replaces. A game may set them after the overlay first draws (from an effect, after a load), so each one redraws it.
+  const words = {
+    hint: "Tap to start",
     text: {
       again: "Tap to play again",
       best: "Best",
@@ -29,7 +33,6 @@
       win: "You win",
     },
     title: "",
-    won: false,
   };
   const listeners = new Set();
   let overAt = 0;
@@ -46,7 +49,7 @@
   const overlay = document.createElement("div");
   overlay.id = "hopon-overlay";
   overlay.style.cssText =
-    "position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;box-sizing:border-box;background:radial-gradient(circle at 50% 40%,rgba(0,0,0,.35),rgba(0,0,0,.72));color:#fff;font:700 24px system-ui,sans-serif;text-align:center;text-shadow:0 2px 6px rgba(0,0,0,.6);touch-action:none;user-select:none;-webkit-user-select:none";
+    "position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;box-sizing:border-box;background:radial-gradient(circle at 50% 40%,rgba(0,0,0,.35),rgba(0,0,0,.72));color:#fff;font:700 24px system-ui,sans-serif;text-align:center;overflow-wrap:anywhere;word-break:break-word;text-shadow:0 2px 6px rgba(0,0,0,.6);touch-action:none;user-select:none;-webkit-user-select:none";
   const draw = () => {
     overlay.style.display = hopon.state === "play" ? "none" : "flex";
     const lines =
@@ -69,6 +72,16 @@
       })
     );
   };
+  for (const name of Object.keys(words)) {
+    Object.defineProperty(hopon, name, {
+      enumerable: true,
+      get: () => words[name],
+      set(value) {
+        words[name] = value;
+        draw();
+      },
+    });
+  }
   const mount = () => {
     document.body.append(overlay);
     draw();
@@ -156,6 +169,7 @@
     },
     ready() {
       hopon.loaded = true;
+      draw();
     },
     start() {
       hopon.score = 0;

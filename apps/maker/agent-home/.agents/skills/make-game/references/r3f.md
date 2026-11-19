@@ -71,7 +71,7 @@ if (root) createRoot(root).render(<Game />);
 - **Pause.** `frameloop="never"` stops r3f's loop and every `useFrame`. Nothing else is needed, as long as all motion lives in `useFrame` and not in `setTimeout` or `setInterval`.
 - **`hopon.testVars`.** Write the values tests read in the main `useFrame`, every frame, from the world's real state.
 - **Score and end:** `hopon.addScore(n)` and `hopon.gameOver(won)`. The scaffold draws no HUD during play, so the game draws its own score.
-- **The start tap's `pointerup` reaches the game.** The scaffold's overlay hides on `pointerdown`, so the release lands on your touch layer. Act on `pointerdown`, or act on a `pointerup` only when you saw its `pointerdown` (the example does).
+- **The start tap is the scaffold's.** Its press, release and click never reach the game. The next touch is the player's first.
 - For sound effects, read `references/sound-effects.md`.
 
 ## Game state lives outside React
@@ -270,6 +270,8 @@ Keep the player in the lower third of the screen, with the way ahead filling the
 ## Example: Sunset Rush
 
 A three-lane racer. Tap a side or swipe to change lanes, overtake a car for a point, grab a coin for three, and three crashes end the round. The playtest and the four tests below, including the pause test, ran green in the box with no console error.
+
+Take its patterns, not its game. Even when the Creator asks for a racer, yours has its own name, setting, vehicle, palette, obstacles and scoring, from your design.
 
 ### `index.html`
 

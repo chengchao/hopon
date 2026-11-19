@@ -611,21 +611,28 @@ test(
 );
 
 test(
-  "limits: the 21st step and the 5th build are refused, and the agent is told to give up",
+  "limits: the 21st step and the 5th build are refused; the agent is told to give up, or that what it published stays",
   { timeout: 120_000 },
   async (t) => {
     await serve(t);
     const { id: draft } = await json("/api/drafts", { text: "build loop" });
     const socket = await connect(draft);
     await socket.until("the loop turn's end", over);
-    assert.match(await lastReply(draft), /Over the 20-step limit/u);
+    assert.match(
+      await lastReply(draft),
+      /Over the 20-step limit\. Tell the Creator you couldn't make it work this time\./u
+    );
     // 21 tool calls, then the reply.
     assert.equal(await modelCalls(draft), 22);
     await noRevision(draft);
 
-    // Four builds publish; the fifth is refused.
+    // Four builds publish; the fifth is refused, and the agent is told the fourth stays, so the Creator can send the
+    // rest again (an old Draft's port, published before its change, survives a limit this way).
     assert.equal(await socket.turn("build five"), "turn_done");
-    assert.match(await lastReply(draft), /Over the 4-build limit/u);
+    assert.match(
+      await lastReply(draft),
+      /Over the 4-build limit\. Revision 4, which you published in this run, stays\. .*sending the rest/u
+    );
     assert.equal(await revisionOf(draft), 4);
     socket.close();
   }

@@ -1,5 +1,5 @@
 # The Maker's box (#175): node, python3, Chromium, ffmpeg, typescript and the box scripts under /opt/hopon, and for
-# the music-sf2 skill FluidSynth, midiutil, numpy and the GeneralUser GS bank (its license: "use without restriction").
+# make-game's music-sf2 guide FluidSynth, midiutil, numpy and the GeneralUser GS bank (its license: "use without restriction").
 # apps/worker/wrangler.jsonc builds it from this directory, and `wrangler deploy` pushes it;
 # `pnpm -F maker build:runtime` makes runtime.js and littlejs.d.ts first. It runs with no internet and no secrets.
 FROM node:24-slim
