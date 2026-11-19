@@ -17,7 +17,6 @@ import {
   DOM_SRC,
   domHtml,
   GAME_CSP,
-  HOPON_SRC,
   littlejsHtml,
   RUNTIME_SRC,
 } from "./page.ts";
@@ -150,7 +149,6 @@ const emitErrors = (error) =>
 const servedFiles = () => {
   const files = {
     [DOM_SRC]: readFileSync(path.join(here, "dom.js")),
-    [HOPON_SRC]: readFileSync(path.join(here, "hopon.js")),
     [RUNTIME_SRC]: readFileSync(path.join(here, "runtime.js")),
   };
   for (const name of readdirSync(DIST)) {

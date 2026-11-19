@@ -11,7 +11,7 @@ import { buffer } from "node:stream/consumers";
 import { after, before, test } from "node:test";
 
 import { DOM_SRC, GAME_CSP, littlejsHtml } from "../image/page.ts";
-import { FROZEN, servedPath, vendorPaths } from "../vendor/build.ts";
+import { FROZEN, servedCode, vendorPaths } from "../vendor/build.ts";
 import {
   boxPlaytest,
   checkBuild,
@@ -624,6 +624,108 @@ test(
 );
 
 test(
+  "a file in dist/ whose name holds a newline fails the check, and can't hide the rest of a game over 5 MB",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(box, files({ "game.ts": GAME }));
+    // A process the model left, writing into dist/ once the build has made it.
+    await docker([
+      "exec",
+      "-d",
+      ...USER,
+      container,
+      "sh",
+      "-c",
+      `cd /workspace; while :; do if [ -d dist ] && [ ! -e dist/z ]; then head -c 6000000 /dev/zero > /tmp/big.bin && mv /tmp/big.bin dist/big.bin; : > 'dist/a\nxy z'; : > dist/a; : > dist/z; fi; sleep 0.05; done`,
+    ]);
+
+    try {
+      const verdict = await checkBuild(box, noMusic);
+
+      assert.ok("errors" in verdict, JSON.stringify(Object.keys(verdict)));
+      assert.match(verdict.errors.join("\n"), /rename a\nxy z/u);
+    } finally {
+      await kill("dist/big.bin");
+    }
+  }
+);
+
+// The box, with one file grown to 6 MB between the harness's measuring it and reading it.
+const grown = (grows: string) => {
+  let reads = 0;
+  const wrapped: Box = {
+    ...box,
+    readBytes: async (file) => {
+      if (file === grows) {
+        reads += 1;
+        return new Uint8Array(6_000_000);
+      }
+      return await box.readBytes(file);
+    },
+  };
+  return { box: wrapped, reads: () => reads };
+};
+
+test(
+  "a source that grows past 5 MB after it was measured fails the check",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(box, files({ "game.ts": GAME }));
+    const source = grown("/tmp/hopon-source.tgz");
+
+    const verdict = await checkBuild(source.box, noMusic);
+
+    assert.ok(source.reads() > 0, "the harness read the packed source");
+    assert.ok("errors" in verdict, JSON.stringify(Object.keys(verdict)));
+    assert.match(
+      verdict.errors.join("\n"),
+      /the workspace's source is 6\.0 MB packed, over 5 MB/u
+    );
+  }
+);
+
+test(
+  "a built file that grows past 5 MB after it was listed fails the check",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(box, files({ "game.ts": GAME }));
+    const built = grown(`${WORKSPACE}/dist/game.js`);
+
+    const verdict = await checkBuild(built.box, noMusic);
+
+    assert.ok(built.reads() > 0, "the harness read the built game.js");
+    assert.ok("errors" in verdict, JSON.stringify(Object.keys(verdict)));
+    assert.match(
+      verdict.errors.join("\n"),
+      /the built game is 6\.0 MB, over 5 MB/u
+    );
+  }
+);
+
+test(
+  "a page that loads /hopon/v1.js fails the check: no Revision loads the scaffold before it is frozen",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(
+      box,
+      files({
+        "design.md": "# Ocean memory",
+        "game.ts": ocean("game.ts"),
+        "index.html": ocean("index.html").replace(
+          "</body>",
+          '<script src="/hopon/v1.js"></script></body>'
+        ),
+      })
+    );
+
+    const verdict = await checkBuild(box, noMusic);
+
+    assert.ok("errors" in verdict, JSON.stringify(Object.keys(verdict)));
+    assert.match(verdict.errors.join("\n"), /404/u);
+  }
+);
+
+test(
   "a LittleJS game from before source.tgz restores without the harness's v3 page, and its change builds on the current one",
   { skip, timeout: 300_000 },
   async () => {
@@ -764,10 +866,7 @@ interface Loaded {
 const writeVite = async () => {
   for (const { route } of FROZEN) {
     // oxlint-disable-next-line no-await-in-loop -- one file at a time
-    await box.write(
-      `/tmp${route}`,
-      JSON.parse(readFileSync(servedPath(route), "utf-8"))
-    );
+    await box.write(`/tmp${route}`, servedCode(route) ?? "");
   }
   await box.write(
     "/tmp/load.mjs",

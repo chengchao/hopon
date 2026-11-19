@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
+import { gunzipSync } from "node:zlib";
 
 import { drizzle } from "drizzle-orm/d1";
 import { getPlatformProxy, unstable_splitSqlQuery } from "wrangler";
 
+import { FROZEN } from "../../maker/vendor/build.ts";
 import worker from "../src/api.ts";
 import { GAME_CSP } from "../src/game.ts";
 import { charge, pruneLimits, week } from "../src/storage.ts";
@@ -2350,61 +2352,83 @@ test("runtime: /runtime/v4.js and /dom/v4.js are the maker's scaffolds, the olde
   }
 });
 
-test("vendor: each /vendor/ file and /hopon/v1.js load as a sandboxed game's modules, long-cached and gzipped", async (t) => {
+// A module script from a page whose origin is opaque, as the WebView fetches it.
+const moduleScript = (env, route, headers) =>
+  worker.fetch(
+    new Request(`https://hopon.test${route}`, {
+      headers: { Origin: "null", ...headers },
+    }),
+    env,
+    { passThroughOnException: () => {}, waitUntil: () => {} }
+  );
+const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+
+test("vendor: each /vendor/ file loads as a sandboxed game's module, long-cached, as its frozen bytes gzipped or not", async (t) => {
   const { env } = await setup(t);
-  // A module script from a page whose origin is opaque, as the WebView fetches it.
-  const get = (route) =>
-    worker.fetch(
-      new Request(`https://hopon.test${route}`, {
-        headers: { "Accept-Encoding": "gzip, deflate, br", Origin: "null" },
-      }),
-      env,
-      { passThroughOnException: () => {}, waitUntil: () => {} }
-    );
-  const vendor = new URL("../src/vendor/", import.meta.url);
-  const files = [
-    ["/hopon/v1.js", new URL("../src/runtime/hopon-v1.json", import.meta.url)],
-    ...readdirSync(vendor).map((file) => [
-      `/vendor/${file.replace(/\.json$/u, ".js")}`,
-      new URL(file, vendor),
-    ]),
-  ];
-  assert.deepEqual(files.map(([route]) => route).toSorted(), [
-    "/hopon/v1.js",
-    "/vendor/phaser-4.2.1.js",
-    "/vendor/r3f-9.8.2.js",
-    "/vendor/react-19.3.1.js",
-    "/vendor/react-dom-19.3.1.js",
-    "/vendor/three-0.187.0.js",
-  ]);
-  for (const [route, file] of files) {
-    // oxlint-disable-next-line no-await-in-loop -- one request each
-    const response = await get(route);
-    assert.equal(response.status, 200, route);
-    assert.match(
-      response.headers.get("Content-Type"),
-      /^text\/javascript/u,
-      route
-    );
-    assert.equal(
-      response.headers.get("Cache-Control"),
-      "public, max-age=31536000, immutable",
-      route
-    );
-    assert.equal(
-      response.headers.get("Access-Control-Allow-Origin"),
-      "*",
-      route
-    );
-    assert.equal(response.headers.get("Content-Encoding"), "gzip", route);
-    assert.equal(
+  assert.deepEqual(
+    readdirSync(new URL("../src/vendor/", import.meta.url))
+      .map((file) => `/vendor/${file.replace(/\.json$/u, ".js")}`)
+      .toSorted(),
+    FROZEN.map(({ route }) => route).toSorted(),
+    "the Worker's vendor files are the frozen ones"
+  );
+  for (const { route, sha256: frozen } of FROZEN) {
+    for (const accept of ["gzip, deflate, br", undefined]) {
+      // oxlint-disable-next-line no-await-in-loop -- one request each
+      const response = await moduleScript(
+        env,
+        route,
+        accept ? { "Accept-Encoding": accept } : {}
+      );
+      const label = `${route} Accept-Encoding: ${accept}`;
+      assert.equal(response.status, 200, label);
+      assert.match(
+        response.headers.get("Content-Type"),
+        /^text\/javascript/u,
+        label
+      );
+      assert.equal(
+        response.headers.get("Cache-Control"),
+        "public, max-age=31536000, immutable",
+        label
+      );
+      assert.equal(
+        response.headers.get("Access-Control-Allow-Origin"),
+        "*",
+        label
+      );
+      assert.equal(response.headers.get("Vary"), "Accept-Encoding", label);
       // oxlint-disable-next-line no-await-in-loop -- one body each
-      await response.text(),
-      JSON.parse(readFileSync(file, "utf-8")),
-      route
-    );
+      const body = Buffer.from(await response.arrayBuffer());
+      if (accept) {
+        assert.equal(response.headers.get("Content-Encoding"), "gzip", label);
+        assert.equal(sha256(gunzipSync(body)), frozen, label);
+      } else {
+        assert.equal(response.headers.get("Content-Encoding"), null, label);
+        assert.equal(sha256(body), frozen, label);
+      }
+    }
   }
-  assert.equal(await status(get("/vendor/react-19.3.0.js")), 404);
+  assert.equal(
+    await status(moduleScript(env, "/vendor/react-19.3.0.js", {})),
+    404
+  );
+});
+
+test("hopon: /hopon/v1.js is the box's Vite scaffold, a sandboxed game's module, and not cached until it is frozen", async (t) => {
+  const { env } = await setup(t);
+  const response = await moduleScript(env, "/hopon/v1.js", {});
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("Content-Type"), /^text\/javascript/u);
+  assert.equal(response.headers.get("Access-Control-Allow-Origin"), "*");
+  assert.equal(response.headers.get("Cache-Control"), "no-cache");
+  assert.equal(
+    await response.text(),
+    readFileSync(
+      new URL("../../maker/image/hopon.js", import.meta.url),
+      "utf-8"
+    )
+  );
 });
 
 test("pages: /terms has the Rules, /support the contact address and /privacy the policy, signed out", async (t) => {

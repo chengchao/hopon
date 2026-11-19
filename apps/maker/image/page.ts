@@ -4,7 +4,6 @@
 // The served scaffolds, at the same paths in the box's playtest and the Worker (apps/maker/src/runtime.ts copies them).
 export const RUNTIME_SRC = "/runtime/v4.js";
 export const DOM_SRC = "/dom/v4.js";
-export const HOPON_SRC = "/hopon/v1.js";
 // The served-runtime CSP: scripts, styles, images, fonts, media and fetches from the game's own origin only. The box's
 // playtest serves a game under it (helpers.js), and check.test.ts loads the Vite fixtures under it.
 export const GAME_CSP =

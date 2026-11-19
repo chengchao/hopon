@@ -5,10 +5,10 @@
 // fails instead of overwriting it, and a library upgrade ships as a new versioned file.
 // `pnpm -F maker build:vendor` rebuilds; vendor.test.ts fails when a committed file's bytes change.
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { gzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 
 import { transform } from "esbuild";
 import { build } from "vite";
@@ -29,13 +29,30 @@ export const version = (pkg: string): string => {
   return pinned;
 };
 
+// A CommonJS module's export names, from its development build whatever NODE_ENV the shell sets: React's index loads
+// its development or production build by NODE_ENV, and the development one also names act and captureOwnerStack. The
+// frozen files were built with those names. Their code is production either way (compileVendor's define).
+const exportNames = (specifier: string) => {
+  const shell = process.env.NODE_ENV;
+  process.env.NODE_ENV = "development";
+  try {
+    return Object.keys(require(specifier));
+  } finally {
+    if (shell === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = shell;
+    }
+  }
+};
+
 // React and React DOM ship CommonJS, whose export names a bundler can't see through `export *`: the entry names each
 // one, read by loading the module here. The first module to name an export wins.
 const commonJsEntry = (specifiers: string[]) => {
   const seen = new Set(["default", "__esModule"]);
   return specifiers
     .flatMap((specifier, index) => {
-      const names = Object.keys(require(specifier)).filter(
+      const names = exportNames(specifier).filter(
         (name) => !seen.has(name) && /^[A-Za-z_$][\w$]*$/u.test(name)
       );
       for (const name of names) {
@@ -117,10 +134,23 @@ export const vendorPaths = (): Record<string, string> =>
     )
   );
 
-// Committed, as JSON strings the Worker and Node both import.
+// Committed gzipped, as a JSON string of the gzip's base64 that the Worker and Node both import: the Worker sends the
+// gzip as is to a client that takes it, rather than compressing 1.7 MB of Phaser on every request.
 export const VENDOR_DIR = path.join(maker, "..", "worker", "src", "vendor");
 export const servedPath = (route: string) =>
   path.join(VENDOR_DIR, `${path.basename(route, ".js")}.json`);
+const gzipBase64 = (code: string) =>
+  gzipSync(code, { level: 9 }).toString("base64");
+// A committed file's code, or null when it isn't committed.
+export const servedCode = (route: string) =>
+  existsSync(servedPath(route))
+    ? gunzipSync(
+        Buffer.from(
+          JSON.parse(readFileSync(servedPath(route), "utf-8")),
+          "base64"
+        )
+      ).toString("utf-8")
+    : null;
 
 // Every vendor file the Worker serves, by route, and its sha256. A new file is added here when it is first built.
 export const FROZEN: { route: string; sha256: string }[] = [
@@ -231,10 +261,13 @@ export const buildVendors = async () => {
     const code = await compileVendor(vendor);
     const route = vendorRoute(vendor);
     assertFrozen(code, route);
-    writeFileSync(servedPath(route), `${JSON.stringify(code)}\n`);
+    // Another zlib may gzip the same code to other bytes, so a committed file that unzips to it stays as it is.
+    if (servedCode(route) !== code) {
+      writeFileSync(servedPath(route), `${JSON.stringify(gzipBase64(code))}\n`);
+    }
     built.push({
       bytes: code.length,
-      gzipBytes: gzipSync(code).length,
+      gzipBytes: gzipSync(code, { level: 9 }).length,
       route,
     });
   }

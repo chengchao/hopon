@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { text } from "node:stream/consumers";
 import { test } from "node:test";
 
 import {
   assertFrozen,
   compileVendor,
   FROZEN,
+  servedCode,
   servedPath,
   VENDOR_DIR,
   VENDORS,
@@ -14,8 +18,7 @@ import {
   version,
 } from "../vendor/build.ts";
 
-const served = (route: string): string =>
-  JSON.parse(readFileSync(servedPath(route), "utf-8"));
+const served = (route: string) => servedCode(route) ?? "";
 
 test("the Worker serves each vendor file as it was frozen", () => {
   const files = readdirSync(VENDOR_DIR).toSorted();
@@ -50,15 +53,67 @@ test("a frozen vendor file refuses different bytes", () => {
   );
 });
 
-test("the box installs the versions the vendor files are built from", () => {
-  const dockerfile = readFileSync(
-    path.join(import.meta.dirname, "..", "image", "Dockerfile"),
-    "utf-8"
+// Each package@version the Dockerfile's npm installs name, as whole tokens.
+const boxInstalls = () =>
+  new Map(
+    readFileSync(
+      path.join(import.meta.dirname, "..", "image", "Dockerfile"),
+      "utf-8"
+    )
+      .split(/\s+/u)
+      .flatMap((token) => {
+        const match =
+          /^(?<pkg>@?[\w.-]+(?:\/[\w.-]+)?)@(?<pinned>\d[\w.-]*)$/u.exec(token);
+        return match?.groups
+          ? [[match.groups.pkg, match.groups.pinned] as const]
+          : [];
+      })
   );
-  for (const { pkg } of VENDORS) {
-    assert.ok(
-      dockerfile.includes(` ${pkg}@${version(pkg)} `),
+
+test("the box installs the versions the vendor files and the Vite build come from, and their types", () => {
+  const installed = boxInstalls();
+  for (const pkg of [
+    ...VENDORS.map((vendor) => vendor.pkg),
+    "vite",
+    "@vitejs/plugin-react",
+  ]) {
+    assert.equal(
+      installed.get(pkg),
+      version(pkg),
       `the Dockerfile installs ${pkg}@${version(pkg)}`
     );
   }
+  // DefinitelyTyped versions a library's types by its major.minor.
+  for (const [types, lib] of [
+    ["@types/react", "react"],
+    ["@types/react-dom", "react-dom"],
+    ["@types/three", "three"],
+  ]) {
+    const minor = version(lib).replace(/\.\d+$/u, "");
+    assert.equal(
+      installed.get(types)?.replace(/\.\d+$/u, ""),
+      minor,
+      `the Dockerfile installs ${types}@${minor}.x for ${lib}@${version(lib)}`
+    );
+  }
+});
+
+test("the vendor build makes the frozen bytes whatever NODE_ENV the shell sets", async () => {
+  const [react] = VENDORS;
+  const child = spawn(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `import { compileVendor, VENDORS } from ${JSON.stringify(path.join(import.meta.dirname, "..", "vendor", "build.ts"))};
+process.stdout.write(await compileVendor(VENDORS[0]));`,
+    ],
+    { env: { ...process.env, NODE_ENV: "production" } }
+  );
+  const [code, [exit]] = await Promise.all([
+    text(child.stdout),
+    once(child, "close") as Promise<[number]>,
+  ]);
+  assert.equal(exit, 0);
+  assertFrozen(code, vendorRoute(react));
 });
