@@ -11,16 +11,16 @@ You design the game, write it, test it, and publish it with `build`. The Creator
 
 The workspace holds one game: the files of the game the Creator has now, or nothing before the first one. A game is played on a phone, in portrait, by touch.
 
-- **A new game, a different game, or "Start over":** first empty the workspace with this command, then call `build` with kind `"new"`. It deletes every file and folder of the old game, its modules, images and notes too, and keeps only `.hopon/`, where verify.js reads what the Creator said. Anything left behind would ship in the new game's source.
+- **A new game, a different game, or "Start over":** first empty the workspace and seed the new game's skeleton with this command, then call `build` with kind `"new"`. It deletes every file and folder of the old game, its modules, images and notes too, and keeps only `.hopon/`, where verify.js reads what the Creator said. Anything left behind would ship in the new game's source.
 
   ```bash
-  find /workspace -mindepth 1 -maxdepth 1 ! -name .hopon -exec rm -rf {} +
+  find /workspace -mindepth 1 -maxdepth 1 ! -name .hopon -exec rm -rf {} + && node /opt/hopon/starter.js
   ```
 
 - **A change:** edit the existing files and call `build` with kind `"change"`.
 - **Until a `build` succeeds, the Creator has no game.** Treat every request until then as a complete new game that includes everything the Creator has asked for so far.
 
-A game is a Vite project: `index.html`, `vite.config.ts`, one `tsconfig.json`, and its code in `src/`, entered at `src/main.tsx`. Each engine has a guide in this skill's `references/`, which gives every file, the engine's API and its traps, and how to make the game look good. Pick the engine by what the game is, then read its guide before you write any code:
+A game is a Vite project: `index.html`, `vite.config.ts`, one `tsconfig.json`, and its code in `src/`, entered at `src/main.tsx`. `node /opt/hopon/starter.js` writes the first three, the same for every engine and every game, and a `src/main.tsx` stub. Keep the three as they are: the game's title and hint are `hopon.title` and `hopon.hint`, set at the top of `src/main.tsx`, and its look lives in its code. Write `src/main.tsx` over the stub. Sound effects are the scaffold's too (`hopon.play`), so a game writes only its own sounds. Each engine has a guide in this skill's `references/`, which gives every file, the engine's API and its traps, and how to make the game look good. Pick the engine by what the game is, then read its guide before you write any code:
 
 - **Phaser** (`references/phaser.md`) for 2D games with motion: action, arcade, physics, runners, shooters, catchers, flappers.
 - **React Three Fiber** (`references/r3f.md`) for 3D games: racers, flyers, 3D runners and dodgers, and anything the Creator calls 3D.
@@ -37,7 +37,7 @@ A Draft from before Vite games has a `game.ts` and no `vite.config.ts`. hopon no
 
 1. Read `game.ts` (and `index.html`). When the game has no `design.md`, write one from its code first (see Design), with its music as the game has it: `Music: none` with no quote when it has none. When it has no `tests.json`, write one for what it does now.
 2. Port it to the matching engine: LittleJS to Phaser, plain DOM to React. Read that engine's guide. Keep the design: the same rules, numbers, controls, layout and look, so the same taps land on the same things. Keep every name the tests read, now in `hopon.testVars`. It may look better than it did.
-3. Delete `game.ts` and the old `index.html`, and write the Vite project's files. Keep `design.md`, `tests.json` and the music file (`music.mjs` or `music.py`) as they are.
+3. Delete `game.ts` and the old `index.html`, run `node /opt/hopon/starter.js` for the skeleton, and write the game's own files. Keep `design.md`, `tests.json` and the music file (`music.mjs` or `music.py`) as they are.
 4. Playtest the port, and run the old tests with `node /opt/hopon/playtest.js tests`. They pass on the port before you make the change.
 5. Publish the port on its own: call `build` with kind `"change"`, with no advisor check. A port and a change together may not fit in one message's limits, and work you haven't published is lost when a limit stops you. Once the port is published, the Creator's next message starts from it.
 6. Then make the Creator's change as usual (update `design.md`, the tests, the code), and call `build` with kind `"change"` again. Don't mention the port to the Creator unless they ask. When a limit stops you after the port's `build`, tell the Creator you couldn't finish their change this time and that sending it again finishes it.
@@ -46,7 +46,7 @@ A Draft from before Vite games has a `game.ts` and no `vite.config.ts`. hopon no
 
 1. **Design.** Write `design.md` (see Design).
 2. **Tests.** Write `tests.json` from the design's Done-when criteria (see Tests).
-3. **Code.** Read the engine's guide, then write the whole game with the write tool: every file the guide names. Split the code into modules when it grows past a few hundred lines. For a change, change the existing files with the `edit` tool, and don't rewrite what works.
+3. **Code.** Read the engine's guide, then write the whole game with the write tool: every file the guide names but the skeleton the starter wrote. Split the code into modules when it grows past a few hundred lines. For a change, change the existing files with the `edit` tool, and don't rewrite what works.
 4. **Playtest.** Call `playtest` with `inputs` that play the game the way a player would: taps where the buttons, cards or targets are, swipes for swipe controls, timed so the game gets going. It typechecks first, and type errors come back with no screenshots.
 5. **Fix.** Look at both screenshots. Fix every error and anything that looks wrong or unreadable, then playtest again. Fix with the `edit` tool, changing only the lines that need it: a file written again in full costs the Creator as much as writing it the first time. Screenshots show how the game looks. Your tests and the playtest's `state`, `score` and `overAt` show what the game does (it ends, the score goes up, a swipe moves the player), so don't replay a game only to see that in a screenshot.
 6. **Music.** Once the playtest is green, write the music (see Music).

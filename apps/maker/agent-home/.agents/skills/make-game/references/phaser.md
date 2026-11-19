@@ -5,9 +5,7 @@ Phaser is for 2D games where things move: action, arcade, physics, runners, shoo
 ## The project
 
 ```
-index.html        the page: copy it from the example, change only <title> and the background colour
-vite.config.ts    copy it from the example
-tsconfig.json     copy it from the example
+index.html, vite.config.ts, tsconfig.json   the skeleton: `node /opt/hopon/starter.js` wrote them (make-game). Keep them as they are
 design.md
 tests.json
 src/main.tsx      the Game, its config and the hopon wiring
@@ -16,7 +14,7 @@ src/art.ts        ZOOM, screen() and texture(), copied from the example, then th
 ```
 
 - Add files under `src/` when they help, such as a level table. The entry is always `src/main.tsx`.
-- The page's `<title>` is the start screen's title. Set `hopon.hint` in `main.tsx` for the line under it.
+- Set `hopon.title` and `hopon.hint` at the top of `main.tsx`: the start screen's title and the line under it.
 - The only package is `phaser`. There is no network and there are no image files, so draw every texture in code (see "Make it look good").
 - Import names from `phaser`: `import { AUTO, Game, Scale, Scene, TintModes, Math as PMath } from "phaser"`, and types with `import type { GameObjects, Input, Types } from "phaser"`. Always rename `Math`. A plain `import { Math }` hides JavaScript's `Math` in that file.
 
@@ -30,6 +28,7 @@ import { AUTO, Game, Scale } from "phaser";
 import { ZOOM } from "./art";
 import { Play } from "./play";
 
+hopon.title = "Moon Dash";
 hopon.hint = "Tap to jump";
 
 const game = new Game({
@@ -401,63 +400,7 @@ Pop the score when it changes: `setScale(1.25)`, then tween back to 1.
 
 ## Example: Moon Dash
 
-A runner. Tap to jump the spikes and grab the coins. Every file is below.
-
-### `index.html`
-
-```html
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Moon Dash</title>
-    <style>
-      html,
-      body,
-      #root {
-        margin: 0;
-        height: 100%;
-        overflow: hidden;
-        background: #1a1238;
-      }
-    </style>
-    <script src="/hopon/v1.js"></script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
-```
-
-### `vite.config.ts`
-
-```ts
-import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
-
-export default defineConfig({ plugins: [react()] });
-```
-
-### `tsconfig.json`
-
-```json
-{
-  "compilerOptions": {
-    "jsx": "react-jsx",
-    "lib": ["es2022", "dom"],
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "noEmit": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "target": "es2022",
-    "types": []
-  },
-  "include": ["src"]
-}
-```
+A runner. Tap to jump the spikes and grab the coins. Every file but the skeleton is below.
 
 ### `src/main.tsx`
 
@@ -467,6 +410,7 @@ import { AUTO, Game, Scale } from "phaser";
 import { ZOOM } from "./art";
 import { Play } from "./play";
 
+hopon.title = "Moon Dash";
 hopon.hint = "Tap to jump";
 
 const game = new Game({

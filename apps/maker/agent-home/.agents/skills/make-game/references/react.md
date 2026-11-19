@@ -6,7 +6,8 @@ React is the engine for games of taps on cards, answers, letters, tiles and butt
 
 A React game is a Vite project in the workspace:
 
-- `index.html`, `vite.config.ts` and `tsconfig.json`, exactly as in the example below. Only the `<title>` changes. It is the start screen's title.
+- `index.html`, `vite.config.ts` and `tsconfig.json`, the skeleton `node /opt/hopon/starter.js` wrote (make-game). Keep them as they are.
+- Set `hopon.title` and `hopon.hint` at the top of `main.tsx`: the start screen's title and the line under it.
 - `src/main.tsx` is the entry. It renders the game and wires it to hopon.
 - `src/style.css` is the look, imported once from `main.tsx`.
 - One or more `src/*.ts` files for the rules, with no React in them.
@@ -29,6 +30,7 @@ import { createRoot } from "react-dom/client";
 import { newGame, tap, tick } from "./rules";
 import "./style.css";
 
+hopon.title = "Pairs";
 hopon.hint = "Tap the cards to find pairs";
 
 let round = 0;
@@ -397,52 +399,6 @@ The judge looks at the screenshots first. A game that plays well but looks like 
 
 A lights-out puzzle. Tapping a lantern flips it and its four neighbours. Put out every lantern before the candle burns down. Each night cleared scores 1, adds 8 s, and brings a harder board, scrambled from dark by one more tap. After 6 s on a board, one lantern that helps nudges as a hint.
 
-`index.html`:
-
-```html
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Lantern Night</title>
-    <script src="/hopon/v1.js"></script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
-```
-
-`vite.config.ts`:
-
-```ts
-import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
-
-export default defineConfig({ plugins: [react()] });
-```
-
-`tsconfig.json`:
-
-```json
-{
-  "compilerOptions": {
-    "jsx": "react-jsx",
-    "lib": ["es2022", "dom"],
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "noEmit": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "target": "es2022",
-    "types": []
-  },
-  "include": ["src"]
-}
-```
-
 `src/lanterns.ts`:
 
 ```ts
@@ -560,6 +516,7 @@ import { createRoot } from "react-dom/client";
 import { hintAt, newGame, tap, tick, timeShare } from "./lanterns";
 import "./style.css";
 
+hopon.title = "Lantern Night";
 hopon.hint = "Tap a lantern: it and its neighbours flip";
 
 const TICK_MS = 100;

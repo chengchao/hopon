@@ -5,9 +5,7 @@ React Three Fiber (r3f) is for games in 3D: racers, endless runners, flyers, 3D 
 ## The project
 
 ```
-index.html        the page: copy it from the example, change only <title> and the background colour
-vite.config.ts    copy it from the example
-tsconfig.json     copy it from the example
+index.html, vite.config.ts, tsconfig.json   the skeleton: `node /opt/hopon/starter.js` wrote them (make-game). Keep them as they are
 design.md
 tests.json
 src/main.tsx      the Canvas, the HUD, the touch controls and the hopon wiring
@@ -16,7 +14,7 @@ src/scene.tsx     the meshes, lights, sky and camera, and the one useFrame that 
 ```
 
 - Add files under `src/` when they help, such as `src/models.tsx`. The entry is always `src/main.tsx`.
-- The page's `<title>` is the start screen's title. Set `hopon.hint` in `main.tsx` for the line under it.
+- Set `hopon.title` and `hopon.hint` at the top of `main.tsx`: the start screen's title and the line under it.
 - Import from `three`, `@react-three/fiber` (`Canvas`, `useFrame`, `useThree`), `react` and `react-dom/client`. Import nothing else from those packages. `three/webgpu`, `three/tsl` and `react-dom` fail the build as "built into the game".
 - three's addons are allowed, with the `.js` ending, such as `import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js"` and `import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js"`.
 - There are no model or image files. Build every model from three's shapes (see "Make it look good") and draw textures on a canvas.
@@ -33,6 +31,7 @@ import { createRoot } from "react-dom/client";
 import { Scene } from "./scene";
 import { reset } from "./world";
 
+hopon.title = "Sunset Rush";
 hopon.hint = "Tap left or right to change lanes";
 
 let lastState = hopon.state;
@@ -106,7 +105,7 @@ A frame is 16 ms. A React re-render every frame is too slow and makes the game s
 - **A moving `instancedMesh` or `points` needs `frustumCulled={false}`.** three measures its bounds once, from the first positions, and then hides it whenever that first spot is off screen.
 - **After `setMatrixAt`, set `mesh.instanceMatrix.needsUpdate = true`.** After writing a `BufferAttribute`'s array, set `attribute.needsUpdate = true`.
 - **`Math.random` is seeded in the playtest, but three draws from it for every object's id,** so adding a mesh changes which lanes later spawn. Never draw it every frame (a camera shake that calls it when the shake is zero shifts every later spawn by load time), and never write a test that depends on where a random thing appears.
-- **The Canvas fills its parent.** `html, body, #root` need `height: 100%`, as in the example's `index.html`.
+- **The Canvas fills its parent.** `html, body, #root` need `height: 100%`, as the starter's `index.html` gives them.
 
 ## Touch controls
 
@@ -273,62 +272,6 @@ A three-lane racer. Tap a side or swipe to change lanes, overtake a car for a po
 
 Take its patterns, not its game. Even when the Creator asks for a racer, yours has its own name, setting, vehicle, palette, obstacles and scoring, from your design.
 
-### `index.html`
-
-```html
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Sunset Rush</title>
-    <style>
-      html,
-      body,
-      #root {
-        margin: 0;
-        height: 100%;
-        overflow: hidden;
-        background: #2a1b4a;
-      }
-    </style>
-    <script src="/hopon/v1.js"></script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
-```
-
-### `vite.config.ts`
-
-```ts
-import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
-
-export default defineConfig({ plugins: [react()] });
-```
-
-### `tsconfig.json`
-
-```json
-{
-  "compilerOptions": {
-    "jsx": "react-jsx",
-    "lib": ["es2022", "dom"],
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "noEmit": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "target": "es2022",
-    "types": []
-  },
-  "include": ["src"]
-}
-```
-
 ### `src/main.tsx`
 
 ```tsx
@@ -340,6 +283,7 @@ import { createRoot } from "react-dom/client";
 import { Scene, SKY_TOP } from "./scene";
 import { reset, steer, subscribeLives, world } from "./world";
 
+hopon.title = "Sunset Rush";
 hopon.hint = "Tap left or right to change lanes";
 
 let lastState = hopon.state;

@@ -1,5 +1,17 @@
 // The Vite games' scaffold (hopon.js, served at /hopon/v1.js), a global the game's modules read.
+// A sound effect: the pitch glides from freq to `to` Hz over ms; noise is band-passed noise.
+interface HoponSound {
+  freq: number;
+  to?: number;
+  ms: number;
+  wave?: OscillatorType | "noise";
+  volume?: number;
+  // Start this long after the call, for the second note of a jingle.
+  delayMs?: number;
+}
 interface Hopon {
+  // Plays a sound effect, silent when muted, while paused and before the first touch.
+  play: (sound: HoponSound) => void;
   score: number;
   best: number;
   state: "start" | "play" | "over";

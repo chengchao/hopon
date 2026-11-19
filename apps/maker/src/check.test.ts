@@ -821,11 +821,84 @@ test(
 
     assert.equal(ran.exitCode, 0, ran.stderr.toString());
     const listed = await bash("find . -mindepth 1 | sort");
-    assert.equal(listed.stdout.toString(), "./.hopon\n./.hopon/asked.json\n");
+    assert.equal(
+      listed.stdout.toString(),
+      "./.hopon\n./.hopon/asked.json\n./index.html\n./src\n./src/main.tsx\n./tsconfig.json\n./vite.config.ts\n",
+      "only what the Creator said, and the starter's skeleton"
+    );
     const asked = await bash("cat .hopon/asked.json");
     assert.equal(asked.stdout.toString(), '["Start over"]');
   }
 );
+
+test(
+  "the starter seeds only a workspace with no game, and never writes over one",
+  { skip, timeout: 300_000 },
+  async () => {
+    for (const game of ["game.ts", "vite.config.ts"]) {
+      // oxlint-disable-next-line no-await-in-loop -- one workspace at a time
+      await restore(box, files({ [game]: "// the Creator's game\n" }));
+      // oxlint-disable-next-line no-await-in-loop -- one workspace at a time
+      const ran = await bash("node /opt/hopon/starter.js");
+      assert.equal(ran.exitCode, 1, game);
+      // oxlint-disable-next-line no-await-in-loop -- one workspace at a time
+      const listed = await bash("find . -mindepth 1 | sort");
+      assert.equal(listed.stdout.toString(), `./${game}\n`, game);
+    }
+  }
+);
+
+// Each engine guide's example (make-game's references), on the starter's skeleton as make-game's new-game command
+// leaves it: the guide's files are the game's own, and its tests.json is the example's.
+const REFERENCES = path.join(
+  import.meta.dirname,
+  "../agent-home/.agents/skills/make-game/references"
+);
+const guideExample = (engine: string) => {
+  const guide = readFileSync(path.join(REFERENCES, `${engine}.md`), "utf-8");
+  const example = guide.slice(guide.indexOf("\n## Example"));
+  return Object.fromEntries(
+    [
+      ...example.matchAll(
+        /^(?:### )?`(?<file>[\w./-]+)`:?\n\n```\w*\n(?<code>[\s\S]*?)\n```$/gmu
+      ),
+    ].map((match) => [match.groups?.file, `${match.groups?.code}\n`])
+  ) as Record<string, string>;
+};
+for (const engine of ["phaser", "r3f", "react"]) {
+  test(
+    `the ${engine} guide's example builds on the starter's skeleton, passes its tests and plays green`,
+    { skip, timeout: 300_000 },
+    async () => {
+      const command = /Start over.*\n+ *```bash\n *(?<command>.+)\n *```/u.exec(
+        MAKE_GAME
+      )?.groups?.command;
+      const example = guideExample(engine);
+      assert.ok(example["src/main.tsx"] && example["tests.json"], engine);
+      await restore(box, files({ ".hopon/asked.json": "[]" }));
+      const seeded = await bash(command ?? "false");
+      assert.equal(seeded.exitCode, 0, seeded.stderr.toString());
+      const { "tests.json": tests = "", ...own } = example;
+      await bash(
+        `mkdir -p ${[...new Set(Object.keys(own).map((file) => path.dirname(file)))].join(" ")}`
+      );
+      for (const [file, code] of Object.entries(own)) {
+        // oxlint-disable-next-line no-await-in-loop -- one file at a time
+        await box.write(`${WORKSPACE}/${file}`, code);
+      }
+
+      const verdict = await checkBuild(box, {
+        music: false,
+        tests: JSON.parse(tests) as Tests,
+      });
+
+      assert.ok("files" in verdict, JSON.stringify(verdict));
+      assert.deepEqual(verdict.testErrors, []);
+      const played = await boxPlaytest(box, "random");
+      assert.equal(played.ok, true, JSON.stringify(played));
+    }
+  );
+}
 
 // Vite games (ADR 0007): one fixture per engine, a workspace as the agent will leave it, checked and playtested by the
 // harness in the box with no network, its libraries left as imports of the Worker's vendor files.
@@ -1486,6 +1559,45 @@ hopon.ready();
             ],
             inputs: [],
             name: "the late title and hint, wrapped",
+          },
+        ],
+      },
+    });
+
+    assert.ok("files" in verdict, JSON.stringify(verdict));
+  }
+);
+
+test(
+  "a game's sound effects play through the scaffold, silent before the first touch and with no error after it",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(
+      box,
+      files(
+        viteGame(`hopon.play({ freq: 440, ms: 100 });
+hopon.testVars.played = 0;
+document.addEventListener("pointerdown", () => {
+  hopon.play({ freq: 990, ms: 70, volume: 0.2 });
+  hopon.play({ delayMs: 70, freq: 600, ms: 300, to: 60, wave: "noise" });
+  hopon.testVars.played = Number(hopon.testVars.played) + 1;
+});
+const tick = () => { document.body.style.background = hopon.state === "play" ? "#123" : "#000"; requestAnimationFrame(tick); };
+requestAnimationFrame(tick);
+hopon.ready();
+`)
+      )
+    );
+
+    const verdict = await checkBuild(box, {
+      music: false,
+      tests: {
+        expose: [],
+        tests: [
+          {
+            checks: [{ at: 400, expect: "vars.played === 1" }],
+            inputs: [{ at: 200, type: "tap", x: 180, y: 500 }],
+            name: "a tap plays two sounds",
           },
         ],
       },

@@ -137,7 +137,7 @@ export const DOM_V4_SHA256 =
   "f91cb7a4dcb47a031ae1211838f6449654fb09826e2535b85683fb623acb2d8a";
 // Frozen with the first Games that load it (P5, ADR 0008).
 export const HOPON_V1_SHA256 =
-  "9f6ea5d71fd30482bdc91f37b0a45995f30ef5ae7e4626af6439cfbda52e64a2";
+  "5aa96fafdc0b99b88a20dfd3c165c004849ebf59ad1e5b1575d1d54a5bbcf2f2";
 
 const sha256 = (code: string) =>
   createHash("sha256").update(code).digest("hex");

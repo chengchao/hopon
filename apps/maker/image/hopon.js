@@ -116,12 +116,10 @@
       audio.context.resume();
     }
   };
-  const startMusic = async () => {
+  // The game's sound effects play through the same context, so they follow the mute and the pause with the music.
+  const startAudio = async () => {
     if (audio) {
       syncAudio();
-      return;
-    }
-    if (!musicFile) {
       return;
     }
     const context = new AudioContext();
@@ -129,6 +127,9 @@
     gain.connect(context.destination);
     audio = { context, gain };
     syncAudio();
+    if (!musicFile) {
+      return;
+    }
     try {
       const source = context.createBufferSource();
       source.buffer = await context.decodeAudioData(await musicFile);
@@ -139,9 +140,69 @@
       console.warn("hopon: the music didn't load", error);
     }
   };
-  for (const type of ["pointerdown", "touchend", "keydown"]) {
-    addEventListener(type, startMusic, { capture: true });
+  // iOS lets audio start only at a touch's end, so pointerup and touchend; other browsers at its start.
+  for (const type of ["pointerdown", "pointerup", "touchend", "keydown"]) {
+    addEventListener(type, startAudio, { capture: true });
   }
+
+  // A sound effect, synthesized: an oscillator or band-passed noise whose pitch glides from freq to `to` Hz over ms,
+  // with a short attack and an exponential fade. Silent until the first touch, and while paused.
+  let noise;
+  // oxlint-disable-next-line unicorn/consistent-function-scoping -- the IIFE keeps it off the page's globals
+  const whiteNoise = (context) => {
+    const buffer = context.createBuffer(
+      1,
+      context.sampleRate,
+      context.sampleRate
+    );
+    const data = buffer.getChannelData(0);
+    let seed = 7;
+    for (let i = 0; i < data.length; i += 1) {
+      seed = (seed * 16_807) % 2_147_483_647;
+      data[i] = (seed / 2_147_483_647) * 2 - 1;
+    }
+    return buffer;
+  };
+  const play = ({
+    freq,
+    to = freq,
+    ms,
+    wave = "square",
+    volume = 0.3,
+    delayMs = 0,
+  }) => {
+    if (!audio || hopon.paused) {
+      return;
+    }
+    const { context } = audio;
+    const start = context.currentTime + delayMs / 1000;
+    const end = start + ms / 1000;
+    const envelope = context.createGain();
+    envelope.gain.setValueAtTime(0.0001, start);
+    envelope.gain.exponentialRampToValueAtTime(volume, start + 0.005);
+    envelope.gain.exponentialRampToValueAtTime(0.0001, end);
+    envelope.connect(audio.gain);
+    let source;
+    if (wave === "noise") {
+      noise ??= whiteNoise(context);
+      source = context.createBufferSource();
+      source.buffer = noise;
+      source.loop = true;
+      const filter = context.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.frequency.setValueAtTime(freq, start);
+      filter.frequency.exponentialRampToValueAtTime(to, end);
+      source.connect(filter).connect(envelope);
+    } else {
+      source = context.createOscillator();
+      source.type = wave;
+      source.frequency.setValueAtTime(freq, start);
+      source.frequency.exponentialRampToValueAtTime(to, end);
+      source.connect(envelope);
+    }
+    source.start(start);
+    source.stop(end + 0.02);
+  };
 
   const changed = () => {
     for (const listener of listeners) {
@@ -167,6 +228,7 @@
       overAt = performance.now();
       changed();
     },
+    play,
     ready() {
       hopon.loaded = true;
       draw();

@@ -2447,7 +2447,7 @@ test("hopon: /hopon/v1.js is the box's Vite scaffold, a sandboxed game's module,
   );
   assert.equal(
     createHash("sha256").update(code).digest("hex"),
-    "9f6ea5d71fd30482bdc91f37b0a45995f30ef5ae7e4626af6439cfbda52e64a2"
+    "5aa96fafdc0b99b88a20dfd3c165c004849ebf59ad1e5b1575d1d54a5bbcf2f2"
   );
 });
 
