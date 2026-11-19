@@ -12,6 +12,8 @@ export default defineConfig({
     "repos/**",
     // Model-written games, frozen byte for byte as the eval's starting Revisions.
     "apps/maker/eval/revisions/**",
+    // The same games as old Drafts, and their ports as the agent writes them.
+    "apps/maker/fixtures/port/**",
     "skills-lock.json",
   ],
 });

@@ -15,9 +15,9 @@ const DESIGN = `# Moon Cat
 `;
 const READY = {
   "design.md": DESIGN,
-  "game.ts": "let speed = 1;\n",
   "music.mjs": "// a score\n",
   "tests.json": '{"expose": [], "tests": []}',
+  "vite.config.ts": "export default {};\n",
 };
 
 // verify.js's verdict on a workspace of `files`, for a build of `kind`, with the Creator's messages in
@@ -62,15 +62,26 @@ test("a complete workspace passes", () => {
   assert.deepEqual(verify(READY), { failures: [], ok: true });
 });
 
-test("a Vite game's workspace passes without a game.ts, and a workspace with neither fails", () => {
-  const vite = {
+test("an old LittleJS or plain-DOM game fails until it is ported to a Vite project, and so does no game", () => {
+  const old = {
     ...READY,
-    "game.ts": undefined,
-    "vite.config.ts": "export default {};\n",
+    "game.ts": "let speed = 1;\n",
+    "vite.config.ts": undefined,
   };
-  assert.deepEqual(verify(vite), { failures: [], ok: true });
-  assert.deepEqual(verify({ ...READY, "game.ts": undefined }), {
-    failures: ["game.ts is missing."],
+  const port =
+    'This is an old LittleJS or plain-DOM game (a game.ts and no vite.config.ts), which hopon no longer builds: port it to a Vite project first, as make-game\'s "An old game" says.';
+  assert.deepEqual(verify(old, undefined, "change"), {
+    failures: [port],
+    ok: false,
+  });
+  assert.deepEqual(verify({ ...old, "index.html": "<!doctype html>" }), {
+    failures: [port],
+    ok: false,
+  });
+  assert.deepEqual(verify({ ...READY, "vite.config.ts": undefined }), {
+    failures: [
+      "vite.config.ts is missing: a game is a Vite project, as make-game says.",
+    ],
     ok: false,
   });
 });

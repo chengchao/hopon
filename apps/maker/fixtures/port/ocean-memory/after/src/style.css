@@ -1,0 +1,115 @@
+:root {
+  --sea-top: #0a2a5e;
+  --sea-deep: #031433;
+  --sand: #e8cf94;
+  --sand-edge: #b39a5e;
+  --pearl: #fff;
+  --mint: #bdf5d0;
+  --mint-edge: #6fc79a;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--sea-deep);
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.game {
+  box-sizing: border-box;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background:
+    radial-gradient(circle at 50% 0%, #4fa3ff33, transparent 55%),
+    linear-gradient(var(--sea-top), var(--sea-deep));
+  color: #fff;
+  font:
+    20px system-ui,
+    sans-serif;
+}
+
+h1 {
+  margin: 0;
+  font-size: 28px;
+  text-shadow: 0 3px 0 #0006;
+}
+
+.info {
+  opacity: 0.9;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2.5vw;
+  width: 88vw;
+  max-width: 420px;
+}
+
+.card {
+  position: relative;
+  aspect-ratio: 1;
+  border: 0;
+  padding: 0;
+  background: none;
+  font-size: 9vw;
+  perspective: 600px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  backface-visibility: hidden;
+  transition: transform 0.25s ease-out;
+}
+
+.back {
+  background: linear-gradient(160deg, #f3dfae, var(--sand));
+  box-shadow:
+    0 3px 0 var(--sand-edge),
+    inset 0 2px 0 #fff8;
+}
+
+.front {
+  background: var(--pearl);
+  box-shadow: 0 3px 0 #9bb3d1;
+  transform: rotateY(180deg);
+}
+
+.card.up .back,
+.card.found .back {
+  transform: rotateY(-180deg);
+}
+
+.card.up .front,
+.card.found .front {
+  transform: rotateY(0deg);
+}
+
+.card.found .front {
+  background: var(--mint);
+  box-shadow: 0 3px 0 var(--mint-edge);
+  animation: pop 0.3s ease-out;
+}
+
+@keyframes pop {
+  50% {
+    transform: scale(1.12);
+  }
+}
+
+.msg {
+  min-height: 30px;
+  font-weight: 700;
+}

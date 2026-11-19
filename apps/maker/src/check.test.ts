@@ -1398,3 +1398,184 @@ test(
     assert.match(page.errors.join("\n"), /CORS|Access-Control-Allow-Origin/u);
   }
 );
+
+test(
+  "the tap that starts a round is the scaffold's: its release and click never reach the game, and the next tap's do",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(
+      box,
+      files(
+        viteGame(`hopon.testVars.ups = 0;
+hopon.testVars.clicks = 0;
+document.addEventListener("pointerup", () => { hopon.testVars.ups = Number(hopon.testVars.ups) + 1; });
+document.addEventListener("click", () => { hopon.testVars.clicks = Number(hopon.testVars.clicks) + 1; });
+const tick = () => { document.body.style.background = hopon.state === "play" ? "#123" : "#000"; requestAnimationFrame(tick); };
+requestAnimationFrame(tick);
+hopon.ready();
+`)
+      )
+    );
+
+    const verdict = await checkBuild(box, {
+      music: false,
+      tests: {
+        expose: [],
+        tests: [
+          {
+            checks: [
+              {
+                at: 100,
+                expect:
+                  "state === 'play' && vars.ups === 0 && vars.clicks === 0",
+              },
+              { at: 400, expect: "vars.ups === 1 && vars.clicks === 1" },
+            ],
+            inputs: [{ at: 200, type: "tap", x: 180, y: 500 }],
+            name: "only the tap after the start reaches the game",
+          },
+        ],
+      },
+    });
+
+    assert.ok("files" in verdict, JSON.stringify(verdict));
+  }
+);
+
+test(
+  "a frame due at a timer's instant still runs: a second of game time is 60 frames with a 100 ms timer running",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(
+      box,
+      files(
+        viteGame(`hopon.testVars.frames = 0;
+hopon.testVars.ticks = 0;
+setInterval(() => { hopon.testVars.ticks = Number(hopon.testVars.ticks) + 1; }, 100);
+const step = () => { hopon.testVars.frames = Number(hopon.testVars.frames) + 1; document.body.style.opacity = String(0.5 + (Number(hopon.testVars.frames) % 2) / 2); requestAnimationFrame(step); };
+requestAnimationFrame(step);
+hopon.ready();
+`)
+      )
+    );
+
+    const verdict = await checkBuild(box, {
+      music: false,
+      tests: {
+        expose: [],
+        tests: [
+          {
+            checks: [
+              { at: 500, expect: "vars.frames > 0" },
+              {
+                at: 1500,
+                expect:
+                  "vars.frames - prev.vars.frames >= 59 && vars.ticks - prev.vars.ticks === 10",
+              },
+            ],
+            inputs: [],
+            name: "60 frames and 10 ticks a second",
+          },
+        ],
+      },
+    });
+
+    assert.ok("files" in verdict, JSON.stringify(verdict));
+  }
+);
+
+test(
+  "a game that throws in a frame fails the check with its error, and the harness doesn't crash",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(
+      box,
+      files(
+        viteGame(`const step = () => { if (hopon.state === "play") { throw new Error("broken frame"); } requestAnimationFrame(step); };
+requestAnimationFrame(step);
+hopon.ready();
+`)
+      )
+    );
+
+    const verdict = await checkBuild(box, noMusic);
+
+    assert.ok("errors" in verdict, JSON.stringify(verdict));
+    assert.match(verdict.errors.join("\n"), /broken frame/u);
+    assert.doesNotMatch(verdict.errors.join("\n"), /page\.evaluate/u);
+  }
+);
+
+const PORT = path.join(import.meta.dirname, "../fixtures/port");
+const portFixture = (game: string, side: "before" | "after") => {
+  const dir = path.join(PORT, game, side);
+  return Object.fromEntries(
+    readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => {
+        const file = path.join(entry.parentPath, entry.name);
+        return [path.relative(dir, file), readFileSync(file, "utf-8")];
+      })
+  );
+};
+const verifyChange = async (music: boolean) => {
+  const result = await bash(
+    `node /opt/hopon/verify.js change${music ? " --had-music" : ""}`
+  );
+  return JSON.parse(result.stdout.toString()) as {
+    failures: string[];
+    ok: boolean;
+  };
+};
+
+// A LittleJS Draft with music and a plain-DOM one without, as make-game's "An old game" ports them: design.md,
+// tests.json and the music kept.
+for (const [game, engine, music] of [
+  ["fruit-catcher", "phaser", true],
+  ["ocean-memory", "react", false],
+] as const) {
+  test(
+    `an old ${game} Draft fails verify until it is ported, and its ${engine} port passes its own tests and keeps its design, tests and music`,
+    { skip, timeout: 300_000 },
+    async () => {
+      const old = portFixture(game, "before");
+      const port = portFixture(game, "after");
+      assert.equal(port["design.md"], old["design.md"]);
+      assert.equal(port["tests.json"], old["tests.json"]);
+      assert.ok(!("game.ts" in port) && "vite.config.ts" in port);
+      const tests = JSON.parse(old["tests.json"] ?? "") as Tests;
+      const score: Record<string, string> = music
+        ? { "music.py": MUSIC_PY }
+        : {};
+
+      await restore(box, files({ ...old, ...score }));
+
+      const refused = await verifyChange(music);
+      assert.equal(refused.ok, false);
+      assert.match(refused.failures.join("\n"), /port it to a Vite project/u);
+      const original = await checkBuild(box, { music, tests });
+      assert.ok("files" in original, JSON.stringify(original));
+
+      await restore(box, files({ ...port, ...score }));
+
+      assert.deepEqual(await verifyChange(music), { failures: [], ok: true });
+      const ported = await checkBuild(box, { music, tests });
+      assert.ok("files" in ported, JSON.stringify(ported));
+      assert.deepEqual(ported.testErrors, []);
+      assert.match(
+        text(ported.files["index.html"]),
+        music
+          ? /<script src="\/hopon\/v1\.js" data-music="music\.opus"><\/script>/u
+          : /<script src="\/hopon\/v1\.js"><\/script>/u
+      );
+      assert.equal("music.opus" in ported.files, music);
+      const source = await unpacked(ported.files[SOURCE_TAR]);
+      assert.deepEqual(
+        Object.keys(source).toSorted(),
+        Object.keys({ ...port, ...score }).toSorted()
+      );
+      assert.equal(source["design.md"], old["design.md"]);
+      assert.equal(source["tests.json"], old["tests.json"]);
+    }
+  );
+}

@@ -1,0 +1,257 @@
+{
+  "expose": [
+    {
+      "name": "faceUp",
+      "means": "cards face up that are not yet part of a found pair"
+    },
+    {
+      "name": "moves",
+      "means": "moves made: one per two cards turned up"
+    },
+    {
+      "name": "found",
+      "means": "pairs found"
+    }
+  ],
+  "tests": [
+    {
+      "name": "tapping a card turns it face up",
+      "inputs": [
+        {
+          "at": 200,
+          "type": "tap",
+          "x": 58,
+          "y": 219
+        }
+      ],
+      "checks": [
+        {
+          "at": 100,
+          "expect": "vars.faceUp === 0 && vars.moves === 0"
+        },
+        {
+          "at": 400,
+          "expect": "vars.faceUp === 1 && vars.moves === 0"
+        }
+      ]
+    },
+    {
+      "name": "a second card makes a move, and a pair that does not match turns back down",
+      "inputs": [
+        {
+          "at": 200,
+          "type": "tap",
+          "x": 139,
+          "y": 300
+        },
+        {
+          "at": 500,
+          "type": "tap",
+          "x": 221,
+          "y": 382
+        }
+      ],
+      "checks": [
+        {
+          "at": 700,
+          "expect": "vars.moves === 1"
+        },
+        {
+          "at": 1800,
+          "expect": "vars.moves === 1 && vars.faceUp === 0 && score === vars.found"
+        }
+      ]
+    },
+    {
+      "name": "turning the first card with each other card finds its pair, which scores",
+      "inputs": [
+        {
+          "at": 100,
+          "type": "tap",
+          "x": 58,
+          "y": 219
+        },
+        {
+          "at": 400,
+          "type": "tap",
+          "x": 139,
+          "y": 219
+        },
+        {
+          "at": 1300,
+          "type": "tap",
+          "x": 58,
+          "y": 219
+        },
+        {
+          "at": 1600,
+          "type": "tap",
+          "x": 221,
+          "y": 219
+        },
+        {
+          "at": 2500,
+          "type": "tap",
+          "x": 58,
+          "y": 219
+        },
+        {
+          "at": 2800,
+          "type": "tap",
+          "x": 302,
+          "y": 219
+        },
+        {
+          "at": 3700,
+          "type": "tap",
+          "x": 58,
+          "y": 219
+        },
+        {
+          "at": 4000,
+          "type": "tap",
+          "x": 58,
+          "y": 300
+        },
+        {
+          "at": 4900,
+          "type": "tap",
+          "x": 58,
+          "y": 219
+        },
+        {
+          "at": 5200,
+          "type": "tap",
+          "x": 139,
+          "y": 300
+        },
+        {
+          "at": 6100,
+          "type": "tap",
+          "x": 58,
+          "y": 219
+        },
+        {
+          "at": 6400,
+          "type": "tap",
+          "x": 221,
+          "y": 300
+        },
+        {
+          "at": 7300,
+          "type": "tap",
+          "x": 58,
+          "y": 219
+        },
+        {
+          "at": 7600,
+          "type": "tap",
+          "x": 302,
+          "y": 300
+        },
+        {
+          "at": 8500,
+          "type": "tap",
+          "x": 58,
+          "y": 219
+        },
+        {
+          "at": 8800,
+          "type": "tap",
+          "x": 58,
+          "y": 382
+        },
+        {
+          "at": 9700,
+          "type": "tap",
+          "x": 58,
+          "y": 219
+        },
+        {
+          "at": 10000,
+          "type": "tap",
+          "x": 139,
+          "y": 382
+        },
+        {
+          "at": 10900,
+          "type": "tap",
+          "x": 58,
+          "y": 219
+        },
+        {
+          "at": 11200,
+          "type": "tap",
+          "x": 221,
+          "y": 382
+        },
+        {
+          "at": 12100,
+          "type": "tap",
+          "x": 58,
+          "y": 219
+        },
+        {
+          "at": 12400,
+          "type": "tap",
+          "x": 302,
+          "y": 382
+        },
+        {
+          "at": 13300,
+          "type": "tap",
+          "x": 58,
+          "y": 219
+        },
+        {
+          "at": 13600,
+          "type": "tap",
+          "x": 58,
+          "y": 463
+        },
+        {
+          "at": 14500,
+          "type": "tap",
+          "x": 58,
+          "y": 219
+        },
+        {
+          "at": 14800,
+          "type": "tap",
+          "x": 139,
+          "y": 463
+        },
+        {
+          "at": 15700,
+          "type": "tap",
+          "x": 58,
+          "y": 219
+        },
+        {
+          "at": 16000,
+          "type": "tap",
+          "x": 221,
+          "y": 463
+        },
+        {
+          "at": 16900,
+          "type": "tap",
+          "x": 58,
+          "y": 219
+        },
+        {
+          "at": 17200,
+          "type": "tap",
+          "x": 302,
+          "y": 463
+        }
+      ],
+      "checks": [
+        {
+          "at": 18100,
+          "expect": "score >= 1 && score === vars.found && vars.moves >= 1"
+        }
+      ]
+    }
+  ]
+}

@@ -8,6 +8,7 @@ pre-commit:
     - "repos/**"
     - "spikes/**"
     - "apps/maker/eval/revisions/**"
+    - "apps/maker/fixtures/port/**"
     - "**/migrations/**"
     - "**/worker-configuration.d.ts"
     - "skills-lock.json"

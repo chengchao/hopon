@@ -39,12 +39,13 @@ import {
   Semaphore,
 } from "effect";
 
-import DOM_GAMES from "../../maker/agent-home/.agents/skills/dom-games/SKILL.md";
-import LITTLEJS from "../../maker/agent-home/.agents/skills/littlejs-api/SKILL.md";
 import MAKE_GAME from "../../maker/agent-home/.agents/skills/make-game/SKILL.md";
 import MUSIC_SF2 from "../../maker/agent-home/.agents/skills/music-sf2/SKILL.md";
 import MUSIC_SYNTH from "../../maker/agent-home/.agents/skills/music-synth/SKILL.md";
-import ZZFX from "../../maker/agent-home/.agents/skills/zzfx/SKILL.md";
+import PHASER_GAMES from "../../maker/agent-home/.agents/skills/phaser-games/SKILL.md";
+import R3F_GAMES from "../../maker/agent-home/.agents/skills/r3f-games/SKILL.md";
+import REACT_GAMES from "../../maker/agent-home/.agents/skills/react-games/SKILL.md";
+import SOUND_EFFECTS from "../../maker/agent-home/.agents/skills/sound-effects/SKILL.md";
 import {
   boxPlaytest,
   DEADLINE_MS,
@@ -124,18 +125,24 @@ const SILENT_MS = 60_000;
 const PROMPT = renderPrompt(MAKER, MAKER_VALUES);
 
 const SKILLS = fromManifest({
-  fingerprint: "v10",
+  fingerprint: "v11",
   id: "hopon-maker",
-  skills: [MAKE_GAME, DOM_GAMES, LITTLEJS, MUSIC_SF2, MUSIC_SYNTH, ZZFX].map(
-    (raw) => {
-      const parsed = parseSkillMarkdown(raw);
-      if (!parsed) {
-        throw new Error(`a SKILL.md without frontmatter: ${raw.slice(0, 80)}`);
-      }
-      const { body, description, name } = parsed;
-      return { body, description, name };
+  skills: [
+    MAKE_GAME,
+    PHASER_GAMES,
+    R3F_GAMES,
+    REACT_GAMES,
+    SOUND_EFFECTS,
+    MUSIC_SF2,
+    MUSIC_SYNTH,
+  ].map((raw) => {
+    const parsed = parseSkillMarkdown(raw);
+    if (!parsed) {
+      throw new Error(`a SKILL.md without frontmatter: ${raw.slice(0, 80)}`);
     }
-  ),
+    const { body, description, name } = parsed;
+    return { body, description, name };
+  }),
 });
 
 const Input = Type.Object({
