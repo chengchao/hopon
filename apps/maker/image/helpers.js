@@ -398,7 +398,12 @@ const prepare = async () => {
   const { chromium } = await import("playwright-core");
   const browser = await chromium
     .connect(BROWSER_SERVER, { timeout: 2000 })
-    .catch(() => chromium.launch());
+    // Off the box (the eval's final checks on a Mac), headless Chromium makes no WebGL context without SwiftShader.
+    .catch(() =>
+      chromium.launch({
+        args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
+      })
+    );
   return {
     browser,
     files,
@@ -429,6 +434,17 @@ const fakeTime = ({ seed, frameMs }) => {
   let ids = 0;
   const timers = new Map();
   let frames = new Map();
+  // Kept rather than derived from `now`: a timer due at a frame's instant would otherwise skip that frame.
+  let nextFrameAt = frameMs;
+  // A callback's throw is the page's error, as in a browser, not the harness's.
+  // oxlint-disable-next-line unicorn/consistent-function-scoping -- fakeTime runs in the page as one function
+  const run = (fn, ...args) => {
+    try {
+      fn(...args);
+    } catch (error) {
+      reportError(error);
+    }
+  };
   const RealDate = Date;
   globalThis.Date = class extends RealDate {
     constructor(...args) {
@@ -482,7 +498,7 @@ const fakeTime = ({ seed, frameMs }) => {
   globalThis.__hoponAdvance = async (ms) => {
     const end = now + ms;
     for (;;) {
-      const frameAt = (Math.floor(now / frameMs + 1e-9) + 1) * frameMs;
+      const frameAt = nextFrameAt;
       let next = null;
       for (const [id, timer] of timers) {
         if (
@@ -502,15 +518,16 @@ const fakeTime = ({ seed, frameMs }) => {
           timer.at += timer.every;
         }
         if (typeof timer.fn === "function") {
-          timer.fn(...timer.args);
+          run(timer.fn, ...timer.args);
           await settle();
         }
       } else if (frameAt <= end) {
         now = frameAt;
+        nextFrameAt += frameMs;
         const due = frames;
         frames = new Map();
         for (const fn of due.values()) {
-          fn(now);
+          run(fn, now);
           await settle();
         }
       } else {

@@ -38,7 +38,7 @@
   const overlay = document.createElement("div");
   overlay.id = "hopon-overlay";
   overlay.style.cssText =
-    "position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;box-sizing:border-box;background:rgba(0,0,0,.55);color:#fff;font:600 24px system-ui,sans-serif;text-align:center;touch-action:none;user-select:none;-webkit-user-select:none";
+    "position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;box-sizing:border-box;background:radial-gradient(circle at 50% 40%,rgba(0,0,0,.35),rgba(0,0,0,.72));color:#fff;font:700 24px system-ui,sans-serif;text-align:center;text-shadow:0 2px 6px rgba(0,0,0,.6);touch-action:none;user-select:none;-webkit-user-select:none";
   const draw = () => {
     overlay.style.display = hopon.state === "play" ? "none" : "flex";
     const lines =
@@ -161,6 +161,21 @@
     },
   });
 
+  // The tap that starts a round is the overlay's alone. The overlay hides on its press, so the release, and the
+  // touchend and click after it, would land on the game: each is swallowed once, before the game's own listeners. A
+  // browser may not send them all, so the next press ends the swallowing too.
+  const RELEASES = ["pointerup", "touchend", "mouseup", "click"];
+  // oxlint-disable-next-line unicorn/consistent-function-scoping -- the IIFE keeps it off the page's globals
+  const swallow = (event) => {
+    event.stopImmediatePropagation();
+    removeEventListener(event.type, swallow, { capture: true });
+  };
+  const disarm = () => {
+    for (const type of RELEASES) {
+      removeEventListener(type, swallow, { capture: true });
+    }
+  };
+  addEventListener("pointerdown", disarm, { capture: true });
   overlay.addEventListener("pointerdown", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -169,6 +184,9 @@
       performance.now() - overAt < RESTART_AFTER_MS
     ) {
       return;
+    }
+    for (const type of RELEASES) {
+      addEventListener(type, swallow, { capture: true });
     }
     hopon.start();
   });
