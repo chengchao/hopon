@@ -207,9 +207,9 @@ const ADDONS = "/node_modules/three/examples/";
 
 // A Vite game: `vite build` with the game's vite.config.ts under the harness's settings, which win. Each vendored
 // library stays an import of its /vendor/ URL, and the page and its files land flat in dist/, as the Worker serves a
-// game's files by name. A library's code built into the game anyway (a deep import such as react/jsx-dev-runtime)
-// would be a second copy beside the shared one, so it fails. The music goes next to the page, named on the scaffold's
-// tag as in the other pages.
+// game's files by name. An imported file stays a file, however small, since the CSP refuses fetch() a data: URL. A
+// library's code built into the game anyway (a deep import such as react/jsx-dev-runtime) would be a second copy beside
+// the shared one, so it fails. The music goes next to the page, named on the scaffold's tag as in the other pages.
 const emitVite = async () => {
   const { build } = await import("vite");
   const { paths } = vendor();
@@ -218,6 +218,7 @@ const emitVite = async () => {
     base: "./",
     build: {
       assetsDir: "",
+      assetsInlineLimit: 0,
       emptyOutDir: true,
       outDir: DIST,
       rolldownOptions: { external: Object.keys(paths), output: { paths } },
@@ -470,6 +471,7 @@ const fakeTime = ({ seed, frameMs }) => {
   // The microtasks a callback queued run before the next timer or frame, as in a browser: React schedules a render from
   // one. A few turns of the microtask queue, not a real task, so no real event (a load, a fetch) lands mid-advance; a
   // real task per callback also made 10 s of a Phaser game's play take a fifth longer.
+  // Eight turns are a margin, not a bound: a longer await chain between callbacks runs a few ticks late.
   /* oxlint-disable no-await-in-loop, unicorn/consistent-function-scoping -- one callback after another, in game time;
      fakeTime runs in the page as one function */
   const settle = async () => {

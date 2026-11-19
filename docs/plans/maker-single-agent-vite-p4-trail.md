@@ -103,6 +103,7 @@ Each fix has a docker case in `check.test.ts` (or a Worker test) that was red on
 - **A game's own `.wav` and `.mid` stay in its source.** `NOT_SOURCE` names `./music.wav`, `./raw.wav` and `./song.mid` at the top only, so `src/sfx/hit.wav` is packed and restored. `.wav` is importable again (esbuild's loaders, `assets.d.ts`), as are `.glb` and `.gltf` (Vite's `assetsInclude`, which Vite's known asset types lack) and a Vite game's `*.wasm?url`. The Worker and the playtest type them `audio/wav`, `model/gltf-binary`, `model/gltf+json` and `application/wasm`; `.wasm` and `.gltf` go out gzipped.
 - **`maker.test.js`.** The duplicated `assert.equal(indexAt, 1)` is gone, and the Vite and vendor cases sit before the Allowance's comment and helper, still ahead of the Allowance case.
 - **Not changed, seen on the way.** Vite inlines an imported asset under 4 KB as a `data:` URL. `GAME_CSP`'s `connect-src 'self'` doesn't allow `data:`, so a loader that fetches a small inlined model or sound would fail (inferred from the CSP, not run). The new case keeps its files over 4 KB.
+- **Small assets ship as files.** Run in the box since: a `.wav` under 4 KB read with `fetch()` and a `.glb` with three's `GLTFLoader` fail with "Fetch API cannot load data:… Refused to connect". The harness's build sets `assetsInlineLimit: 0`, so each import is a file in `dist/`, and the CSP stays as it is. A docker case is red on `ec15e3a`'s image and green on this head's.
 
 ### Verify
 
