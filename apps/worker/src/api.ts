@@ -809,18 +809,22 @@ app.get(`/api/drafts/${DRAFT}/preview`, (c) =>
 );
 
 // A game's file from R2, a Draft's or a published Game's, typed by its extension and under the game CSP. It's signed
-// out, so `no-store` comes from the middleware. Text goes out gzipped; the rest is compressed already.
+// out, so `no-store` comes from the middleware. Text and WebAssembly go out gzipped; images, sounds, models
+// and fonts don't.
 const FILE_TYPES: Record<string, string> = {
   css: "text/css; charset=utf-8",
+  gltf: "model/gltf+json",
   html: "text/html; charset=utf-8",
   js: "text/javascript; charset=utf-8",
   json: "application/json",
   mjs: "text/javascript; charset=utf-8",
   svg: "image/svg+xml",
   txt: "text/plain; charset=utf-8",
+  wasm: "application/wasm",
 };
 const BINARY_TYPES: Record<string, string> = {
   gif: "image/gif",
+  glb: "model/gltf-binary",
   jpeg: "image/jpeg",
   jpg: "image/jpeg",
   mp3: "audio/mpeg",
@@ -829,6 +833,7 @@ const BINARY_TYPES: Record<string, string> = {
   png: "image/png",
   tgz: "application/gzip",
   ttf: "font/ttf",
+  wav: "audio/wav",
   webp: "image/webp",
   woff2: "font/woff2",
 };

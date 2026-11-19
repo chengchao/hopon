@@ -1,5 +1,5 @@
 import { Canvas, useFrame } from "@react-three/fiber";
-import { useRef } from "react";
+import { useRef, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import { Color } from "three";
 import type { Mesh } from "three";
@@ -22,11 +22,22 @@ const Spinner = () => {
   );
 };
 
-const root = document.querySelector("#root");
-if (root) {
-  createRoot(root).render(
-    <Canvas onCreated={() => hopon.ready()}>
+const paused = () => hopon.paused;
+
+// The feed's pause stops r3f's loop.
+const Game = () => {
+  const away = useSyncExternalStore(hopon.subscribe, paused);
+  return (
+    <Canvas
+      frameloop={away ? "never" : "always"}
+      onCreated={() => hopon.ready()}
+    >
       <Spinner />
     </Canvas>
   );
+};
+
+const root = document.querySelector("#root");
+if (root) {
+  createRoot(root).render(<Game />);
 }

@@ -1,16 +1,23 @@
 // The Maker (ADR 0006) under `wrangler dev`, through the Worker's routes and a WebSocket, as the app sees it: one
 // agent that chats, writes the game in the box and publishes it with `build`. test/maker/worker.ts fakes the model (a
 // message "build <script>" plays that script) and the sandbox, so this needs no key, no Docker and no model call. The
-// sandbox's commands are read back through the fake.
+// sandbox's commands are read back through the fake. The Worker runs on workerd here, so what the runtime does to a
+// response (its Content-Encoding) is tested here too.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { mkdtempSync, writeFileSync } from "node:fs";
+import http from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { buffer } from "node:stream/consumers";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
+import { gunzipSync } from "node:zlib";
+
+import { FROZEN } from "../../maker/vendor/build.ts";
 
 const API = new URL("..", import.meta.url).pathname;
 const CONFIG = new URL("maker/wrangler.jsonc", import.meta.url).pathname;
@@ -834,6 +841,70 @@ test(
     fallback.close();
   }
 );
+
+test(
+  "a Vite game publishes as its source and its flat dist/, and its preview serves the module its page loads",
+  { timeout: 120_000 },
+  async (t) => {
+    await migrate();
+    await serve(t);
+    const { id: draft } = await json("/api/drafts", { text: "build vite" });
+    const socket = await connect(draft);
+    await socket.until("the build's end", over);
+
+    assert.equal(await lastReply(draft), published(1));
+    assert.deepEqual(await sourceFile(draft, "src/main.tsx"), [
+      1,
+      "hopon.ready();\n",
+    ]);
+    const [packedAt, , packed] = await revisionFile(draft, "source.tgz");
+    assert.equal(packedAt, 1);
+    assert.deepEqual(Object.keys(JSON.parse(packed)).toSorted(), [
+      "design.md",
+      "index.html",
+      "music.mjs",
+      "src/main.tsx",
+      "tests.json",
+      "vite.config.ts",
+    ]);
+    const [indexAt, , index] = await revisionFile(draft, "index.html");
+    assert.equal(indexAt, 1);
+    assert.match(
+      index,
+      /<script src="\/hopon\/v1\.js" data-music="music\.opus"><\/script><script type="module" crossorigin src="\.\/index-B1x2\.js">/u
+    );
+    const page = await previewUrl(draft);
+    const module = await fetch(page.replace(/index\.html$/u, "index-B1x2.js"));
+    assert.equal(module.status, 200);
+    assert.match(module.headers.get("Content-Type"), /^text\/javascript/u);
+    assert.equal(module.headers.get("Access-Control-Allow-Origin"), "*");
+    assert.equal(await module.text(), "hopon.ready();");
+    socket.close();
+  }
+);
+
+// The response's bytes as the network carries them: node:http doesn't decode a Content-Encoding, as fetch does.
+const raw = async (route, headers) => {
+  const [response] = await once(
+    http.get(`${ORIGIN}${route}`, { headers }),
+    "response"
+  );
+  return { body: await buffer(response), headers: response.headers };
+};
+
+test("vendor under workerd: each /vendor/ file reaches a client that takes gzip gzipped once, as its frozen code", async (t) => {
+  await serve(t);
+  for (const { route, sha256 } of FROZEN) {
+    // oxlint-disable-next-line no-await-in-loop -- one file at a time
+    const { body, headers } = await raw(route, { "Accept-Encoding": "gzip" });
+    assert.equal(headers["content-encoding"], "gzip", route);
+    assert.equal(
+      createHash("sha256").update(gunzipSync(body)).digest("hex"),
+      sha256,
+      `${route} unzips once to its frozen code`
+    );
+  }
+});
 
 // A message the Allowance refuses before any model call.
 const refused = async (route, text) => {

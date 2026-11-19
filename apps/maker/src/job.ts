@@ -135,15 +135,16 @@ const HOME = "/home/user";
 export const SOURCE_TAR = "source.tgz";
 export const MUSIC_FILE = "music.opus";
 const DIST = "dist";
-// The source is the workspace but what the playtest builds, the scores' renders (music.wav and a skeleton's raw.wav and
-// song.mid), the music, the screenshots, and the Worker's .hopon/ (the Creator's messages, written again on every run).
-// It's packed the same way every time (names sorted, times and owners zeroed, gzip without a name or a time), so the
-// same source is the same bytes.
+// The source is the workspace but what the playtest builds, the scores' renders at its top (music.wav and a skeleton's
+// raw.wav and song.mid; a game's own .wav or .mid elsewhere stays), the music, the screenshots, and the Worker's .hopon/
+// (the Creator's messages, written again on every run). It's packed the same way every time (names sorted, times and
+// owners zeroed, gzip without a name or a time), so the same source is the same bytes.
 const NOT_SOURCE = [
   "./dist",
   "./game.js",
-  "*.wav",
-  "*.mid",
+  "./music.wav",
+  "./raw.wav",
+  "./song.mid",
   `./${MUSIC_FILE}`,
   "./playtest-*.png",
   "./node_modules",

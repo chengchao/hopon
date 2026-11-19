@@ -8,14 +8,24 @@ const QUESTIONS = [
 
 const snapshot = () => `${hopon.state}:${hopon.score}`;
 
+// Each option a full-width band 120 px apart from y = 200, where a test taps it.
+const option = (index: number) =>
+  ({
+    height: 100,
+    left: 0,
+    position: "absolute",
+    top: 200 + index * 120,
+    width: "100%",
+  }) as const;
+
 const Quiz = () => {
   useSyncExternalStore(hopon.subscribe, snapshot);
   const [index, setIndex] = useState(0);
   useEffect(() => hopon.ready(), []);
   const { answer, options, question } = QUESTIONS[index % QUESTIONS.length];
   hopon.testVars.question = question;
-  const choose = (option: string) => {
-    if (option === answer) {
+  const choose = (choice: string) => {
+    if (choice === answer) {
       hopon.addScore();
     }
     if (index + 1 === QUESTIONS.length) {
@@ -26,9 +36,14 @@ const Quiz = () => {
   return (
     <main style={{ color: "#fff", font: "24px system-ui", padding: 24 }}>
       <h1>{question}</h1>
-      {options.map((option) => (
-        <button key={option} onClick={() => choose(option)} type="button">
-          {option}
+      {options.map((choice, at) => (
+        <button
+          key={choice}
+          onClick={() => choose(choice)}
+          style={option(at)}
+          type="button"
+        >
+          {choice}
         </button>
       ))}
     </main>

@@ -3,15 +3,17 @@
 // with HOPON_BOX_IMAGE set, e.g. to one of `docker images cloudflare-dev/maker-box-*` after `pnpm -F worker dev:maker`.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { buffer } from "node:stream/consumers";
 import { after, before, test } from "node:test";
+import { gunzipSync } from "node:zlib";
 
 import { DOM_SRC, GAME_CSP, littlejsHtml } from "../image/page.ts";
-import { FROZEN, servedCode, vendorPaths } from "../vendor/build.ts";
+import { FROZEN, vendorPaths } from "../vendor/build.ts";
 import {
   boxPlaytest,
   checkBuild,
@@ -474,6 +476,8 @@ test(
       "design.md": "# Fruit\nMusic: a harbour town",
       "game.ts": GAME,
       "levels/one.ts": "export const one = 1;\n",
+      "sfx/hit.wav": "RIFF",
+      "sfx/theme.mid": "MThd",
       "tests.json": '{"expose":[],"tests":[]}',
     };
     await restore(box, files(source));
@@ -495,7 +499,7 @@ test(
     const listed = await bash("find . -type f | sort");
     assert.equal(
       listed.stdout.toString(),
-      "./design.md\n./game.ts\n./levels/one.ts\n./tests.json\n"
+      "./design.md\n./game.ts\n./levels/one.ts\n./sfx/hit.wav\n./sfx/theme.mid\n./tests.json\n"
     );
     const owner = await bash("stat -c %u game.ts");
     assert.equal(owner.stdout.toString().trim(), "1001");
@@ -703,7 +707,7 @@ test(
 );
 
 test(
-  "a page that loads /hopon/v1.js fails the check: no Revision loads the scaffold before it is frozen",
+  "a plain-DOM page that loads /hopon/v1.js fails the check: only a Vite game's page gets that scaffold",
   { skip, timeout: 300_000 },
   async () => {
     await restore(
@@ -823,39 +827,27 @@ test(
   }
 );
 
-// Vite games (ADR 0007): one fixture per engine, built in the box with no network, its libraries left as imports of
-// the Worker's vendor files, then loaded with those files under the game CSP.
+// Vite games (ADR 0007): one fixture per engine, a workspace as the agent will leave it, checked and playtested by the
+// harness in the box with no network, its libraries left as imports of the Worker's vendor files.
 const VITE = path.join(import.meta.dirname, "../fixtures/vite");
-const VITE_CONFIG = `import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
-
-const paths = ${JSON.stringify(vendorPaths())};
-
-export default defineConfig({
-  base: "./",
-  build: { rolldownOptions: { external: Object.keys(paths), output: { paths } } },
-  plugins: [react()],
-});
-`;
-const VITE_TSCONFIG = JSON.stringify({
-  compilerOptions: {
-    jsx: "react-jsx",
-    lib: ["es2022", "dom"],
-    module: "esnext",
-    moduleResolution: "bundler",
-    noEmit: true,
-    skipLibCheck: true,
-    strict: true,
-    target: "es2022",
-    types: [],
-  },
-  include: ["src", "/opt/hopon/hopon-v1.d.ts"],
-});
+const fixture = (engine: string) => {
+  const dir = path.join(VITE, engine);
+  return Object.fromEntries(
+    readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => {
+        const file = path.join(entry.parentPath, entry.name);
+        return [path.relative(dir, file), readFileSync(file, "utf-8")];
+      })
+  );
+};
+const fixtureTests = (engine: string): Tests =>
+  JSON.parse(fixture(engine)["tests.json"] ?? "");
 // A built game's own files, gzipped, stay under this (the plan's rule): the libraries aren't in them.
 const OWN_GZIP_BYTES = 10_000;
 
 interface Loaded {
-  after: { overlay: string; state: string; testVars: Record<string, unknown> };
+  after: { overlay: string; state: string };
   before: { origin: string; overlay: string; state: string };
   errors: string[];
   loaded: boolean;
@@ -863,44 +855,16 @@ interface Loaded {
   requested: string[];
 }
 
-const writeVite = async () => {
-  for (const { route } of FROZEN) {
-    // oxlint-disable-next-line no-await-in-loop -- one file at a time
-    await box.write(`/tmp${route}`, servedCode(route) ?? "");
-  }
+// The built game in the workspace's dist/, served by a real HTTP server in the box as the Worker serves it.
+const loadVite = async (...flags: string[]) => {
   await box.write(
     "/tmp/load.mjs",
     readFileSync(path.join(VITE, "load.mjs"), "utf-8")
   );
-};
-
-const buildVite = async (engine: string) => {
-  const dir = `/tmp/vite/${engine}`;
-  const fixture = path.join(VITE, engine);
-  for (const file of readdirSync(fixture, {
-    recursive: true,
-    withFileTypes: true,
-  })) {
-    if (file.isFile()) {
-      const local = path.join(file.parentPath, file.name);
-      // oxlint-disable-next-line no-await-in-loop -- one file at a time
-      await box.write(
-        `${dir}/${path.relative(fixture, local)}`,
-        readFileSync(local, "utf-8")
-      );
-    }
-  }
-  await box.write(`${dir}/vite.config.ts`, VITE_CONFIG);
-  await box.write(`${dir}/tsconfig.json`, VITE_TSCONFIG);
-  return { built: await bash(`cd ${dir} && tsc -p . && vite build`), dir };
-};
-
-const loadVite = async (dir: string, ...flags: string[]) => {
   const result = await box.exec([
     "/usr/local/bin/node",
     "/tmp/load.mjs",
-    `${dir}/dist`,
-    "/tmp/vendor",
+    `${WORKSPACE}/dist`,
     GAME_CSP,
     ...flags,
   ]);
@@ -908,32 +872,96 @@ const loadVite = async (dir: string, ...flags: string[]) => {
   return JSON.parse(result.stdout) as Loaded;
 };
 
+test(
+  "the box's playtest serves the vendor files the Worker serves, byte for byte",
+  { skip, timeout: 300_000 },
+  async () => {
+    const image = JSON.parse(await box.read("/opt/hopon/vendor.json")) as {
+      files: Record<string, string>;
+      paths: Record<string, string>;
+    };
+
+    assert.deepEqual(
+      Object.fromEntries(
+        Object.entries(image.files).map(([route, gzip]) => [
+          route,
+          createHash("sha256")
+            .update(gunzipSync(Buffer.from(gzip, "base64")))
+            .digest("hex"),
+        ])
+      ),
+      Object.fromEntries(FROZEN.map(({ route, sha256 }) => [route, sha256]))
+    );
+    assert.deepEqual(image.paths, vendorPaths());
+  }
+);
+
 for (const [engine, libs] of [
   ["quiz", ["react", "react-dom"]],
   ["phaser", ["phaser"]],
   ["r3f", ["r3f", "react", "react-dom", "three"]],
 ] as const) {
   test(
-    `a ${engine} game builds offline on the vendor files, and plays on them under the game CSP`,
+    `a ${engine} Vite game passes the check offline on the vendor files: its tests, a 10 s playtest, and a Revision of its source and its flat dist/`,
     { skip, timeout: 300_000 },
-    async () => {
-      await writeVite();
+    async (t) => {
+      const source = fixture(engine);
+      // The quiz has music, which its page names on the scaffold's tag.
+      const music = engine === "quiz";
+      await restore(
+        box,
+        files(music ? { ...source, "music.py": MUSIC_PY } : source)
+      );
+      await bash(
+        "mkdir -p dist node_modules/.vite && echo old > dist/old.js && echo cache > node_modules/.vite/deps.json"
+      );
 
-      const { built, dir } = await buildVite(engine);
+      const verdict = await checkBuild(box, {
+        music,
+        tests: fixtureTests(engine),
+      });
 
-      assert.equal(built.exitCode, 0, `${built.stdout}${built.stderr}`);
-      const page = await loadVite(dir);
+      assert.ok("files" in verdict, JSON.stringify(verdict));
+      assert.deepEqual(verdict.testErrors, []);
+      const names = Object.keys(verdict.files).toSorted();
+      assert.deepEqual(
+        names.map((name) => name.replace(/^index-[\w-]+\.js$/u, "index-*.js")),
+        [
+          "index-*.js",
+          "index.html",
+          ...(music ? ["music.opus"] : []),
+          SOURCE_TAR,
+        ],
+        "the page, its one module and the music, flat"
+      );
+      assert.deepEqual(
+        Object.keys(await unpacked(verdict.files[SOURCE_TAR])).toSorted(),
+        Object.keys(music ? { ...source, "music.py": "" } : source).toSorted(),
+        "source.tgz holds the source, with no dist/ and no node_modules/"
+      );
+      assert.match(
+        text(verdict.files["index.html"]),
+        music
+          ? /<script src="\/hopon\/v1\.js" data-music="music\.opus"><\/script>/u
+          : /<script src="\/hopon\/v1\.js"><\/script>/u
+      );
+
+      const played = await boxPlaytest(box, "random");
+
+      assert.equal(played.ok, true, JSON.stringify(played));
+      t.diagnostic(`playtest timings ${JSON.stringify(played.timings)}`);
+      const page = await loadVite();
       assert.deepEqual(page.errors, []);
       assert.ok(page.loaded, "the game called hopon.ready()");
       assert.equal(page.before.origin, "null", "the CSP sandboxes the page");
       assert.equal(page.before.state, "start");
-      assert.equal(page.before.overlay, "flex");
       assert.equal(page.after.state, "play");
       assert.equal(page.after.overlay, "none");
       assert.ok(
         page.ownGzipBytes < OWN_GZIP_BYTES,
         `own files ${page.ownGzipBytes} B gzip`
       );
+      t.diagnostic(`own files ${page.ownGzipBytes} B gzip`);
       assert.deepEqual(
         page.requested
           .filter((requested) => requested.startsWith("/vendor/"))
@@ -944,27 +972,427 @@ for (const [engine, libs] of [
         libs,
         "each library once, from its vendor file"
       );
-      if (engine === "quiz") {
-        assert.equal(page.after.testVars.question, "2 + 2");
-      } else {
-        assert.ok(
-          Number(page.after.testVars.frames) > 0,
-          "the engine's loop ran"
-        );
-      }
     }
   );
 }
 
 test(
+  "a Vite game whose loop ignores the feed's pause fails its pause test",
+  { skip, timeout: 300_000 },
+  async () => {
+    const source = fixture("phaser");
+    await restore(
+      box,
+      files({
+        ...source,
+        "src/main.tsx": (source["src/main.tsx"] ?? "").replace(
+          "hopon.subscribe(follow);",
+          ""
+        ),
+      })
+    );
+
+    const verdict = await checkBuild(box, {
+      music: false,
+      tests: fixtureTests("phaser"),
+    });
+
+    assert.ok("errors" in verdict, JSON.stringify(verdict));
+    assert.match(
+      verdict.errors.join("\n"),
+      /at 1700 ms, expected vars\.frames === prev\.vars\.frames/u
+    );
+  }
+);
+
+test(
+  "a Vite game that builds a vendored library into itself fails the check, and so does one that never calls hopon.ready()",
+  { skip, timeout: 300_000 },
+  async () => {
+    const source = fixture("quiz");
+    const main = source["src/main.tsx"] ?? "";
+    await restore(
+      box,
+      files({
+        ...source,
+        "src/main.tsx": `import "react/jsx-dev-runtime";\n${main}`,
+      })
+    );
+
+    const bundled = await checkBuild(box, noMusic);
+
+    assert.ok("errors" in bundled, JSON.stringify(bundled));
+    assert.match(
+      bundled.errors.join("\n"),
+      /react built into the game: import only react, react\/jsx-runtime/u
+    );
+
+    await restore(
+      box,
+      files({
+        ...source,
+        "src/main.tsx": main
+          .replace("useEffect(() => hopon.ready(), []);", "")
+          .replace("useEffect, ", ""),
+      })
+    );
+
+    const tests = fixtureTests("quiz");
+    const began = Date.now();
+
+    const silent = await checkBuild(box, {
+      music: false,
+      tests: {
+        ...tests,
+        tests: [1, 2, 3].flatMap(() =>
+          tests.tests.map((one, n) => ({ ...one, name: `${one.name} ${n}` }))
+        ),
+      },
+    });
+
+    const tookMs = Date.now() - began;
+    assert.ok("errors" in silent, JSON.stringify(silent));
+    assert.deepEqual(
+      silent.errors.filter((error) => error.includes("hopon.ready()")),
+      [
+        'test "the game runs": the game didn\'t call hopon.ready() within 10 s of loading',
+      ]
+    );
+    assert.ok(
+      tookMs < 25_000,
+      `a game that never loads fails once, not once per test: ${tookMs} ms`
+    );
+  }
+);
+
+// A Vite game on the quiz's page, config and tsconfig, with its own src/main.tsx and files.
+const viteGame = (main: string, more: Record<string, string> = {}) => ({
+  ...fixture("quiz"),
+  "src/main.tsx": main,
+  ...more,
+});
+
+// A React game that counts on a timer every 100 ms or on every animation frame: the count it renders is vars.shown,
+// the count itself vars.counted, and vars.behind the most counts the screen was behind at a tick, which a browser
+// renders in between.
+const counter = (start: string, stop: string) =>
+  viteGame(`import { useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
+
+let counted = 0;
+let rendered = 0;
+hopon.testVars.behind = 0;
+const Counter = () => {
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    hopon.ready();
+    const tick = () => {
+      hopon.testVars.behind = Math.max(Number(hopon.testVars.behind), counted - rendered);
+      counted += 1;
+      hopon.testVars.counted = counted;
+      setShown(counted);
+    };
+    ${start}
+    return () => ${stop};
+  }, []);
+  rendered = shown;
+  hopon.testVars.shown = shown;
+  return <p style={{ color: "#fff" }}>{shown}</p>;
+};
+
+const root = document.querySelector("#root");
+if (root) {
+  createRoot(root).render(<Counter />);
+}
+`);
+
+for (const [on, start, stop] of [
+  ["a timer", "const id = setInterval(tick, 100);", "clearInterval(id)"],
+  [
+    "an animation frame",
+    "let id = requestAnimationFrame(function step() { tick(); id = requestAnimationFrame(step); });",
+    "cancelAnimationFrame(id)",
+  ],
+] as const) {
+  test(
+    `a React game's state set on ${on} renders on the tests' fake clock`,
+    { skip, timeout: 300_000 },
+    async () => {
+      await restore(box, files(counter(start, stop)));
+
+      const verdict = await checkBuild(box, {
+        music: false,
+        tests: {
+          expose: [],
+          tests: [
+            {
+              checks: [250, 1000, 1050, 1730, 3000].map((at) => ({
+                at,
+                expect:
+                  "vars.counted > 1 && vars.behind === 0 && vars.shown === vars.counted",
+              })),
+              inputs: [],
+              name: "the count on screen is the count",
+            },
+          ],
+        },
+      });
+
+      assert.ok("files" in verdict, JSON.stringify(verdict));
+    }
+  );
+}
+
+const PUB_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="gold"/></svg>';
+const loadsPub = (src: string) =>
+  viteGame(
+    `const img = new Image();
+img.onload = () => {
+  hopon.testVars.width = img.naturalWidth;
+  hopon.ready();
+};
+img.src = "${src}";
+`,
+    { "public/pub.svg": PUB_SVG }
+  );
+const pubTests: Tests = {
+  expose: [],
+  tests: [
+    {
+      checks: [{ at: 100, expect: "vars.width === 10" }],
+      inputs: [],
+      name: "the picture loads",
+    },
+  ],
+};
+
+test(
+  "a Vite game plays under a path as on the phone: a file by its absolute path fails the check, and by a relative one passes",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(box, files(loadsPub("/pub.svg")));
+
+    const absolute = await checkBuild(box, { music: false, tests: pubTests });
+
+    assert.ok("errors" in absolute, JSON.stringify(absolute));
+    assert.match(
+      absolute.errors.join("\n"),
+      /the game didn.t call hopon\.ready\(\)/u
+    );
+
+    await restore(box, files(loadsPub("./pub.svg")));
+
+    const relative = await checkBuild(box, { music: false, tests: pubTests });
+
+    assert.ok("files" in relative, JSON.stringify(relative));
+    assert.ok("pub.svg" in relative.files);
+  }
+);
+
+test(
+  "a Vite game's own .wav and .glb stay in its source and are served typed, as the Worker serves them",
+  { skip, timeout: 300_000 },
+  async () => {
+    // Over Vite's 4 KB inline limit, so each is a file of its own.
+    const big = "x".repeat(5000);
+    await restore(
+      box,
+      files(
+        viteGame(
+          `import hit from "./sfx/hit.wav";
+import ship from "./ship.glb";
+
+Promise.all(
+  [hit, ship].map(async (url) => (await fetch(url)).headers.get("content-type"))
+).then((types) => {
+  hopon.testVars.types = types.join();
+  hopon.ready();
+});
+`,
+          { "src/sfx/hit.wav": `RIFF${big}`, "src/ship.glb": `glTF${big}` }
+        )
+      )
+    );
+
+    const verdict = await checkBuild(box, {
+      music: false,
+      tests: {
+        expose: [],
+        tests: [
+          {
+            checks: [
+              {
+                at: 100,
+                expect: "vars.types === 'audio/wav,model/gltf-binary'",
+              },
+            ],
+            inputs: [],
+            name: "the sound and the model are served typed",
+          },
+        ],
+      },
+    });
+
+    assert.ok("files" in verdict, JSON.stringify(verdict));
+    assert.ok(
+      Object.keys(verdict.files).some((name) => /^hit-[\w-]+\.wav$/u.test(name))
+    );
+    const source = await unpacked(verdict.files[SOURCE_TAR]);
+    assert.equal(source["src/sfx/hit.wav"], `RIFF${big}`);
+  }
+);
+
+// The smallest .glb three's GLTFLoader parses: its header and a JSON chunk with an empty scene.
+const GLB_JSON = '{"asset":{"version":"2.0"},"scenes":[{}],"scene":0}'.padEnd(
+  56
+);
+const u32 = (n: number) => String.fromCodePoint(n, 0, 0, 0);
+const TINY_GLB = `glTF${u32(2)}${u32(20 + GLB_JSON.length)}${u32(GLB_JSON.length)}JSON${GLB_JSON}`;
+
+test(
+  "a Vite game's .wav and .glb under 4 KB load as on the phone, from files in dist/, not data: URLs its CSP refuses",
+  { skip, timeout: 300_000 },
+  async () => {
+    const wav = `RIFF${"x".repeat(100)}`;
+    await restore(
+      box,
+      files(
+        viteGame(
+          `import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+
+import hit from "./sfx/hit.wav";
+import ship from "./ship.glb";
+
+Promise.all([
+  fetch(hit).then(async (response) => (await response.arrayBuffer()).byteLength),
+  new GLTFLoader().loadAsync(ship).then((gltf) => gltf.scenes.length),
+]).then(
+  ([bytes, scenes]) => {
+    hopon.testVars.loaded = \`\${bytes} \${scenes}\`;
+    hopon.ready();
+  },
+  (error: unknown) => {
+    hopon.testVars.loaded = String(error);
+    hopon.ready();
+  }
+);
+`,
+          { "src/sfx/hit.wav": wav, "src/ship.glb": TINY_GLB }
+        )
+      )
+    );
+
+    const verdict = await checkBuild(box, {
+      music: false,
+      tests: {
+        expose: [],
+        tests: [
+          {
+            checks: [{ at: 100, expect: `vars.loaded === '${wav.length} 1'` }],
+            inputs: [],
+            name: "the sound and the model load",
+          },
+        ],
+      },
+    });
+
+    assert.ok("files" in verdict, JSON.stringify(verdict));
+    const names = Object.keys(verdict.files);
+    assert.ok(
+      names.some((name) => /^hit-[\w-]+\.wav$/u.test(name)) &&
+        names.some((name) => /^ship-[\w-]+\.glb$/u.test(name)),
+      names.join(",")
+    );
+  }
+);
+
+test(
+  "a Vite game whose build writes into a folder of dist/ fails the check, as the Worker serves only its top",
+  { skip, timeout: 300_000 },
+  async () => {
+    const source = fixture("quiz");
+    await restore(
+      box,
+      files({
+        ...source,
+        "src/main.tsx": `import "./style.css";\n${source["src/main.tsx"] ?? ""}`,
+        "src/style.css": "h1 { color: gold; }\n",
+        "vite.config.ts": `import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  build: { rolldownOptions: { output: { assetFileNames: "assets/[name]-[hash][extname]" } } },
+  plugins: [react()],
+});
+`,
+      })
+    );
+
+    const verdict = await checkBuild(box, noMusic);
+
+    assert.ok("errors" in verdict, JSON.stringify(verdict));
+    assert.match(verdict.errors.join("\n"), /status of 404/u);
+  }
+);
+
+test(
+  "a Vite game's build error names its file and line, with no terminal colours",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(
+      box,
+      files(
+        viteGame(
+          'import missing from "./missing.png";\n\nhopon.testVars.src = missing;\nhopon.ready();\n'
+        )
+      )
+    );
+
+    const verdict = await checkBuild(box, noMusic);
+
+    assert.ok("errors" in verdict, JSON.stringify(verdict));
+    const [error = ""] = verdict.errors;
+    assert.match(
+      error,
+      /^src\/main\.tsx:1: .*Could not resolve '\.\/missing\.png'/u
+    );
+    assert.ok(!error.includes("\u001B"), "no terminal colour codes");
+  }
+);
+
+test(
+  "a Vite game whose tsconfig.json typechecks no file fails the check",
+  { skip, timeout: 300_000 },
+  async () => {
+    const source = fixture("quiz");
+    await restore(
+      box,
+      files({
+        ...source,
+        "src/main.tsx": `const wrong: number = "one";\n${source["src/main.tsx"] ?? ""}`,
+        "tsconfig.app.json": source["tsconfig.json"] ?? "",
+        "tsconfig.json":
+          '{ "files": [], "references": [{ "path": "./tsconfig.app.json" }] }\n',
+      })
+    );
+
+    const verdict = await checkBuild(box, noMusic);
+
+    assert.ok("errors" in verdict, JSON.stringify(verdict));
+    assert.match(verdict.errors.join("\n"), /^tsconfig\.json: .*no files/mu);
+  }
+);
+
+test(
   "a sandboxed game's page can't load the vendor files without Access-Control-Allow-Origin",
   { skip, timeout: 300_000 },
   async () => {
-    await writeVite();
-    const { built, dir } = await buildVite("quiz");
-    assert.equal(built.exitCode, 0, `${built.stdout}${built.stderr}`);
+    await restore(box, files(fixture("quiz")));
+    const verdict = await checkBuild(box, noMusic);
+    assert.ok("files" in verdict, JSON.stringify(verdict));
 
-    const page = await loadVite(dir, "--no-cors");
+    const page = await loadVite("--no-cors");
 
     assert.equal(page.loaded, false);
     assert.match(page.errors.join("\n"), /CORS|Access-Control-Allow-Origin/u);

@@ -1,0 +1,18 @@
+{
+  "expose": [{ "means": "frames the game's loop has run", "name": "frames" }],
+  "tests": [
+    {
+      "checks": [
+        { "at": 500, "expect": "vars.frames > 0" },
+        { "at": 700, "expect": "vars.frames > 0" },
+        { "at": 1700, "expect": "vars.frames === prev.vars.frames" },
+        { "at": 2800, "expect": "vars.frames > prev.vars.frames" }
+      ],
+      "inputs": [
+        { "at": 600, "type": "pause" },
+        { "at": 1800, "type": "resume" }
+      ],
+      "name": "the loop runs, and stops while the feed has it paused"
+    }
+  ]
+}
