@@ -1243,6 +1243,70 @@ Promise.all(
   }
 );
 
+// The smallest .glb three's GLTFLoader parses: its header and a JSON chunk with an empty scene.
+const GLB_JSON = '{"asset":{"version":"2.0"},"scenes":[{}],"scene":0}'.padEnd(
+  56
+);
+const u32 = (n: number) => String.fromCodePoint(n, 0, 0, 0);
+const TINY_GLB = `glTF${u32(2)}${u32(20 + GLB_JSON.length)}${u32(GLB_JSON.length)}JSON${GLB_JSON}`;
+
+test(
+  "a Vite game's .wav and .glb under 4 KB load as on the phone, from files in dist/, not data: URLs its CSP refuses",
+  { skip, timeout: 300_000 },
+  async () => {
+    const wav = `RIFF${"x".repeat(100)}`;
+    await restore(
+      box,
+      files(
+        viteGame(
+          `import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+
+import hit from "./sfx/hit.wav";
+import ship from "./ship.glb";
+
+Promise.all([
+  fetch(hit).then(async (response) => (await response.arrayBuffer()).byteLength),
+  new GLTFLoader().loadAsync(ship).then((gltf) => gltf.scenes.length),
+]).then(
+  ([bytes, scenes]) => {
+    hopon.testVars.loaded = \`\${bytes} \${scenes}\`;
+    hopon.ready();
+  },
+  (error: unknown) => {
+    hopon.testVars.loaded = String(error);
+    hopon.ready();
+  }
+);
+`,
+          { "src/sfx/hit.wav": wav, "src/ship.glb": TINY_GLB }
+        )
+      )
+    );
+
+    const verdict = await checkBuild(box, {
+      music: false,
+      tests: {
+        expose: [],
+        tests: [
+          {
+            checks: [{ at: 100, expect: `vars.loaded === '${wav.length} 1'` }],
+            inputs: [],
+            name: "the sound and the model load",
+          },
+        ],
+      },
+    });
+
+    assert.ok("files" in verdict, JSON.stringify(verdict));
+    const names = Object.keys(verdict.files);
+    assert.ok(
+      names.some((name) => /^hit-[\w-]+\.wav$/u.test(name)) &&
+        names.some((name) => /^ship-[\w-]+\.glb$/u.test(name)),
+      names.join(",")
+    );
+  }
+);
+
 test(
   "a Vite game whose build writes into a folder of dist/ fails the check, as the Worker serves only its top",
   { skip, timeout: 300_000 },
