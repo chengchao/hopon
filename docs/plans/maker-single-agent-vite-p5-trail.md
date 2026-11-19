@@ -1,0 +1,40 @@
+# P5 trail: the agent writes Phaser, r3f and React games
+
+The decisions behind P5 of `maker-single-agent-vite.md`, in order. Each names what it changed and its evidence, marked measured, inferred or guess. The decision itself is ADR 0008.
+
+## Build
+
+- **Branch.** `claude/p5-engines` from `origin/main` at `5238d5d`. The trunk side of the sweeps is `claude/p5-trunk`: main plus one file, `p5-trunk.md`, at the root, since the Deploy workflow ignores `docs/**`.
+- **Three engine skills, written in parallel, each from one shared contract.** The contract fixed the project layout, the scaffold's state machine (the overlay owns `start` to `play`; the game gates on `hopon.state`, resets on a new round, follows `hopon.paused`), and the nine things each skill covers. Each skill's example game was written as files, run green in the box, then assembled into the SKILL.md by a script, so the example in the skill is the code that ran (measured: each was extracted back out and diffed). After review, one script extracts all three examples from the committed skills and runs them on the head's image: each playtest and each test suite is green (measured).
+- **Phaser traps the skill names were each reproduced against 4.2.1.** `setTintFill(color)`, `sprite.preFX`, `particles.createEmitter`, `Phaser.Math.PI2`, `gravity: { y }` without `x`, and plain objects for `fillPoints` fail the typecheck. `fillGradientStyle` inside `generateTexture` draws nothing, since the canvas renderer skips gradient fills. `textures.createCanvas` with a key in use logs an error, which turns a restart red. A scene with no key is `"default"`. The start tap reaches Phaser as neither pointerdown nor pointerup (all measured).
+- **Phaser draws at the phone's pixel ratio, in CSS px.** The first version drew at a fixed 720 × 1280 for sharp phones, so a test's taps were half the game's coordinates, and 9 s of play took 23 to 27 s in the box against 8 to 11 s at 360 (measured). The game is now the viewport times `ZOOM = min(devicePixelRatio, 2)` with the camera zoomed by `ZOOM`, textures drawn on canvases at `ZOOM`× with the source's resolution set, and text with `resolution: ZOOM`. World units are CSS px. The skill's example went from 7.4 to 8.0 s of wall time for its random script to 2.9 to 3.1 s (measured, load average 4 to 5). A render with `deviceScaleFactor: 2` is sharp (measured, screenshots in the scratchpad). `setTrim` with `source.resolution` isn't a documented Phaser API, so an upgrade must re-run the probe (inferred).
+- **r3f.** three 0.187 removed `PCFSoftShadowMap`, which r3f's `shadows` asks for, and warns; the skill uses `shadows="percentage"`. Changing `frameloop` resets r3f's clock. Instanced meshes and points compute their bounds once, so moving ones need `frustumCulled={false}`. A camera shake that draws from `Math.random` every frame makes runs differ, since the load moves a varying number of frames (all measured or read in source with line numbers in the agent's report). The example renders with `antialias: false`, Lambert and Basic materials for scenery and blob shadows: each saved 3.5 to 5.5 CPU-s of a 10 s playtest in the box's software GPU (measured). 10 s of its play took 4.7 to 4.8 s of wall time (measured, load 4).
+- **React.** State set from timers renders on the fake clock (P4b's fixes hold). CSS runs on real time, so tests read state. The overlay takes the start tap even from an `onClick` on a full-screen button beneath it (measured).
+- **`sound-effects` replaces `zzfx`.** `src/sfx.ts` is a small Web Audio synth: oscillators and filtered noise with a pitch glide and an envelope, made at the first touch, silent when muted, suspended when paused. A probe game that plays two sounds on a right answer passes its test with no console error (measured).
+- **make-game picks the engine and ports old Drafts.** "An old game" says how the agent knows (a `game.ts` and no `vite.config.ts`; with an `index.html` it is plain DOM) and what it keeps. The performance section lost its LittleJS lines. `maker.md` didn't change: the engine is the skill's business (ADR 0006).
+- **verify.js refuses an unported game.** A `game.ts` without `vite.config.ts` fails with a sentence that points to "An old game", so `build` can't publish one (measured, `verify.test.js`).
+- **The box keeps building `game.ts`.** It lets the agent play an old Draft before porting it, and the harness's two dozen P3 cases use a LittleJS fixture. Deviation from the plan, which said to delete the LittleJS d.ts and engine path: the parent brief asked to keep what checks old Drafts.
+- **Port fixtures.** `apps/maker/fixtures/port/{fruit-catcher,ocean-memory}/{before,after}`: the eval's LittleJS and plain-DOM games with a `design.md` and `tests.json` written from their code, and their Phaser and React ports. `before/game.ts` gained only the `testVars` lines its tests read. Both are in the lint ignores, as the eval's revisions are: they stand for code the agent writes.
+
+## The scaffold, before it froze
+
+- **The start tap's release reached the game.** The overlay hides on `pointerdown`, so the `pointerup`, `touchend` and `click` after it landed on the game. An r3f game that steered on `pointerup` changed lane when the round started (measured by the r3f author). The overlay now swallows each of them once, and the next press ends the swallowing for a browser that didn't send one. Case: "the tap that starts a round is the scaffold's", red on the P4b image (`ups` 1 and `clicks` 1 after the start tap) and green on the head's (measured).
+- **The overlay has a soft vignette and a text shadow.** The start and end screenshots are what the judge sees first and last.
+- **Rejected: a `hopon.round` counter, a pause attribute on `<html>`, and an over-screen line.** Each would save a game a few lines; the skills' examples work without them. Not worth a frozen API without a measured need.
+- **Frozen.** `HOPON_V1_SHA256` in `runtime.ts`; `build:runtime` refuses a change; the Worker serves it `immutable` and its test checks the sha256.
+
+## The playtest's clock
+
+- **A timer at a frame's instant skipped the frame.** The next frame was derived from `now`, which the timer had just set. A 100 ms timer cost one frame in six: 50 frames and 10 ticks in a second of game time, against 60 (measured on the P4b image). The clock now keeps the next frame's time. Case: "a frame due at a timer's instant still runs", red on the P4b image and green on the head's.
+- **A throw in a frame crashed the harness.** The page's exception propagated out of `page.evaluate`, so `playtest.js` died with a Node stack. Each callback now runs in a `try` that reports the error to the page. Case: "a game that throws in a frame fails the check with its error", red then green (measured).
+
+## The eval
+
+- **The judge reads `.tsx` and `.jsx`.** `CODE` in `judge.ts` matched `.ts`, `.css` and `.html`, so a React game's components never reached it.
+- **The final checks build Vite games on the Mac.** `preview.ts` runs the box's `playtest.js` in `apps/maker/out/`. A React game's typecheck failed there with "Could not find a declaration file for module 'react'" (measured): the types were only in the image. `apps/maker` now has `@types/react`, `@types/react-dom` and `@types/three` at the image's versions. pnpm re-resolved the optional `@types/react-dom` peer of two mobile packages in the lockfile; `pnpm check` is green with it (measured).
+- **An r3f game had no WebGL on the Mac.** Headless Chromium there made no WebGL context ("Could not create a WebGL context ... SwiftShader"). The fallback launch now passes `--use-angle=swiftshader --enable-unsafe-swiftshader`; the r3f example then played green with score 7 (measured). The box connects to its own Chromium server and is unchanged.
+- **Not changed.** `previewHtml` builds `preview.html` only for a page with `game.js`, so the blind page has no playable copy of a Vite game.
+
+## Verify
+
+See the PR. The trunk and head sweep commands are in the report to the operator.
