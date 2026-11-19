@@ -377,8 +377,14 @@ export const restore = async (box: Box, source: Source) => {
 const sameBytes = (a: Uint8Array, b: Uint8Array) =>
   a.length === b.length && a.every((byte, index) => byte === b[index]);
 
+const tooBig = (bytes: number) =>
+  `the built game is ${(bytes / 1e6).toFixed(1)} MB, over ${MAX_BUILT_BYTES / 1e6} MB: make its images and sounds smaller`;
+const sourceTooBig = (bytes: number) =>
+  `the workspace's source is ${(bytes / 1e6).toFixed(1)} MB packed, over ${MAX_SOURCE_BYTES / 1e6} MB: delete what the game doesn't use`;
+
 // dist/'s files, or why the page can't load them. Their sizes come from the box first, so an oversized game is never
-// read into the Worker.
+// read into the Worker, and what was read is measured again, since a file can grow in between. Names end in NUL, the
+// one byte a file name can't hold.
 const readBuilt = async (box: Box) => {
   const listed = await run(box, [
     FIND,
@@ -388,10 +394,10 @@ const readBuilt = async (box: Box) => {
     "-type",
     "f",
     "-printf",
-    "%s %f\\n",
+    "%s %f\\0",
   ]);
   const files = listed
-    .split("\n")
+    .split("\0")
     .filter(Boolean)
     .map((line) => {
       const space = line.indexOf(" ");
@@ -408,16 +414,18 @@ const readBuilt = async (box: Box) => {
   }
   const bytes = files.reduce((total, { size }) => total + size, 0);
   if (bytes > MAX_BUILT_BYTES) {
-    return `the built game is ${(bytes / 1e6).toFixed(1)} MB, over ${MAX_BUILT_BYTES / 1e6} MB: make its images and sounds smaller`;
+    return tooBig(bytes);
   }
-  return Object.fromEntries(
-    await Promise.all(
-      files.map(
-        async ({ name }) =>
-          [name, await box.readBytes(`${WORKSPACE}/${DIST}/${name}`)] as const
-      )
+  const read = await Promise.all(
+    files.map(
+      async ({ name }) =>
+        [name, await box.readBytes(`${WORKSPACE}/${DIST}/${name}`)] as const
     )
   );
+  const readBytes = read.reduce((total, [, data]) => total + data.length, 0);
+  return readBytes > MAX_BUILT_BYTES
+    ? tooBig(readBytes)
+    : Object.fromEntries(read);
 };
 
 // The harness's check of a build (ADR 0006), at each `build` call: the source packed, the box swept and given back only
@@ -439,13 +447,12 @@ export const checkBuild = async (
     return { errors: [CHANGED] };
   }
   if (size > MAX_SOURCE_BYTES) {
-    return {
-      errors: [
-        `the workspace's source is ${(size / 1e6).toFixed(1)} MB packed, over ${MAX_SOURCE_BYTES / 1e6} MB: delete what the game doesn't use`,
-      ],
-    };
+    return { errors: [sourceTooBig(size)] };
   }
   const tar = await box.readBytes(PACKED);
+  if (tar.length > MAX_SOURCE_BYTES) {
+    return { errors: [sourceTooBig(tar.length)] };
+  }
   await unpackSource(box, tar);
   const scores = await Promise.all(
     SCORE_FILES.map((file) => readText(box, file))

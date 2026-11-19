@@ -50,6 +50,7 @@ import DOM_V1 from "./runtime/dom-v1.json" with { type: "json" };
 import DOM_V2 from "./runtime/dom-v2.json" with { type: "json" };
 import DOM_V3 from "./runtime/dom-v3.json" with { type: "json" };
 import DOM_V4 from "./runtime/dom-v4.json" with { type: "json" };
+import HOPON_V1 from "./runtime/hopon-v1.json" with { type: "json" };
 import RUNTIME_V2 from "./runtime/v2.json" with { type: "json" };
 import RUNTIME_V3 from "./runtime/v3.json" with { type: "json" };
 import RUNTIME_V4 from "./runtime/v4.json" with { type: "json" };
@@ -72,6 +73,11 @@ import {
   spend,
   week,
 } from "./storage.ts";
+import PHASER_4_2_1 from "./vendor/phaser-4.2.1.json" with { type: "json" };
+import R3F_9_8_2 from "./vendor/r3f-9.8.2.json" with { type: "json" };
+import REACT_19_3_1 from "./vendor/react-19.3.1.json" with { type: "json" };
+import REACT_DOM_19_3_1 from "./vendor/react-dom-19.3.1.json" with { type: "json" };
+import THREE_0_187_0 from "./vendor/three-0.187.0.json" with { type: "json" };
 
 // Set only by `pnpm api:offline` (`--var`), so it isn't in wrangler.jsonc or the generated `Env`. Secrets go in
 // wrangler.jsonc's `secrets.required`, never here: `wrangler dev` loads only those (test/declared.test.js checks).
@@ -421,24 +427,62 @@ const gzipped = (c: HonoContext<AppEnv>): Record<string, string> =>
     ? { "Content-Encoding": "gzip", Vary: "Accept-Encoding" }
     : {};
 
-// The scaffolds games load, built by apps/maker (src/runtime.ts): the LittleJS runtime and the plain-DOM scaffold.
-// Versioned by path, so they're cached for good.
-for (const [route, code] of [
-  ["/runtime/v2.js", RUNTIME_V2],
-  ["/runtime/v3.js", RUNTIME_V3],
-  ["/runtime/v4.js", RUNTIME_V4],
-  ["/dom/v1.js", DOM_V1],
-  ["/dom/v2.js", DOM_V2],
-  ["/dom/v3.js", DOM_V3],
-  ["/dom/v4.js", DOM_V4],
+// A script a game's page loads. The page is sandboxed, so its origin is opaque and its module imports are cross-origin.
+const SCRIPT = {
+  "Access-Control-Allow-Origin": "*",
+  "Content-Type": "text/javascript; charset=utf-8",
+};
+const IMMUTABLE = "public, max-age=31536000, immutable";
+
+// The scaffolds games load, built by apps/maker (src/runtime.ts): the LittleJS runtime, the plain-DOM scaffold and the
+// Vite games' scaffold. Versioned by path, so they're cached for good once frozen.
+for (const [route, code, cache] of [
+  ["/runtime/v2.js", RUNTIME_V2, IMMUTABLE],
+  ["/runtime/v3.js", RUNTIME_V3, IMMUTABLE],
+  ["/runtime/v4.js", RUNTIME_V4, IMMUTABLE],
+  ["/dom/v1.js", DOM_V1, IMMUTABLE],
+  ["/dom/v2.js", DOM_V2, IMMUTABLE],
+  ["/dom/v3.js", DOM_V3, IMMUTABLE],
+  ["/dom/v4.js", DOM_V4, IMMUTABLE],
+  // Frozen when the first Game uses it (P5). Until then a page revalidates it, so a change reaches every page.
+  ["/hopon/v1.js", HOPON_V1, "no-cache"],
 ]) {
   app.get(route, (c) =>
-    c.body(code, 200, {
-      "Cache-Control": "public, max-age=31536000, immutable",
-      "Content-Type": "text/javascript; charset=utf-8",
-      ...gzipped(c),
-    })
+    c.body(code, 200, { ...SCRIPT, "Cache-Control": cache, ...gzipped(c) })
   );
+}
+
+// The libraries Vite games import (apps/maker/vendor/build.ts, ADR 0007), frozen and committed gzipped. A client that
+// takes gzip gets those bytes as they are (encodeBody "manual" keeps the runtime from compressing them again), any
+// other the code unzipped.
+const fromBase64 = (base64: string) =>
+  Uint8Array.from(atob(base64), (char) => char.codePointAt(0) ?? 0);
+for (const [route, base64] of [
+  ["/vendor/react-19.3.1.js", REACT_19_3_1],
+  ["/vendor/react-dom-19.3.1.js", REACT_DOM_19_3_1],
+  ["/vendor/phaser-4.2.1.js", PHASER_4_2_1],
+  ["/vendor/three-0.187.0.js", THREE_0_187_0],
+  ["/vendor/r3f-9.8.2.js", R3F_9_8_2],
+]) {
+  let gzip: Uint8Array | undefined;
+  app.get(route, (c) => {
+    gzip ??= fromBase64(base64);
+    const headers = {
+      ...SCRIPT,
+      "Cache-Control": IMMUTABLE,
+      Vary: "Accept-Encoding",
+    };
+    if (c.req.header("Accept-Encoding")?.includes("gzip")) {
+      return new Response(gzip, {
+        encodeBody: "manual",
+        headers: { ...headers, "Content-Encoding": "gzip" },
+      });
+    }
+    return new Response(
+      new Blob([gzip]).stream().pipeThrough(new DecompressionStream("gzip")),
+      { headers }
+    );
+  });
 }
 
 // Public: the app asks on launch whether its build is too old for this API (`AppVersion`).

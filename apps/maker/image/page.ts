@@ -4,6 +4,10 @@
 // The served scaffolds, at the same paths in the box's playtest and the Worker (apps/maker/src/runtime.ts copies them).
 export const RUNTIME_SRC = "/runtime/v4.js";
 export const DOM_SRC = "/dom/v4.js";
+// The served-runtime CSP: scripts, styles, images, fonts, media and fetches from the game's own origin only. The box's
+// playtest serves a game under it (helpers.js), and check.test.ts loads the Vite fixtures under it.
+export const GAME_CSP =
+  "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts";
 // A Revision from before source.tgz loads its music as this script, which sets hopon.music to the Opus loop in base64.
 const MUSIC_SCRIPT = `<script src="music.js"></script>`;
 

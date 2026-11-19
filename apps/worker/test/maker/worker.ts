@@ -493,7 +493,7 @@ export class Maker extends RealMaker {
       }
       return paths()
         .filter((p) => p.startsWith("/workspace/dist/"))
-        .map((p) => `${size(p)} ${p.slice("/workspace/dist/".length)}\n`)
+        .map((p) => `${size(p)} ${p.slice("/workspace/dist/".length)}\0`)
         .join("");
     };
     const fakeExec = (command: string): Exec => {

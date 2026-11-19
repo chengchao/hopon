@@ -6,7 +6,8 @@
     "eval": "node --env-file-if-exists=.env eval/run.ts",
     "build:runtime": "node src/runtime.ts",
     "test": "node --test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:vendor": "node vendor/build.ts"
   },
   "dependencies": {
     "@earendil-works/chord": "1.4.0",
@@ -16,9 +17,16 @@
     "effect": "4.0.1"
   },
   "devDependencies": {
+    "@react-three/fiber": "9.8.2",
+    "@vitejs/plugin-react": "6.3.0",
     "esbuild": "0.28.2",
     "littlejsengine": "1.26.1",
+    "phaser": "4.2.1",
     "playwright-core": "1.58.2",
-    "typescript": "6.0.3"
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "three": "0.187.0",
+    "typescript": "6.0.3",
+    "vite": "8.3.8"
   }
 }

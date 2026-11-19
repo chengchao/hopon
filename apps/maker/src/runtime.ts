@@ -1,8 +1,10 @@
 // Builds image/runtime.js: LittleJS core (release mode: no debug, editor, 3D or plugins) plus the hopon scaffold, and
 // image/littlejs.d.ts: the engine's declarations narrowed to what that build defines, as globals, plus hopon's.
 // The same bytes go to the Worker, which serves them as /runtime/v4.js, so the box's playtest runs what the phone runs.
-// It also copies the plain-DOM scaffold (image/dom.js) to the Worker as is, served as /dom/v4.js. The versions before
-// them stay frozen in their JSON for the Games that load them (FROZEN).
+// It also copies the plain-DOM scaffold (image/dom.js) to the Worker as is, served as /dom/v4.js, and the Vite games'
+// scaffold (image/hopon.js), served as /hopon/v1.js. The versions before them stay frozen in their JSON for the Games
+// that load them (FROZEN). /hopon/v1.js freezes when the first Game uses it (P5); until then no page the box's playtest
+// passes can load it.
 // `pnpm -F maker build:runtime` rebuilds; runtime.test.ts fails when the Worker's copy is stale.
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -44,6 +46,7 @@ const served = (file: string) =>
   path.join(import.meta.dirname, "..", "..", "worker", "src", "runtime", file);
 export const SERVED_PATH = served("v4.json");
 export const DOM_SERVED_PATH = served("dom-v4.json");
+export const HOPON_SERVED_PATH = served("hopon-v1.json");
 
 // One top-level declaration of the engine's d.ts: its JSDoc plus the declaration, which ends where the next one starts.
 const DECLARATION =
@@ -142,6 +145,8 @@ export const assertUnchanged = (
 
 export const domScaffold = () =>
   readFileSync(path.join(image, "dom.js"), "utf-8");
+export const hoponScaffold = () =>
+  readFileSync(path.join(image, "hopon.js"), "utf-8");
 
 const runtimeSource = () =>
   [
@@ -162,9 +167,11 @@ export const buildRuntime = async () => {
   assertUnchanged(code, V4_SHA256, "/runtime/v4.js");
   const dom = domScaffold();
   assertUnchanged(dom, DOM_V4_SHA256, "/dom/v4.js");
+  const vite = hoponScaffold();
   writeFileSync(RUNTIME_PATH, code);
   writeFileSync(SERVED_PATH, `${JSON.stringify(code)}\n`);
   writeFileSync(DOM_SERVED_PATH, `${JSON.stringify(dom)}\n`);
+  writeFileSync(HOPON_SERVED_PATH, `${JSON.stringify(vite)}\n`);
   writeFileSync(
     DTS_PATH,
     `${narrowDeclarations(source)}\n${readFileSync(path.join(image, "hopon.d.ts"), "utf-8")}`
