@@ -13,7 +13,12 @@ interface Block {
   // A toolCall's.
   id?: string;
   name?: string;
-  arguments?: { title?: string; command?: string; path?: string };
+  arguments?: {
+    command?: string;
+    description?: string;
+    path?: string;
+    title?: string;
+  };
 }
 interface Message {
   role: string;
@@ -350,18 +355,22 @@ const startedAt = (entries: Entry[]) =>
   entries.findLast((entry) => entry.kind === "pi.user")?.model?.[0]?.timestamp;
 
 // `now` runs the turn's timer.
-// The title each build call gave its game, by call id.
-const buildTitles = (entries: Entry[]) => {
-  const titles = new Map<string, string | undefined>();
+// The title and description each build call gave its game, by call id.
+interface Named {
+  description?: string;
+  title?: string;
+}
+const buildNames = (entries: Entry[]) => {
+  const names = new Map<string, Named>();
   for (const entry of entries) {
     const content = entry.model?.[0]?.content;
     for (const block of Array.isArray(content) ? content : []) {
       if (block.type === "toolCall" && block.name === "build") {
-        titles.set(block.id ?? "", block.arguments?.title);
+        names.set(block.id ?? "", block.arguments ?? {});
       }
     }
   }
-  return titles;
+  return names;
 };
 
 // A build that answered with its summary: it wrote a Revision. A refusal or failure is an error result.
@@ -393,10 +402,10 @@ export const chatView = (chat: Chat, now: number) => {
     }
   }
   // Only the latest Revision is kept (no Undo), so only its card plays.
+  const game = latest && buildNames(chat.entries).get(latest.callId ?? "");
   if (latest) {
-    const title = buildTitles(chat.entries).get(latest.callId ?? "");
     latest.row.play = true;
-    latest.row.text = t.make.tapToPlay(title ?? t.make.yourGame);
+    latest.row.text = t.make.tapToPlay(game?.title ?? t.make.yourGame);
   }
   const streaming = textOf(chat.partial);
   if (streaming) {
@@ -430,7 +439,7 @@ export const chatView = (chat: Chat, now: number) => {
       who: "app",
     });
   }
-  return { rows, running: chat.running };
+  return { game, rows, running: chat.running };
 };
 
 // The Revision a preview URL serves: /drafts/<id>/<n>/<exp>.<sig>/index.html (apps/worker/src/api.ts).
@@ -440,6 +449,20 @@ const previewRevision = (url: string) =>
 // Play's "New version · Reload" pill (#148): the newest preview URL is of a later Revision than the one playing.
 export const newRevision = (playing: string | undefined, fresh: string) =>
   playing !== undefined && previewRevision(playing) !== previewRevision(fresh);
+
+// The open Draft as its chat shows it: its latest card's title and description. The Draft list reads them from D1 only
+// on opening and at a turn_done the socket may have missed, so it can still say New game under a game card.
+export const shownDraft = (
+  draft: DraftSummary | null | undefined,
+  game: Named | undefined
+) =>
+  draft && game?.title
+    ? {
+        ...draft,
+        description: game.description ?? draft.description,
+        title: game.title,
+      }
+    : draft;
 
 // Publish (#119): once the Draft has a Revision, which the Maker titles, and no turn is running.
 export const publishable = (
