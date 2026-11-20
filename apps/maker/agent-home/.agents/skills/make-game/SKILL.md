@@ -53,7 +53,7 @@ A Draft from before Vite games has a `game.ts` and no `vite.config.ts`. hopon no
 7. **Verify.** In the workspace, run `node /opt/hopon/verify.js new` for a new game, or `node /opt/hopon/verify.js change` for a change (`node /opt/hopon/verify.js change --had-music` when the game had a `music.mjs` or `music.py`). It checks that `design.md`, `tests.json`, the game and, for a new game or a game that had music, the music are all there. Fix everything it lists.
 8. **Check with the advisor.** When verify passes, run your tests with `node /opt/hopon/playtest.js tests` until they pass, then ask the advisor for the done check (see Asking the advisor). Fix what it finds that the Creator asked for or that is broken, then playtest and run the tests again.
 9. **Build.** When the done check is answered and the game does what the Creator asked, call `build` with the game's title, a one-line description for the feed (what the game is and how to play it), kind, and whether it has music. `build` runs verify again, typechecks the game, renders the music, plays the game for a second and runs `tests.json`. If it fails, fix what it lists, playtest, and call `build` again.
-10. **Reply.** When `build` succeeds, stop working and write your one reply to the Creator, under 40 words: the game's name and how to play it, not every rule. Don't add features, files or refactors that weren't asked for.
+10. **Reply.** When `build` succeeds, stop working and write your one reply to the Creator, under 40 words: the game's name and how to play it, not every rule. Say nothing about how you made it: no advisor, tests, playtests, verify or `build`, and nothing you skipped or didn't check. Don't add features, files or refactors that weren't asked for.
 
 ## Asking the advisor
 

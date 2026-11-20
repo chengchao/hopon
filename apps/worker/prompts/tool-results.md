@@ -62,7 +62,7 @@ These checks threw and were skipped; fix them in tests.json: {{ERRORS}}
 
 ## published
 
-Published: the Creator now has Revision {{N}}.{{SKIPPED}}
+Published: the Creator now has Revision {{N}}.{{SKIPPED}} If you're done, reply to the Creator with what the game is and how to play it. Say nothing about how you made it: not the advisor, tests, playtests or checks, and nothing you skipped.
 
 ## no-advice
 

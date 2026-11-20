@@ -268,7 +268,8 @@ const noRevision = async (draft) => {
   const preview = await call(`/api/drafts/${draft}/preview`);
   assert.equal(preview.status, 404);
 };
-const published = (n) => `said: Published: the Creator now has Revision ${n}.`;
+const published = (n) =>
+  `said: Published: the Creator now has Revision ${n}. If you're done, reply to the Creator with what the game is and how to play it. Say nothing about how you made it: not the advisor, tests, playtests or checks, and nothing you skipped.`;
 // Whether the box's log has `build`'s verify run for a build of `kind`.
 const verified = (log, kind) =>
   log.some((command) => command.endsWith(`/opt/hopon/verify.js ${kind}`));

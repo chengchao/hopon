@@ -38,9 +38,9 @@ test("tool-results.md has every tool result the Maker gives, each with the value
     toolResult("check-failed", { ERRORS: "- boom", SKIPPED: "" }),
     /^The harness check failed:\s+- boom\s+Fix these/u
   );
-  assert.equal(
+  assert.match(
     toolResult("published", { N: 3, SKIPPED: "" }),
-    "Published: the Creator now has Revision 3."
+    /^Published: the Creator now has Revision 3\. If you're done, reply .*nothing about how you made it/u
   );
   assert.throws(() => toolResult("published", { N: 3 }), /SKIPPED/u);
   assert.throws(
