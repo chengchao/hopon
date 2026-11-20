@@ -21,3 +21,8 @@ export const fail = (
 // and the music the scaffold fetches. Nothing off the Worker's origin.
 export const GAME_CSP =
   "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts";
+
+// GAME_CSP as a page served from `origin` gets it. iOS WebKit doesn't match connect-src 'self' in a sandboxed page, whose
+// origin is opaque, so the scaffold's fetch of the game's music failed there; the Worker's own origin, named, matches.
+export const gameCsp = (origin: string) =>
+  GAME_CSP.replace("connect-src 'self';", `connect-src 'self' ${origin};`);

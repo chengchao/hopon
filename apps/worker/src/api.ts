@@ -36,7 +36,7 @@ import { decodeBase64Url, encodeBase64Url } from "hono/utils/encode";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type * as z from "zod/mini";
 
-import { fail, GAME_CSP } from "./game.ts";
+import { fail, gameCsp } from "./game.ts";
 import {
   OPERATOR_CSP,
   operatorConfirm,
@@ -849,7 +849,7 @@ const gameFile = async (c: HonoContext<AppEnv>, key: string) => {
   return c.body(object.body, 200, {
     // The page is sandboxed to an opaque origin, so its fetch of its own music is cross-origin.
     "Access-Control-Allow-Origin": "*",
-    "Content-Security-Policy": GAME_CSP,
+    "Content-Security-Policy": gameCsp(new URL(c.req.url).origin),
     "Content-Type":
       type ?? BINARY_TYPES[extension] ?? "application/octet-stream",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",

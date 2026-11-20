@@ -10,7 +10,7 @@ import {
 
 import { copyGames } from "../scripts/games-to-r2.mjs";
 import worker from "../src/api.ts";
-import { GAME_CSP } from "../src/game.ts";
+import { gameCsp } from "../src/game.ts";
 
 const migrationsDir = new URL("../migrations/", import.meta.url);
 const statements = (file) =>
@@ -227,7 +227,10 @@ test("games are files: published Games' HTML lands in R2 and still plays; unpubl
       { passThroughOnException: () => {}, waitUntil: () => {} }
     );
     assert.equal(page.status, 200);
-    assert.equal(page.headers.get("Content-Security-Policy"), GAME_CSP);
+    assert.equal(
+      page.headers.get("Content-Security-Policy"),
+      gameCsp("https://hopon.test")
+    );
     const html = game.html.replaceAll("/runtime/v1.js", "/runtime/v2.js");
     // oxlint-disable-next-line no-await-in-loop -- see above
     assert.equal(await page.text(), html);
