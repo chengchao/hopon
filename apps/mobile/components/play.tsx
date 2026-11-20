@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
 import { draftTitle } from "@/lib/draft-list";
+import { t } from "@/lib/i18n";
 import { newRevision } from "@/lib/maker-chat";
 import { COLORS } from "@/lib/theme";
 
@@ -94,7 +95,7 @@ export const Play = ({
       <View className="flex-row items-center gap-1 px-2 pb-2 pt-3">
         <Button size="sm" variant="ghost" onPress={onClose}>
           <ChevronLeft color={COLORS.paper} size={20} />
-          <Text>Back to chat</Text>
+          <Text>{t.drafts.back}</Text>
         </Button>
         <Text
           accessibilityRole="header"
@@ -105,7 +106,7 @@ export const Play = ({
         </Text>
         <Button size="sm" variant="ghost" onPress={() => mint(true)}>
           <RotateCcw color={COLORS.paper} size={18} />
-          <Text>Restart</Text>
+          <Text>{t.play.restart}</Text>
         </Button>
         <Button
           size="sm"
@@ -113,7 +114,7 @@ export const Play = ({
           disabled={!canPublish}
           onPress={onPublish}
         >
-          <Text>Publish</Text>
+          <Text>{t.common.publish}</Text>
         </Button>
       </View>
       <View className="flex-1 justify-center px-3">
@@ -132,7 +133,7 @@ export const Play = ({
           ) : (
             <View className="flex-1 items-center justify-center px-8">
               <Text className="text-center text-muted-foreground">
-                {error || "Loading…"}
+                {error || t.common.loading}
               </Text>
             </View>
           )}
@@ -140,7 +141,7 @@ export const Play = ({
         {fresh && newRevision(playing, fresh) && (
           <View className="absolute inset-x-0 top-3 items-center">
             <Button size="sm" className="rounded-full" onPress={reload}>
-              <Text>New version · Reload</Text>
+              <Text>{t.play.newVersion}</Text>
             </Button>
           </View>
         )}

@@ -1,3 +1,5 @@
+import { t } from "@/lib/i18n";
+
 // iOS Simulator reaches the host at localhost; Android emulator needs http://10.0.2.2:8787; a phone needs the LAN IP.
 // A release build has no fallback: one missing the EAS env var would ship pointing at localhost.
 const apiUrl =
@@ -42,10 +44,7 @@ export const api = async <T>(
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new ApiError(
-      data.error || "Could not connect. Please try again.",
-      data.code
-    );
+    throw new ApiError(data.error || t.common.couldNotConnect, data.code);
   }
   return data;
 };

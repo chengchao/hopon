@@ -33,6 +33,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { allowanceLine, low, usedUp } from "@/lib/allowance";
 import { api, ApiError } from "@/lib/api";
 import { draftTitle } from "@/lib/draft-list";
+import { t } from "@/lib/i18n";
 import { chatView, makerChat, NEW_CHAT, publishable } from "@/lib/maker-chat";
 import type { Frame, Row } from "@/lib/maker-chat";
 import { useMakerSocket } from "@/lib/maker-socket";
@@ -40,24 +41,6 @@ import type { Link } from "@/lib/maker-socket";
 import { agreedToAi } from "@/lib/rules";
 import { COLORS } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-
-const examples = [
-  {
-    label: "Moon cat",
-    prompt:
-      "A cat jumping on the moon. Tap to dodge meteors and collect stars.",
-  },
-  {
-    label: "Fruit catcher",
-    prompt:
-      "A pixel-art fruit catcher. Move a basket to catch apples and avoid bombs.",
-  },
-  {
-    label: "Ocean memory",
-    prompt:
-      "An ocean animal memory game. Flip cards and find every matching pair to win.",
-  },
-];
 
 // The week whose low-Allowance warning this phone has shown the account, by its resetsAt.
 const warned = (account: string) => `allowance-warned-${account}`;
@@ -118,7 +101,7 @@ const Bubble = ({
             className="rounded-full bg-transparent"
             onPress={() => onRetry(row.retry ?? "")}
           >
-            <Text>Try again</Text>
+            <Text>{t.common.tryAgain}</Text>
           </Button>
         )}
       </View>
@@ -127,7 +110,9 @@ const Bubble = ({
   if (row.who === "maker") {
     return (
       <View className="max-w-[85%] gap-1 self-start">
-        <Text className="font-strong text-xs text-muted-foreground">Maker</Text>
+        <Text className="font-strong text-xs text-muted-foreground">
+          {t.make.maker}
+        </Text>
         <View className="rounded-2xl rounded-tl-sm bg-card px-4 py-3">
           <Text className="text-base leading-[22px]">{row.text}</Text>
         </View>
@@ -144,7 +129,9 @@ const Bubble = ({
         </Text>
       </View>
       {row.queued && (
-        <Text className="self-end text-xs text-muted-foreground">Queued</Text>
+        <Text className="self-end text-xs text-muted-foreground">
+          {t.make.queued}
+        </Text>
       )}
     </View>
   );
@@ -172,7 +159,7 @@ const Header = ({
     <Button
       size="icon"
       variant="ghost"
-      accessibilityLabel="Close"
+      accessibilityLabel={t.make.close}
       onPress={() => router.back()}
     >
       <ChevronDown color={COLORS.paper} size={24} />
@@ -180,7 +167,7 @@ const Header = ({
     <Button
       size="icon"
       variant="ghost"
-      accessibilityLabel="Drafts"
+      accessibilityLabel={t.make.drafts}
       disabled={!onDrafts}
       onPress={onDrafts}
     >
@@ -194,7 +181,7 @@ const Header = ({
       {draftTitle(draft)}
     </Text>
     <Button size="sm" variant="ghost" disabled={!canPlay} onPress={onPlay}>
-      <Text>Play</Text>
+      <Text>{t.make.play}</Text>
     </Button>
     <Button
       size="sm"
@@ -202,7 +189,7 @@ const Header = ({
       disabled={!canPublish}
       onPress={onPublish}
     >
-      <Text>Publish</Text>
+      <Text>{t.common.publish}</Text>
     </Button>
   </View>
 );
@@ -221,11 +208,11 @@ const LinkBar = ({ link, onRetry }: { link: Link; onRetry: () => void }) => {
   return (
     <View className="flex-row items-center justify-center gap-3 bg-card px-4 py-1">
       <Text accessibilityRole="alert" className="text-xs text-muted-foreground">
-        {link === "reconnecting" ? "Reconnecting…" : "Can't reach the Maker"}
+        {link === "reconnecting" ? t.make.reconnecting : t.make.cantReach}
       </Text>
       {link === "unreachable" && (
         <Button size="sm" variant="ghost" className="h-7" onPress={onRetry}>
-          <Text className="text-xs">Retry</Text>
+          <Text className="text-xs">{t.make.retry}</Text>
         </Button>
       )}
     </View>
@@ -301,7 +288,7 @@ const Create = () => {
         (await SecureStore.getItemAsync(key)) !== next.resetsAt
       ) {
         await SecureStore.setItemAsync(key, next.resetsAt);
-        Alert.alert("Running low on hopon tokens", allowanceLine(next));
+        Alert.alert(t.allowance.low, allowanceLine(next));
       }
     } catch {
       // Read again after the next turn.
@@ -355,7 +342,7 @@ const Create = () => {
   if (!isLoaded) {
     return (
       <View className="flex-1 items-center justify-center bg-background">
-        <Text className="text-muted-foreground">Loading…</Text>
+        <Text className="text-muted-foreground">{t.common.loading}</Text>
       </View>
     );
   }
@@ -506,16 +493,16 @@ const Create = () => {
         {blank && (
           <View className="gap-3 pt-4">
             <Text className="font-display text-[52px] leading-[52px]">
-              What should we play?
+              {t.make.welcome}
             </Text>
             <Text className="text-base leading-[22px] text-muted-foreground">
-              Describe the game, how it looks, and one twist.
+              {t.make.welcomeHint}
             </Text>
             <Text className="pt-2 text-sm text-muted-foreground">
-              Or start from an idea
+              {t.make.idea}
             </Text>
             <View className="-mt-1 flex-row flex-wrap gap-2">
-              {examples.map((example) => (
+              {t.make.examples.map((example) => (
                 <Button
                   key={example.label}
                   size="sm"
@@ -545,15 +532,15 @@ const Create = () => {
             onChangeText={setText}
             maxLength={PROMPT_MAX}
             numberOfLines={5}
-            accessibilityLabel="Message to the Maker"
-            placeholder={blank ? "A cat on the moon…" : "Ask for a change"}
+            accessibilityLabel={t.make.input}
+            placeholder={blank ? t.make.firstPlaceholder : t.make.placeholder}
             className="min-h-11 flex-1 rounded-3xl border-0 bg-card px-4 py-3 text-base leading-5"
           />
           {showStop ? (
             <Button
               size="icon"
               className="h-11 w-11 rounded-full"
-              accessibilityLabel="Stop"
+              accessibilityLabel={t.make.stop}
               onPress={() => stop()}
             >
               <Square color={COLORS.ink} fill={COLORS.ink} size={14} />
@@ -562,7 +549,7 @@ const Create = () => {
             <Button
               size="icon"
               className="h-11 w-11 rounded-full"
-              accessibilityLabel="Send"
+              accessibilityLabel={t.make.send}
               disabled={!canSend}
               onPress={() => send(message)}
             >

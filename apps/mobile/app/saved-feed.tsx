@@ -3,6 +3,7 @@ import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Feed } from "@/components/feed";
+import { t } from "@/lib/i18n";
 
 // Your saved games from the one you tapped (`from`, its save id) onward to older saves; the stack header goes back.
 const SavedFeed = () => {
@@ -16,7 +17,7 @@ const SavedFeed = () => {
       <Feed
         path="/api/saves"
         start={Number(from) + 1}
-        empty="This game is no longer in your saved games."
+        empty={t.feed.savedEmpty}
       />
     </View>
   );

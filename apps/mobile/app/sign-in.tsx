@@ -6,6 +6,7 @@ import { View } from "react-native";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
+import { t } from "@/lib/i18n";
 import { CONTACT_EMAIL } from "@/lib/rules";
 
 interface ClerkFailure {
@@ -20,7 +21,7 @@ const notFound = (e: ClerkFailure) => hasCode(e, "form_identifier_not_found");
 // Clerk refuses a Banned account's sign-in with `user_banned`.
 const describe = (e: ClerkFailure) =>
   hasCode(e, "user_banned")
-    ? `This account has been banned for breaking hopon's rules. To appeal, email ${CONTACT_EMAIL}.`
+    ? t.signIn.banned(CONTACT_EMAIL)
     : (e.longMessage ?? e.message);
 
 // One screen for both: an email code signs in an existing user, or signs up a new one.
@@ -33,8 +34,8 @@ const SignIn = () => {
   const [flow, setFlow] = useState<"email" | "signIn" | "signUp">("email");
   const [error, setError] = useState("");
   const fetching = fetchStatus === "fetching";
-  const busyLabel = flow === "email" ? "Sending…" : "Checking…";
-  const idleLabel = flow === "email" ? "Email me a code" : "Sign in";
+  const busyLabel = flow === "email" ? t.signIn.sending : t.signIn.checking;
+  const idleLabel = flow === "email" ? t.signIn.sendCode : t.common.signIn;
 
   const run = async (step: () => Promise<ClerkFailure | null | undefined>) => {
     setError("");
@@ -44,10 +45,7 @@ const SignIn = () => {
         setError(describe(failure));
       }
     } catch (stepError) {
-      setError(
-        describe(stepError as ClerkFailure) ||
-          "Something went wrong. Please try again."
-      );
+      setError(describe(stepError as ClerkFailure) || t.signIn.somethingWrong);
     }
   };
 
@@ -84,7 +82,7 @@ const SignIn = () => {
         return verifyError;
       }
       if (resource.status !== "complete") {
-        return { message: "Could not finish signing in. Please try again." };
+        return { message: t.signIn.couldNotFinish };
       }
       await resource.finalize();
       // Next: agree to the Rules, pick a handle (each skipped if already done), then on into Create or back.
@@ -100,12 +98,12 @@ const SignIn = () => {
           accessibilityRole="header"
           className="font-display text-[52px] leading-[52px]"
         >
-          {flow === "email" ? "Sign in to make games" : "Check your email"}
+          {flow === "email" ? t.signIn.emailTitle : t.signIn.codeTitle}
         </Text>
         <Text className="text-base leading-[22px] text-muted-foreground">
           {flow === "email"
-            ? "We email you a 6-digit code. No password. New here? The same code creates your account."
-            : `Enter the 6-digit code we sent to ${email.trim()}.`}
+            ? t.signIn.emailIntro
+            : t.signIn.codeIntro(email.trim())}
         </Text>
       </View>
       {flow === "email" ? (
@@ -115,7 +113,7 @@ const SignIn = () => {
           value={email}
           onChangeText={setEmail}
           placeholder="you@example.com"
-          accessibilityLabel="Email"
+          accessibilityLabel={t.signIn.email}
           keyboardType="email-address"
           autoComplete="email"
           autoCapitalize="none"
@@ -130,7 +128,7 @@ const SignIn = () => {
           value={code}
           onChangeText={setCode}
           placeholder="123456"
-          accessibilityLabel="Verification code"
+          accessibilityLabel={t.signIn.code}
           keyboardType="number-pad"
           autoComplete="one-time-code"
           textContentType="oneTimeCode"
@@ -163,11 +161,11 @@ const SignIn = () => {
             setError("");
           }}
         >
-          <Text>Use a different email</Text>
+          <Text>{t.signIn.differentEmail}</Text>
         </Button>
       )}
       <Button variant="ghost" onPress={() => router.back()}>
-        <Text>Cancel</Text>
+        <Text>{t.common.cancel}</Text>
       </Button>
     </View>
   );

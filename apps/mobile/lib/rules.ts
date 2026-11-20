@@ -2,6 +2,7 @@ import { openBrowserAsync } from "expo-web-browser";
 import { Alert, Linking } from "react-native";
 
 import { API_URL } from "@/lib/api";
+import { t } from "@/lib/i18n";
 
 // What signed-in people last agreed to, stored as Clerk `unsafeMetadata.rulesAgreed`. Bump it whenever the Rules at
 // /terms (apps/worker/src/pages.ts) change, and everyone sees the Rules screen again.
@@ -30,6 +31,6 @@ export const contactUs = async () => {
   try {
     await Linking.openURL(`mailto:${CONTACT_EMAIL}`);
   } catch {
-    Alert.alert("Contact us", CONTACT_EMAIL);
+    Alert.alert(t.me.contact, CONTACT_EMAIL);
   }
 };

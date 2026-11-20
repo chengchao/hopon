@@ -11,6 +11,7 @@ import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
+import { t } from "@/lib/i18n";
 import { COLORS } from "@/lib/theme";
 
 const Pill = ({
@@ -69,7 +70,7 @@ export const TicketActions = ({
   return (
     <View className="flex-row items-center gap-1.5">
       <Pill
-        label={isLiked ? "Unlike" : "Like"}
+        label={isLiked ? t.feed.unlike : t.feed.like}
         selected={isLiked}
         onPress={onLike}
         count={game.likes}
@@ -82,14 +83,14 @@ export const TicketActions = ({
         />
       </Pill>
       <Pill
-        label={`Comments, ${commentCount}`}
+        label={t.feed.commentsCount(commentCount)}
         onPress={onComments}
         count={commentCount}
       >
         <MessageCircle size={18} strokeWidth={2.25} color={COLORS.ink} />
       </Pill>
       <Pill
-        label={isSaved ? "Remove from saved" : "Save"}
+        label={isSaved ? t.feed.removeSaved : t.feed.save}
         selected={isSaved}
         onPress={onSave}
       >
@@ -100,7 +101,7 @@ export const TicketActions = ({
           fill={isSaved ? COLORS.ink : "none"}
         />
       </Pill>
-      <Pill label={muted ? "Unmute" : "Mute"} onPress={onMute}>
+      <Pill label={muted ? t.feed.unmute : t.feed.mute} onPress={onMute}>
         {muted ? (
           <VolumeX size={18} strokeWidth={2.25} color={COLORS.ink} />
         ) : (
@@ -108,7 +109,7 @@ export const TicketActions = ({
         )}
       </Pill>
       {onMore && (
-        <Pill label="More" onPress={onMore}>
+        <Pill label={t.feed.more} onPress={onMore}>
           <MoreHorizontal size={18} strokeWidth={2.25} color={COLORS.ink} />
         </Pill>
       )}

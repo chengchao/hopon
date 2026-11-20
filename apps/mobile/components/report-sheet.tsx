@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
+import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 /** Someone else's game or comment, and the @handle of the account behind it. */
@@ -41,32 +42,31 @@ export const confirmBlock = ({
   onBlocked: (handle: string | null) => void;
   onReport: (target: ReportTarget) => void;
 }) =>
-  Alert.alert(
-    `Block @${target.handle}?`,
-    "You won't see each other's games or comments anywhere in hopon. They won't be told. Unblock any time from Me.",
-    [
-      { style: "cancel", text: "Cancel" },
-      {
-        onPress: async () => {
-          try {
-            await block(target, await getToken());
-          } catch (blockError) {
-            return Alert.alert("Couldn't block", (blockError as Error).message);
-          }
-          onBlocked(target.handle);
-          Alert.alert(`Also report this ${target.kind}?`, undefined, [
-            { style: "cancel", text: "Not now" },
-            {
-              onPress: () => onReport({ ...target, blocked: true }),
-              text: "Report",
-            },
-          ]);
-        },
-        style: "destructive",
-        text: "Block",
+  Alert.alert(t.report.blockTitle(target.handle), t.report.blockBody, [
+    { style: "cancel", text: t.common.cancel },
+    {
+      onPress: async () => {
+        try {
+          await block(target, await getToken());
+        } catch (blockError) {
+          return Alert.alert(
+            t.report.couldNotBlock,
+            (blockError as Error).message
+          );
+        }
+        onBlocked(target.handle);
+        Alert.alert(t.report.alsoReport[target.kind], undefined, [
+          { style: "cancel", text: t.common.notNow },
+          {
+            onPress: () => onReport({ ...target, blocked: true }),
+            text: t.common.report,
+          },
+        ]);
       },
-    ]
-  );
+      style: "destructive",
+      text: t.common.block,
+    },
+  ]);
 
 // Report someone else's game or comment: pick a reason, then Report, optionally blocking its poster too, or just block.
 // `onReported` and `onBlocked` run once the server has the report and the block.
@@ -146,7 +146,7 @@ export const ReportSheet = ({
       <View className="flex-1 justify-end">
         <Pressable
           className="absolute inset-0 bg-black/40"
-          accessibilityLabel="Close report"
+          accessibilityLabel={t.report.close}
           onPress={onClose}
         />
         <View
@@ -158,10 +158,10 @@ export const ReportSheet = ({
             accessibilityRole="header"
             className="font-display text-[32px] leading-[36px]"
           >
-            {target?.kind === "comment" ? "Report comment" : "Report game"}
+            {t.report.title[target?.kind ?? "game"]}
           </Text>
           <View accessibilityRole="radiogroup" className="gap-2">
-            {REPORT_REASONS.map(({ reason: key, label }) => (
+            {REPORT_REASONS.map(({ reason: key }) => (
               <Pressable
                 key={key}
                 accessibilityRole="radio"
@@ -178,7 +178,7 @@ export const ReportSheet = ({
                     reason === key && "border-[6px] border-primary"
                   )}
                 />
-                <Text className="text-base">{label}</Text>
+                <Text className="text-base">{t.report.reasons[key]}</Text>
               </Pressable>
             ))}
           </View>
@@ -191,9 +191,11 @@ export const ReportSheet = ({
               className="flex-row items-center gap-3 px-1"
             >
               <View className="flex-1">
-                <Text className="text-base">Also block @{target?.handle}</Text>
+                <Text className="text-base">
+                  {t.report.alsoBlock(target?.handle)}
+                </Text>
                 <Text className="text-sm text-muted-foreground">
-                  You won&apos;t see each other&apos;s games or comments
+                  {t.report.noContact}
                 </Text>
               </View>
               <View pointerEvents="none">
@@ -211,10 +213,10 @@ export const ReportSheet = ({
             disabled={!reason || sending}
             onPress={() => send(true, alsoBlock)}
           >
-            <Text>{sending ? "Reporting…" : "Report"}</Text>
+            <Text>{sending ? t.report.reporting : t.common.report}</Text>
           </Button>
           <Text className="text-center text-sm text-muted-foreground">
-            We review reports within 24 hours.
+            {t.report.review}
           </Text>
           {!target?.blocked && (
             <Button
@@ -222,7 +224,7 @@ export const ReportSheet = ({
               disabled={sending}
               onPress={() => send(false, true)}
             >
-              <Text>Just block @{target?.handle}, don&apos;t report</Text>
+              <Text>{t.report.justBlock(target?.handle)}</Text>
             </Button>
           )}
         </View>

@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
+import { t } from "@/lib/i18n";
 import { contactUs, openRules } from "@/lib/rules";
 
 const Stat = ({ value, label }: { value: number | string; label: string }) => (
@@ -56,29 +57,25 @@ const Me = () => {
   );
 
   const deleteAccount = () => {
-    Alert.alert(
-      "Delete your account?",
-      "You will be signed out and your account and Drafts removed. Published games stay public.",
-      [
-        { style: "cancel", text: "Cancel" },
-        {
-          onPress: async () => {
-            try {
-              // The Drafts go first: if that fails, the account stays and the error shows (#144).
-              await api("/api/drafts", {
-                method: "DELETE",
-                token: await getToken(),
-              });
-              await user?.delete();
-            } catch (deleteError) {
-              setError((deleteError as Error).message);
-            }
-          },
-          style: "destructive",
-          text: "Delete",
+    Alert.alert(t.me.deleteTitle, t.me.deleteBody, [
+      { style: "cancel", text: t.common.cancel },
+      {
+        onPress: async () => {
+          try {
+            // The Drafts go first: if that fails, the account stays and the error shows (#144).
+            await api("/api/drafts", {
+              method: "DELETE",
+              token: await getToken(),
+            });
+            await user?.delete();
+          } catch (deleteError) {
+            setError((deleteError as Error).message);
+          }
         },
-      ]
-    );
+        style: "destructive",
+        text: t.common.delete,
+      },
+    ]);
   };
 
   return (
@@ -91,7 +88,7 @@ const Me = () => {
         accessibilityRole="header"
         className="font-display text-[44px] leading-[48px]"
       >
-        Me
+        {t.me.title}
       </Text>
       {isLoaded &&
         (isSignedIn ? (
@@ -100,7 +97,7 @@ const Me = () => {
               {user?.username ? (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityHint="Change your name"
+                  accessibilityHint={t.me.nameHint}
                   onPress={() => router.push("/handle")}
                 >
                   <Text className="font-strong text-2xl text-primary">
@@ -112,7 +109,7 @@ const Me = () => {
                   className="h-11 self-start rounded-full px-5"
                   onPress={() => router.push("/handle")}
                 >
-                  <Text>Pick your name</Text>
+                  <Text>{t.handle.title}</Text>
                 </Button>
               )}
               <Text className="text-sm text-muted-foreground">
@@ -120,16 +117,16 @@ const Me = () => {
               </Text>
             </View>
             <View className="flex-row gap-3">
-              <Stat value={liked ?? "–"} label="Liked" />
-              <Stat value={saved ?? "–"} label="Saved" />
+              <Stat value={liked ?? "–"} label={t.me.liked} />
+              <Stat value={saved ?? "–"} label={t.me.saved} />
             </View>
             <Pressable
               accessibilityRole="button"
-              accessibilityHint="Lists everyone you've blocked"
+              accessibilityHint={t.me.blockedHint}
               onPress={() => router.push("/blocked")}
               className="h-14 flex-row items-center justify-between rounded-2xl bg-card px-4 active:opacity-80"
             >
-              <Text className="text-base">Blocked accounts</Text>
+              <Text className="text-base">{t.blocked.title}</Text>
               <Text className="text-muted-foreground">{blocked ?? "–"}</Text>
             </Pressable>
             {!!error && (
@@ -143,41 +140,41 @@ const Me = () => {
                 className="rounded-full bg-transparent"
                 onPress={() => signOut()}
               >
-                <Text>Sign out</Text>
+                <Text>{t.me.signOut}</Text>
               </Button>
               <Button
                 variant="ghost"
                 className="rounded-full"
                 onPress={deleteAccount}
               >
-                <Text className="text-destructive">Delete account</Text>
+                <Text className="text-destructive">{t.me.deleteAccount}</Text>
               </Button>
             </View>
           </>
         ) : (
           <View className="gap-4">
             <Text className="text-base leading-[22px] text-muted-foreground">
-              Sign in to make games and keep the ones you like.
+              {t.me.signedOut}
             </Text>
             <Button
               className="h-12 self-start rounded-full px-6"
               onPress={() => router.push("/sign-in?next=me")}
             >
-              <Text>Sign in</Text>
+              <Text>{t.common.signIn}</Text>
             </Button>
           </View>
         ))}
       <View className="flex-row gap-4">
         <Button variant="link" className="px-0" onPress={() => contactUs()}>
-          <Text className="text-muted-foreground">Contact us</Text>
+          <Text className="text-muted-foreground">{t.me.contact}</Text>
         </Button>
         <Button
           variant="link"
           className="px-0"
-          accessibilityHint="Opens the Terms of Use"
+          accessibilityHint={t.me.rulesHint}
           onPress={() => openRules()}
         >
-          <Text className="text-muted-foreground">Rules</Text>
+          <Text className="text-muted-foreground">{t.me.rules}</Text>
         </Button>
       </View>
     </ScrollView>

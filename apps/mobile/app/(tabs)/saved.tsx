@@ -9,6 +9,7 @@ import { Byline, Ticket } from "@/components/ticket";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
+import { t } from "@/lib/i18n";
 
 const Saved = () => {
   const insets = useSafeAreaInsets();
@@ -78,7 +79,7 @@ const Saved = () => {
       accessibilityRole="header"
       className="px-2 pb-1 pt-4 font-display text-[44px] leading-[48px]"
     >
-      Saved
+      {t.saved.title}
     </Text>
   );
   if (!isLoaded) {
@@ -92,13 +93,13 @@ const Saved = () => {
       >
         {header}
         <Text className="px-2 text-base leading-[22px] text-muted-foreground">
-          Sign in to see your saved games
+          {t.saved.signedOut}
         </Text>
         <Button
           className="mx-2 h-12 self-start rounded-full px-6"
           onPress={() => router.push("/sign-in")}
         >
-          <Text>Sign in</Text>
+          <Text>{t.common.signIn}</Text>
         </Button>
       </View>
     );
@@ -119,7 +120,7 @@ const Saved = () => {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`${item.title}. ${item.description}`}
-            accessibilityHint="Opens your saved games from here"
+            accessibilityHint={t.saved.openHint}
             onPress={() => router.push(`/saved-feed?from=${item.saveId}`)}
             className="active:opacity-80"
           >
@@ -136,7 +137,7 @@ const Saved = () => {
         ListEmptyComponent={
           loading || error ? null : (
             <Text className="px-2 pt-2 text-base leading-[22px] text-muted-foreground">
-              Tap the bookmark on a game&apos;s ticket to keep it here.
+              {t.saved.empty}
             </Text>
           )
         }
@@ -151,7 +152,7 @@ const Saved = () => {
                   load(games.length ? (next ?? undefined) : undefined)
                 }
               >
-                <Text>Try again</Text>
+                <Text>{t.common.tryAgain}</Text>
               </Button>
             </View>
           ) : null

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
 import { ago, draftTitle } from "@/lib/draft-list";
+import { t } from "@/lib/i18n";
 import { COLORS } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
@@ -46,8 +47,8 @@ const DraftRow = ({
       return;
     }
     asking.current = true;
-    Alert.alert(`Delete '${title}'?`, "Its chat goes too.", [
-      { onPress: close, style: "cancel", text: "Cancel" },
+    Alert.alert(t.drafts.deleteTitle(title), t.drafts.deleteBody, [
+      { onPress: close, style: "cancel", text: t.common.cancel },
       {
         onPress: async () => {
           setDeleting(true);
@@ -58,7 +59,7 @@ const DraftRow = ({
           }
         },
         style: "destructive",
-        text: "Delete",
+        text: t.common.delete,
       },
     ]);
   };
@@ -85,7 +86,7 @@ const DraftRow = ({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${title}, ${ago(draft.updatedAt)}`}
-        accessibilityActions={[{ label: "Delete", name: "delete" }]}
+        accessibilityActions={[{ label: t.common.delete, name: "delete" }]}
         onAccessibilityAction={confirm}
         disabled={deleting}
         onPress={onOpen}
@@ -110,7 +111,7 @@ const DraftRow = ({
         className="items-center justify-center bg-destructive"
       >
         <Text className="font-strong text-sm">
-          {deleting ? "Deleting…" : "Delete"}
+          {deleting ? t.drafts.deleting : t.common.delete}
         </Text>
       </Pressable>
     </ScrollView>
@@ -186,7 +187,7 @@ export const DraftList = ({
         <Button
           size="icon"
           variant="ghost"
-          accessibilityLabel="Back to chat"
+          accessibilityLabel={t.drafts.back}
           onPress={onClose}
         >
           <ChevronLeft color={COLORS.paper} size={24} />
@@ -195,7 +196,7 @@ export const DraftList = ({
           accessibilityRole="header"
           className="flex-1 text-center font-strong text-base"
         >
-          Drafts
+          {t.drafts.title}
         </Text>
         {/* Balances the back button, so the title sits in the middle. */}
         <View className="h-10 w-10" />
@@ -215,11 +216,11 @@ export const DraftList = ({
             }}
           >
             <Plus color={COLORS.paper} size={18} />
-            <Text>New game</Text>
+            <Text>{t.drafts.newGame}</Text>
           </Button>
           {full && (
             <Text className="text-center text-sm text-muted-foreground">
-              Delete a Draft to start a new one
+              {t.drafts.full}
             </Text>
           )}
           {!!error && (
@@ -232,7 +233,7 @@ export const DraftList = ({
           )}
         </View>
         {drafts === undefined && (
-          <Text className="px-5 text-muted-foreground">Loading…</Text>
+          <Text className="px-5 text-muted-foreground">{t.common.loading}</Text>
         )}
         {drafts?.map((draft) => (
           <DraftRow

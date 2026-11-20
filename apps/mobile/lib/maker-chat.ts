@@ -3,6 +3,8 @@
 // taken yet. The socket and the screen live in app/create.tsx; this is the part the tests drive.
 import type { DraftSummary } from "@hopon/schemas";
 
+import { t } from "./i18n.ts";
+
 // The slice of pi-durable's types the chat reads.
 interface Block {
   type: string;
@@ -295,15 +297,15 @@ const clock = (ms: number) => {
 // What the Maker is doing while a turn runs, so the Creator sees it isn't stuck: the call it is on or still writing,
 // by the first row whose pattern its tool name and command (or file path) match; thinking between calls.
 const ACTIVITIES: [RegExp, string][] = [
-  [/^build /u, "Building"],
-  [/^playtest |tests\.json|vitest|\btsc\b/u, "Testing"],
-  [/music\.py|\.mid\b|\.sf2\b/u, "Composing music"],
+  [/^build /u, t.make.activity.building],
+  [/^playtest |tests\.json|vitest|\btsc\b/u, t.make.activity.testing],
+  [/music\.py|\.mid\b|\.sf2\b/u, t.make.activity.composing],
   [
     /design\.md|^(?:activate_skill|read_skill_resource|read|ls|grep|find) /u,
-    "Planning the game",
+    t.make.activity.planning,
   ],
-  [/starter\.js/u, "Setting up"],
-  [/^(?:bash|write|edit) /u, "Writing the game"],
+  [/starter\.js/u, t.make.activity.settingUp],
+  [/^(?:bash|write|edit) /u, t.make.activity.writing],
 ];
 
 const callsOf = (message: Message | undefined) =>
@@ -333,11 +335,12 @@ const currentCall = (chat: Chat) => {
 const activityOf = (chat: Chat) => {
   const call = currentCall(chat);
   if (!call) {
-    return "Thinking";
+    return t.make.activity.thinking;
   }
   const subject = `${call.name} ${call.arguments?.command ?? call.arguments?.path ?? ""}`;
   return (
-    ACTIVITIES.find(([pattern]) => pattern.test(subject))?.[1] ?? "Working"
+    ACTIVITIES.find(([pattern]) => pattern.test(subject))?.[1] ??
+    t.make.activity.working
   );
 };
 
@@ -379,7 +382,7 @@ export const chatView = (chat: Chat, now: number) => {
     if (revision) {
       latest = {
         callId: revision.toolCallId,
-        row: { key: `${entry.id}`, text: "Built a new version", who: "card" },
+        row: { key: `${entry.id}`, text: t.make.built, who: "card" },
       };
       rows.push(latest.row);
     }
@@ -393,7 +396,7 @@ export const chatView = (chat: Chat, now: number) => {
   if (latest) {
     const title = buildTitles(chat.entries).get(latest.callId ?? "");
     latest.row.play = true;
-    latest.row.text = `${title ?? "Your game"} · tap to play`;
+    latest.row.text = t.make.tapToPlay(title ?? t.make.yourGame);
   }
   const streaming = textOf(chat.partial);
   if (streaming) {
@@ -416,17 +419,14 @@ export const chatView = (chat: Chat, now: number) => {
   if (chat.ended === "stopped") {
     rows.push({
       key: "ended",
-      text: "Stopped. Your game hasn't changed.",
+      text: t.make.stopped,
       who: "app",
     });
   } else if (chat.ended) {
     rows.push({
       key: "ended",
       retry: rows.findLast((row) => row.who === "creator")?.text,
-      text:
-        chat.ended === "resting"
-          ? "The Maker is resting. Try again later."
-          : "Something went wrong. Your game hasn't changed.",
+      text: chat.ended === "resting" ? t.make.resting : t.make.failed,
       who: "app",
     });
   }
