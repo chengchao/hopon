@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api, gameUrl } from "@/lib/api";
 import { snapTarget } from "@/lib/feed-motion";
+import { t } from "@/lib/i18n";
 
 // How tall the `measure` feed (Discover) last laid out its game box, so Make previews a draft at that height.
 let measuredGameHeight: number | undefined;
@@ -199,13 +200,13 @@ export const Feed = ({
     if (!isSignedIn) {
       return router.push("/sign-in");
     }
-    const blockLabel = `Block @${game.author}`;
+    const blockLabel = t.common.blockHandle(game.author);
     if (Platform.OS === "ios") {
       return ActionSheetIOS.showActionSheetWithOptions(
         {
           cancelButtonIndex: 2,
           destructiveButtonIndex: 1,
-          options: ["Report game", blockLabel, "Cancel"],
+          options: [t.feed.reportGame, blockLabel, t.common.cancel],
         },
         (index) => {
           if (index === 0) {
@@ -217,8 +218,8 @@ export const Feed = ({
       );
     }
     Alert.alert(game.title, undefined, [
-      { style: "cancel", text: "Cancel" },
-      { onPress: () => report(game), text: "Report game" },
+      { style: "cancel", text: t.common.cancel },
+      { onPress: () => report(game), text: t.feed.reportGame },
       { onPress: () => block(game), style: "destructive", text: blockLabel },
     ]);
   };
@@ -292,23 +293,32 @@ export const Feed = ({
                   accessible
                   accessibilityRole="adjustable"
                   accessibilityLabel={`${item.title}. ${item.description}`}
-                  accessibilityHint="Swipe up or down here to change games"
+                  accessibilityHint={t.feed.swipeHint}
                   // The ticket is one VoiceOver element, so its buttons are offered as custom actions too.
                   accessibilityActions={[
                     { name: "increment" },
                     { name: "decrement" },
-                    { label: item.liked ? "Unlike" : "Like", name: "like" },
-                    { label: "Comments", name: "comments" },
                     {
-                      label: item.saved ? "Remove from saved" : "Save",
+                      label: item.liked ? t.feed.unlike : t.feed.like,
+                      name: "like",
+                    },
+                    { label: t.feed.comments, name: "comments" },
+                    {
+                      label: item.saved ? t.feed.removeSaved : t.feed.save,
                       name: "save",
                     },
-                    { label: muted ? "Unmute" : "Mute", name: "mute" },
+                    {
+                      label: muted ? t.feed.unmute : t.feed.mute,
+                      name: "mute",
+                    },
                     ...(item.mine
                       ? []
                       : [
-                          { label: "Report game", name: "report" },
-                          { label: `Block @${item.author}`, name: "block" },
+                          { label: t.feed.reportGame, name: "report" },
+                          {
+                            label: t.common.blockHandle(item.author),
+                            name: "block",
+                          },
                         ]),
                   ]}
                   onAccessibilityAction={(e) => {
@@ -358,7 +368,7 @@ export const Feed = ({
                   : "text-center text-muted-foreground"
               }
             >
-              {error || (loading ? "Loading games…" : empty)}
+              {error || (loading ? t.feed.loading : empty)}
             </Text>
             {!!error && (
               <Button
@@ -366,7 +376,7 @@ export const Feed = ({
                 className="rounded-full"
                 onPress={() => load(start, false)}
               >
-                <Text>Try again</Text>
+                <Text>{t.common.tryAgain}</Text>
               </Button>
             )}
           </View>
@@ -380,7 +390,7 @@ export const Feed = ({
               className="rounded-full"
               onPress={() => (next ? load(next, true) : load(start, false))}
             >
-              <Text>Try again</Text>
+              <Text>{t.common.tryAgain}</Text>
             </Button>
           </View>
         )}

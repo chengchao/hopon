@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { WebView } from "react-native-webview";
 
+import { t } from "@/lib/i18n";
 import { COLORS } from "@/lib/theme";
 
 // Generated games are untrusted code. The server's CSP (`sandbox allow-scripts`, no network) does the isolating, and
@@ -39,7 +40,7 @@ export const GameView = ({
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         uri,
       }}
-      accessibilityLabel={`Play: ${title}`}
+      accessibilityLabel={t.feed.play(title)}
       onShouldStartLoadWithRequest={(request) => request.url === uri}
       onLoadEnd={sync}
       onContentProcessDidTerminate={onCrash}

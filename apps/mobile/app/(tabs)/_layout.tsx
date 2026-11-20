@@ -7,14 +7,15 @@ import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Text } from "@/components/ui/text";
+import { t } from "@/lib/i18n";
 import { COLORS } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 const MIST = "#AEB0E0";
 const TABS: { name: string; label: string; Icon: LucideIcon }[] = [
-  { Icon: Compass, label: "Discover", name: "index" },
-  { Icon: Bookmark, label: "Saved", name: "saved" },
-  { Icon: User, label: "Me", name: "me" },
+  { Icon: Compass, label: t.tabs.discover, name: "index" },
+  { Icon: Bookmark, label: t.tabs.saved, name: "saved" },
+  { Icon: User, label: t.tabs.me, name: "me" },
 ];
 
 // Make sits in the middle like TikTok's +, but opens the Create sheet instead of switching tabs.
@@ -58,7 +59,7 @@ const TabBar = ({ state, navigation }: BottomTabBarProps) => {
       {tab(TABS[0])}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Make a game"
+        accessibilityLabel={t.tabs.makeGame}
         onPress={() => router.push("/create")}
         className="flex-1 items-center gap-1 pt-1"
       >
@@ -72,7 +73,9 @@ const TabBar = ({ state, navigation }: BottomTabBarProps) => {
             >
               <Plus size={20} strokeWidth={3} color={COLORS.ink} />
             </View>
-            <Text className="font-strong text-xs text-primary">Make</Text>
+            <Text className="font-strong text-xs text-primary">
+              {t.tabs.make}
+            </Text>
           </>
         )}
       </Pressable>

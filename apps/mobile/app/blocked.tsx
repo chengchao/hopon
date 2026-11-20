@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
+import { t } from "@/lib/i18n";
 
 // Everyone the viewer has Blocked, by the handle they had then, each with Unblock. Opened from Me.
 const Blocked = () => {
@@ -71,14 +72,14 @@ const Blocked = () => {
           accessibilityRole="header"
           className="font-display text-[36px] leading-[40px]"
         >
-          Blocked accounts
+          {t.blocked.title}
         </Text>
         <Button
           variant="ghost"
           className="rounded-full"
           onPress={() => router.back()}
         >
-          <Text>Done</Text>
+          <Text>{t.common.done}</Text>
         </Button>
       </View>
       <FlatList
@@ -98,7 +99,7 @@ const Blocked = () => {
                   className="rounded-full"
                   onPress={load}
                 >
-                  <Text>Try again</Text>
+                  <Text>{t.common.tryAgain}</Text>
                 </Button>
               )}
             </View>
@@ -107,7 +108,7 @@ const Blocked = () => {
         ListEmptyComponent={
           blocks ? (
             <Text className="text-base text-muted-foreground">
-              You haven&apos;t blocked anyone.
+              {t.blocked.none}
             </Text>
           ) : null
         }
@@ -121,11 +122,11 @@ const Blocked = () => {
               <Button
                 variant="outline"
                 className="rounded-full bg-transparent"
-                accessibilityLabel={`Unblock ${handle}`}
+                accessibilityLabel={t.blocked.unblockLabel(handle)}
                 disabled={unblocking !== null}
                 onPress={() => unblock(item)}
               >
-                <Text>Unblock</Text>
+                <Text>{t.blocked.unblock}</Text>
               </Button>
             </View>
           );

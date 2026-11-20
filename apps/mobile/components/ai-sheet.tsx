@@ -5,13 +5,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
+import { t } from "@/lib/i18n";
 import { AI_VERSION, openMakerPrivacy } from "@/lib/rules";
-
-// #125's copy. Provider-neutral: /privacy#maker names the companies.
-const SENT = [
-  "your messages to the Maker",
-  "the game it makes from them: its code and pictures of it being played",
-];
 
 // The Maker's AI disclosure, on a Send by a Creator who hasn't agreed to the current AI_VERSION. Agree stores it and
 // hands the message back to be sent; Not now closes, and nothing leaves the phone.
@@ -43,9 +38,7 @@ export const AiSheet = ({
       });
       onAgreed(message);
     } catch (agreeError) {
-      setError(
-        (agreeError as Error).message || "Could not save. Please try again."
-      );
+      setError((agreeError as Error).message || t.common.couldNotSave);
     }
     setSaving(false);
   };
@@ -60,7 +53,7 @@ export const AiSheet = ({
       <View className="flex-1 justify-end">
         <Pressable
           className="absolute inset-0 bg-black/40"
-          accessibilityLabel="Not now"
+          accessibilityLabel={t.common.notNow}
           onPress={onClose}
         />
         <View
@@ -72,31 +65,26 @@ export const AiSheet = ({
             accessibilityRole="header"
             className="font-display text-[32px] leading-[36px]"
           >
-            Before the Maker starts
+            {t.ai.title}
           </Text>
-          <Text className="text-base leading-[22px]">
-            The Maker runs on an AI service from another company. To make your
-            game, it sends that company:
-          </Text>
+          <Text className="text-base leading-[22px]">{t.ai.intro}</Text>
           <View className="gap-1 pl-1">
-            {SENT.map((line) => (
+            {t.ai.sent.map((line) => (
               <Text key={line} className="text-base leading-[22px]">
                 {`•  ${line}`}
               </Text>
             ))}
           </View>
           <Text className="text-base leading-[22px] text-muted-foreground">
-            Not your email or your account. Don&apos;t put personal information
-            in your messages. The company doesn&apos;t use any of it to train
-            its AI.
+            {t.ai.notSent}
           </Text>
           <Button
             variant="link"
             className="self-start px-0"
-            accessibilityHint="Opens the privacy policy"
+            accessibilityHint={t.ai.privacyHint}
             onPress={() => openMakerPrivacy()}
           >
-            <Text>Who processes it</Text>
+            <Text>{t.ai.whoProcesses}</Text>
           </Button>
           {!!error && (
             <Text
@@ -111,10 +99,10 @@ export const AiSheet = ({
             disabled={!user || saving}
             onPress={() => agree()}
           >
-            <Text>{saving ? "Saving…" : "Agree and send"}</Text>
+            <Text>{saving ? t.common.saving : t.ai.agree}</Text>
           </Button>
           <Button variant="ghost" disabled={saving} onPress={onClose}>
-            <Text>Not now</Text>
+            <Text>{t.common.notNow}</Text>
           </Button>
         </View>
       </View>

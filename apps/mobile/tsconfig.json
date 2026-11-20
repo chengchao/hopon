@@ -3,6 +3,7 @@
   "compilerOptions": {
     "strict": true,
     "allowJs": true,
+    "allowImportingTsExtensions": true,
     "noUncheckedSideEffectImports": false,
     "paths": { "@/*": ["./*"] }
   },

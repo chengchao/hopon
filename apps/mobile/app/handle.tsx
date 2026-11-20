@@ -6,6 +6,7 @@ import { View } from "react-native";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
+import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 // Clerk usernames: at least 4 characters, not only digits. We keep them simple and lowercase.
@@ -23,9 +24,7 @@ const Handle = () => {
   const { user } = useUser();
   // A refused name starts blank, so Continue can't save it again.
   const [name, setName] = useState(rejected ? "" : (user?.username ?? ""));
-  const [error, setError] = useState(
-    rejected ? "Your name breaks hopon's rules. Pick a different one." : ""
-  );
+  const [error, setError] = useState(rejected ? t.handle.rejected : "");
   const [saving, setSaving] = useState(false);
 
   const done = useCallback(
@@ -56,7 +55,7 @@ const Handle = () => {
         clerk.errors?.[0]?.longMessage ??
           clerk.errors?.[0]?.message ??
           clerk.message ??
-          "Could not save that name."
+          t.handle.couldNotSave
       );
     }
     setSaving(false);
@@ -69,10 +68,10 @@ const Handle = () => {
           accessibilityRole="header"
           className="font-display text-[52px] leading-[52px]"
         >
-          Pick your name
+          {t.handle.title}
         </Text>
         <Text className="text-base leading-[22px] text-muted-foreground">
-          It&apos;s shown on every game you publish. You can change it later.
+          {t.handle.intro}
         </Text>
       </View>
       <View className="h-14 flex-row items-center rounded-2xl bg-card px-4">
@@ -83,7 +82,7 @@ const Handle = () => {
             setName(text.toLowerCase().replaceAll(/[^a-z0-9_]/gu, ""))
           }
           placeholder="maya_makes"
-          accessibilityLabel="Your name"
+          accessibilityLabel={t.handle.input}
           autoCapitalize="none"
           autoCorrect={false}
           autoFocus
@@ -99,8 +98,7 @@ const Handle = () => {
           error ? "text-destructive" : "text-muted-foreground"
         )}
       >
-        {error ||
-          "4 to 20 characters: lowercase letters, numbers and underscores."}
+        {error || t.handle.help}
       </Text>
       <Button
         className={cn(
@@ -111,11 +109,11 @@ const Handle = () => {
         onPress={() => save()}
       >
         <Text className={cn(!HANDLE.test(name) && "text-muted-foreground")}>
-          {saving ? "Saving…" : "Continue"}
+          {saving ? t.common.saving : t.handle.continue}
         </Text>
       </Button>
       <Button variant="ghost" onPress={done}>
-        <Text>Not now</Text>
+        <Text>{t.common.notNow}</Text>
       </Button>
     </View>
   );

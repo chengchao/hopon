@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api, HANDLE_REJECTED, handleRejected } from "@/lib/api";
 import { draftTitle } from "@/lib/draft-list";
+import { t } from "@/lib/i18n";
 
 // Publish's confirm sheet (#119, #150): the Maker's title and description, which the Creator changes by asking the
 // Maker. Publish runs today's flow: the handle first, then Screening on the server, then Discover. A refusal keeps the
@@ -77,7 +78,7 @@ export const PublishSheet = ({
       <View className="flex-1 justify-end">
         <Pressable
           className="absolute inset-0 bg-black/40"
-          accessibilityLabel="Cancel"
+          accessibilityLabel={t.common.cancel}
           disabled={publishing}
           onPress={close}
         />
@@ -90,7 +91,7 @@ export const PublishSheet = ({
             accessibilityRole="header"
             className="font-display text-[32px] leading-[36px]"
           >
-            {`Publish '${draftTitle(draft)}'?`}
+            {t.publish.title(draftTitle(draft))}
           </Text>
           {!!draft?.description && (
             <Text className="text-base leading-[22px]">
@@ -98,8 +99,7 @@ export const PublishSheet = ({
             </Text>
           )}
           <Text className="text-base leading-[22px] text-muted-foreground">
-            The chat ends and the game goes to the feed. To change the title,
-            ask the Maker.
+            {t.publish.body}
           </Text>
           {!!error && (
             <Text
@@ -114,10 +114,10 @@ export const PublishSheet = ({
             disabled={publishing}
             onPress={() => publish()}
           >
-            <Text>{publishing ? "Publishing…" : "Publish"}</Text>
+            <Text>{publishing ? t.publish.publishing : t.common.publish}</Text>
           </Button>
           <Button variant="ghost" disabled={publishing} onPress={close}>
-            <Text>Cancel</Text>
+            <Text>{t.common.cancel}</Text>
           </Button>
         </View>
       </View>

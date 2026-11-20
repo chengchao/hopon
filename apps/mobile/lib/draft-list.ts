@@ -1,9 +1,11 @@
 // The Draft list (#119, #149): the part of components/draft-list.tsx the tests drive.
 import type { DraftSummary } from "@hopon/schemas";
 
+import { t } from "./i18n.ts";
+
 // A Draft's name wherever it shows: the Maker's title, once it has named the game.
 export const draftTitle = (draft: DraftSummary | null | undefined) =>
-  draft?.title ?? "New game";
+  draft?.title ?? t.drafts.newGame;
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -14,13 +16,13 @@ const DAY = 24 * HOUR;
 export const ago = (iso: string, now = Date.now()) => {
   const since = now - Date.parse(iso);
   if (since < MINUTE) {
-    return "just now";
+    return t.drafts.ago.now;
   }
   if (since < HOUR) {
-    return `${Math.floor(since / MINUTE)} min ago`;
+    return t.drafts.ago.minutes(Math.floor(since / MINUTE));
   }
   if (since < DAY) {
-    return `${Math.floor(since / HOUR)} h ago`;
+    return t.drafts.ago.hours(Math.floor(since / HOUR));
   }
-  return `${Math.floor(since / DAY)} d ago`;
+  return t.drafts.ago.days(Math.floor(since / DAY));
 };

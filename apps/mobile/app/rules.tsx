@@ -6,13 +6,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
+import { t } from "@/lib/i18n";
 import { agreedToRules, openRules, RULES_VERSION } from "@/lib/rules";
-
-const SUMMARY = [
-  "Zero tolerance for objectionable games, comments or names, and for abusive people.",
-  "Nothing unsuitable for ages 13+, hateful or harassing, spam or scams.",
-  "Report or Block anything or anyone that breaks the Rules. We review reports within 24 hours, delete what breaks them and can ban whoever posted it.",
-];
 
 // Right after sign-in (`next`: on to the handle step), or on open when the stored version isn't the current one.
 const Rules = () => {
@@ -52,9 +47,7 @@ const Rules = () => {
         unsafeMetadata: { ...user.unsafeMetadata, rulesAgreed: RULES_VERSION },
       });
     } catch (agreeError) {
-      setError(
-        (agreeError as Error).message || "Could not save. Please try again."
-      );
+      setError((agreeError as Error).message || t.common.couldNotSave);
       setSaving(false);
     }
   };
@@ -78,14 +71,14 @@ const Rules = () => {
           accessibilityRole="header"
           className="font-display text-[52px] leading-[52px]"
         >
-          The Rules
+          {t.rules.title}
         </Text>
         <Text className="text-base leading-[22px] text-muted-foreground">
-          Everyone on hopon agrees to them before doing anything signed in.
+          {t.rules.intro}
         </Text>
       </View>
       <View className="gap-3 rounded-2xl bg-card p-4">
-        {SUMMARY.map((line) => (
+        {t.rules.summary.map((line) => (
           <Text key={line} className="text-base leading-[22px]">
             {line}
           </Text>
@@ -94,10 +87,10 @@ const Rules = () => {
       <Button
         variant="link"
         className="self-start px-0"
-        accessibilityHint="Opens the full Terms of Use"
+        accessibilityHint={t.rules.readHint}
         onPress={() => openRules()}
       >
-        <Text>Read the Terms of Use</Text>
+        <Text>{t.rules.read}</Text>
       </Button>
       {!!error && (
         <Text accessibilityRole="alert" className="text-destructive">
@@ -109,14 +102,14 @@ const Rules = () => {
         disabled={!user || saving}
         onPress={() => agree()}
       >
-        <Text>{saving ? "Saving…" : "I agree"}</Text>
+        <Text>{saving ? t.common.saving : t.rules.agree}</Text>
       </Button>
       <Button
         variant="ghost"
-        accessibilityHint="Signs you out"
+        accessibilityHint={t.rules.disagreeHint}
         onPress={() => decline()}
       >
-        <Text>I don&apos;t agree</Text>
+        <Text>{t.rules.disagree}</Text>
       </Button>
     </ScrollView>
   );

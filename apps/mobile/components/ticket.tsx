@@ -3,6 +3,7 @@ import { View } from "react-native";
 import type { ViewProps } from "react-native";
 
 import { Text } from "@/components/ui/text";
+import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 // The torn edge between game and ticket: notches cut in the night colour, then a row of perforation dashes.
@@ -93,7 +94,7 @@ export const Byline = ({ author }: { author?: string | null }) => (
       numberOfLines={1}
       className="flex-shrink font-strong text-sm text-primary-foreground"
     >
-      {author ? `@${author}` : "A hopon player"}
+      {author ? `@${author}` : t.ticket.anonymous}
     </Text>
   </View>
 );

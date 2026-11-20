@@ -19,6 +19,7 @@ import { Linking, View } from "react-native";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
+import { t } from "@/lib/i18n";
 import { updateRequired } from "@/lib/min-build";
 import { agreedToRules } from "@/lib/rules";
 import { NAV_THEME } from "@/lib/theme";
@@ -76,17 +77,16 @@ const UpdateRequired = () => (
       accessibilityRole="header"
       className="text-center font-display text-[44px] leading-[48px]"
     >
-      Please update
+      {t.update.title}
     </Text>
     <Text className="text-center text-base text-muted-foreground">
-      This version of hopon is too old to work anymore. Get the latest one from
-      TestFlight.
+      {t.update.body}
     </Text>
     <Button
       className="rounded-full"
       onPress={() => Linking.openURL(UPDATE_URL)}
     >
-      <Text>Open TestFlight</Text>
+      <Text>{t.update.open}</Text>
     </Button>
   </View>
 );
@@ -126,7 +126,7 @@ const RootLayout = () => {
             options={{
               headerBackButtonDisplayMode: "minimal",
               headerShown: true,
-              title: "Saved",
+              title: t.saved.title,
             }}
           />
         </Stack>

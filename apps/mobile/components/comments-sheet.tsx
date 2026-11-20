@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import { api, HANDLE_REJECTED, handleRejected } from "@/lib/api";
+import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 // Screens the sheet sends the person to: sign-in, or the handle screen (to pick one, or replace a refused one).
@@ -107,9 +108,7 @@ export const CommentsSheet = ({
   const gate = isSignedIn ? handleGate : "/sign-in";
   const length = characters(text.trim());
   const sendable = newComment.safeParse({ body: text }).success && !posting;
-  const emptyText = error
-    ? ""
-    : `No comments on ${game?.title} yet. Be the first.`;
+  const emptyText = error ? "" : t.comments.empty(game?.title);
 
   // iOS can't present a screen while this Modal is still sliding away, so it waits for onDismiss there.
   const leave = (to: Destination) => {
@@ -159,8 +158,8 @@ export const CommentsSheet = ({
       return;
     }
     const gameId = game.id;
-    Alert.alert("Delete comment?", comment.body, [
-      { style: "cancel", text: "Cancel" },
+    Alert.alert(t.comments.deleteTitle, comment.body, [
+      { style: "cancel", text: t.common.cancel },
       {
         onPress: async () => {
           try {
@@ -179,7 +178,7 @@ export const CommentsSheet = ({
           }
         },
         style: "destructive",
-        text: "Delete",
+        text: t.common.delete,
       },
     ]);
   };
@@ -209,7 +208,7 @@ export const CommentsSheet = ({
     ...(comment.canDelete
       ? [
           {
-            label: "Delete comment",
+            label: t.comments.deleteComment,
             name: "delete",
             onPress: () => remove(comment),
           },
@@ -219,12 +218,12 @@ export const CommentsSheet = ({
       ? []
       : [
           {
-            label: "Report comment",
+            label: t.comments.reportComment,
             name: "report",
             onPress: () => report(comment),
           },
           {
-            label: `Block @${comment.author}`,
+            label: t.common.blockHandle(comment.author),
             name: "block",
             onPress: () => block(comment),
           },
@@ -245,13 +244,13 @@ export const CommentsSheet = ({
           destructiveButtonIndex: comment.canDelete
             ? [0, actions.length - 1]
             : actions.length - 1,
-          options: [...actions.map((a) => a.label), "Cancel"],
+          options: [...actions.map((a) => a.label), t.common.cancel],
         },
         (index) => actions[index]?.onPress()
       );
     }
     Alert.alert(`@${comment.author}`, comment.body, [
-      { style: "cancel", text: "Cancel" },
+      { style: "cancel", text: t.common.cancel },
       ...actions.map(({ label, onPress }) => ({ onPress, text: label })),
     ]);
   };
@@ -272,7 +271,7 @@ export const CommentsSheet = ({
       <KeyboardAvoidingView behavior="padding" className="flex-1 justify-end">
         <Pressable
           className="absolute inset-0"
-          accessibilityLabel="Close comments"
+          accessibilityLabel={t.comments.close}
           onPress={onClose}
         />
         <View
@@ -285,7 +284,7 @@ export const CommentsSheet = ({
               accessibilityRole="header"
               className="font-display text-[32px] leading-[36px]"
             >
-              Comments
+              {t.comments.title}
             </Text>
             <Button
               size="sm"
@@ -293,7 +292,7 @@ export const CommentsSheet = ({
               className="rounded-full"
               onPress={onClose}
             >
-              <Text>Close</Text>
+              <Text>{t.common.close}</Text>
             </Button>
           </View>
           <FlatList
@@ -315,7 +314,9 @@ export const CommentsSheet = ({
                 onLongPress={() => options(item)}
                 accessibilityLabel={`@${item.author}: ${item.body}`}
                 accessibilityHint={
-                  item.mine ? "Long press to delete" : "Long press for options"
+                  item.mine
+                    ? t.comments.holdToDelete
+                    : t.comments.holdForOptions
                 }
                 accessibilityActions={actionsFor(item).map(
                   ({ label, name }) => ({ label, name })
@@ -334,7 +335,7 @@ export const CommentsSheet = ({
             )}
             ListEmptyComponent={
               <Text className="py-6 text-center text-muted-foreground">
-                {loading ? "Loading comments…" : emptyText}
+                {loading ? t.comments.loading : emptyText}
               </Text>
             }
           />
@@ -344,7 +345,9 @@ export const CommentsSheet = ({
             </Text>
           )}
           {length > COMMENT_MAX && (
-            <Text className="pb-2 text-center text-sm text-destructive">{`Too long: ${length}/${COMMENT_MAX} characters`}</Text>
+            <Text className="pb-2 text-center text-sm text-destructive">
+              {t.comments.tooLong(length, COMMENT_MAX)}
+            </Text>
           )}
           {gate ? (
             <Pressable
@@ -353,9 +356,7 @@ export const CommentsSheet = ({
               className="h-12 justify-center rounded-full bg-background px-4"
             >
               <Text className="text-muted-foreground">
-                {isSignedIn
-                  ? "Pick your name to comment"
-                  : "Sign in to comment"}
+                {isSignedIn ? t.comments.pickName : t.comments.signIn}
               </Text>
             </Pressable>
           ) : (
@@ -363,8 +364,8 @@ export const CommentsSheet = ({
               <Input
                 value={text}
                 onChangeText={setText}
-                placeholder="Add a comment"
-                accessibilityLabel="Comment"
+                placeholder={t.comments.placeholder}
+                accessibilityLabel={t.comments.input}
                 multiline
                 className="max-h-28 min-h-12 flex-1 rounded-3xl border-0 bg-background px-4 py-3"
               />
@@ -377,7 +378,7 @@ export const CommentsSheet = ({
                 onPress={() => post()}
               >
                 <Text className={cn(!sendable && "text-muted-foreground")}>
-                  {posting ? "Posting…" : "Post"}
+                  {posting ? t.comments.posting : t.comments.post}
                 </Text>
               </Button>
             </View>

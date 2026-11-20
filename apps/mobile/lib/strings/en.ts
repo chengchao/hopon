@@ -1,0 +1,269 @@
+// Every string the app shows, by screen or component. A string with values in it is a function. Another language is a
+// file beside this one typed `Strings`, so a key it misses or adds fails the typecheck; lib/i18n.ts picks the table.
+import type { ReportReason } from "@hopon/schemas";
+
+export const en = {
+  ai: {
+    agree: "Agree and send",
+    intro:
+      "The Maker runs on an AI service from another company. To make your game, it sends that company:",
+    notSent:
+      "Not your email or your account. Don't put personal information in your messages. The company doesn't use any of it to train its AI.",
+    privacyHint: "Opens the privacy policy",
+    // #125's copy. Provider-neutral: /privacy#maker names the companies.
+    sent: [
+      "your messages to the Maker",
+      "the game it makes from them: its code and pictures of it being played",
+    ],
+    title: "Before the Maker starts",
+    whoProcesses: "Who processes it",
+  },
+  allowance: {
+    left: (n: string, when: string) =>
+      `${n} hopon tokens left · resets ${when}`,
+    low: "Running low on hopon tokens",
+    usedUp: (when: string) =>
+      `You've used this week's hopon tokens. They reset ${when}.`,
+  },
+  blocked: {
+    none: "You haven't blocked anyone.",
+    title: "Blocked accounts",
+    unblock: "Unblock",
+    unblockLabel: (handle: string) => `Unblock ${handle}`,
+  },
+  comments: {
+    close: "Close comments",
+    deleteComment: "Delete comment",
+    deleteTitle: "Delete comment?",
+    empty: (title: string | undefined) =>
+      `No comments on ${title} yet. Be the first.`,
+    holdForOptions: "Long press for options",
+    holdToDelete: "Long press to delete",
+    input: "Comment",
+    loading: "Loading comments…",
+    pickName: "Pick your name to comment",
+    placeholder: "Add a comment",
+    post: "Post",
+    posting: "Posting…",
+    reportComment: "Report comment",
+    signIn: "Sign in to comment",
+    title: "Comments",
+    tooLong: (length: number, max: number) =>
+      `Too long: ${length}/${max} characters`,
+  },
+  common: {
+    block: "Block",
+    blockHandle: (handle: string | null) => `Block @${handle}`,
+    cancel: "Cancel",
+    close: "Close",
+    couldNotConnect: "Could not connect. Please try again.",
+    couldNotSave: "Could not save. Please try again.",
+    delete: "Delete",
+    done: "Done",
+    loading: "Loading…",
+    notNow: "Not now",
+    publish: "Publish",
+    report: "Report",
+    saving: "Saving…",
+    signIn: "Sign in",
+    tryAgain: "Try again",
+  },
+  drafts: {
+    ago: {
+      days: (n: number) => `${n} d ago`,
+      hours: (n: number) => `${n} h ago`,
+      minutes: (n: number) => `${n} min ago`,
+      now: "just now",
+    },
+    back: "Back to chat",
+    deleteBody: "Its chat goes too.",
+    deleteTitle: (title: string) => `Delete '${title}'?`,
+    deleting: "Deleting…",
+    full: "Delete a Draft to start a new one",
+    newGame: "New game",
+    title: "Drafts",
+  },
+  feed: {
+    comments: "Comments",
+    commentsCount: (n: number) => `Comments, ${n}`,
+    empty: "No games yet. Make the first one.",
+    like: "Like",
+    loading: "Loading games…",
+    more: "More",
+    mute: "Mute",
+    play: (title: string) => `Play: ${title}`,
+    removeSaved: "Remove from saved",
+    reportGame: "Report game",
+    save: "Save",
+    savedEmpty: "This game is no longer in your saved games.",
+    swipeHint: "Swipe up or down here to change games",
+    unlike: "Unlike",
+    unmute: "Unmute",
+  },
+  handle: {
+    continue: "Continue",
+    couldNotSave: "Could not save that name.",
+    help: "4 to 20 characters: lowercase letters, numbers and underscores.",
+    input: "Your name",
+    intro: "It's shown on every game you publish. You can change it later.",
+    rejected: "Your name breaks hopon's rules. Pick a different one.",
+    title: "Pick your name",
+  },
+  make: {
+    activity: {
+      building: "Building",
+      composing: "Composing music",
+      planning: "Planning the game",
+      settingUp: "Setting up",
+      testing: "Testing",
+      thinking: "Thinking",
+      working: "Working",
+      writing: "Writing the game",
+    },
+    built: "Built a new version",
+    cantReach: "Can't reach the Maker",
+    close: "Close",
+    drafts: "Drafts",
+    examples: [
+      {
+        label: "Moon cat",
+        prompt:
+          "A cat jumping on the moon. Tap to dodge meteors and collect stars.",
+      },
+      {
+        label: "Fruit catcher",
+        prompt:
+          "A pixel-art fruit catcher. Move a basket to catch apples and avoid bombs.",
+      },
+      {
+        label: "Ocean memory",
+        prompt:
+          "An ocean animal memory game. Flip cards and find every matching pair to win.",
+      },
+    ],
+    failed: "Something went wrong. Your game hasn't changed.",
+    firstPlaceholder: "A cat on the moon…",
+    idea: "Or start from an idea",
+    input: "Message to the Maker",
+    maker: "Maker",
+    placeholder: "Ask for a change",
+    play: "Play",
+    queued: "Queued",
+    reconnecting: "Reconnecting…",
+    resting: "The Maker is resting. Try again later.",
+    retry: "Retry",
+    send: "Send",
+    stop: "Stop",
+    stopped: "Stopped. Your game hasn't changed.",
+    tapToPlay: (title: string) => `${title} · tap to play`,
+    welcome: "What should we play?",
+    welcomeHint: "Describe the game, how it looks, and one twist.",
+    yourGame: "Your game",
+  },
+  me: {
+    blockedHint: "Lists everyone you've blocked",
+    contact: "Contact us",
+    deleteAccount: "Delete account",
+    deleteBody:
+      "You will be signed out and your account and Drafts removed. Published games stay public.",
+    deleteTitle: "Delete your account?",
+    liked: "Liked",
+    nameHint: "Change your name",
+    rules: "Rules",
+    rulesHint: "Opens the Terms of Use",
+    saved: "Saved",
+    signOut: "Sign out",
+    signedOut: "Sign in to make games and keep the ones you like.",
+    title: "Me",
+  },
+  play: {
+    newVersion: "New version · Reload",
+    restart: "Restart",
+  },
+  publish: {
+    body: "The chat ends and the game goes to the feed. To change the title, ask the Maker.",
+    publishing: "Publishing…",
+    title: (title: string) => `Publish '${title}'?`,
+  },
+  report: {
+    alsoBlock: (handle: string | null | undefined) => `Also block @${handle}`,
+    alsoReport: {
+      comment: "Also report this comment?",
+      game: "Also report this game?",
+    },
+    blockBody:
+      "You won't see each other's games or comments anywhere in hopon. They won't be told. Unblock any time from Me.",
+    blockTitle: (handle: string | null) => `Block @${handle}?`,
+    close: "Close report",
+    couldNotBlock: "Couldn't block",
+    justBlock: (handle: string | null | undefined) =>
+      `Just block @${handle}, don't report`,
+    noContact: "You won't see each other's games or comments",
+    reasons: {
+      age: "Not suitable for ages 13+",
+      hate: "Hateful or harassing",
+      other: "Something else",
+      spam: "Spam or scam",
+    } satisfies Record<ReportReason, string>,
+    reporting: "Reporting…",
+    review: "We review reports within 24 hours.",
+    title: {
+      comment: "Report comment",
+      game: "Report game",
+    },
+  },
+  rules: {
+    agree: "I agree",
+    disagree: "I don't agree",
+    disagreeHint: "Signs you out",
+    intro: "Everyone on hopon agrees to them before doing anything signed in.",
+    read: "Read the Terms of Use",
+    readHint: "Opens the full Terms of Use",
+    summary: [
+      "Zero tolerance for objectionable games, comments or names, and for abusive people.",
+      "Nothing unsuitable for ages 13+, hateful or harassing, spam or scams.",
+      "Report or Block anything or anyone that breaks the Rules. We review reports within 24 hours, delete what breaks them and can ban whoever posted it.",
+    ],
+    title: "The Rules",
+  },
+  saved: {
+    empty: "Tap the bookmark on a game's ticket to keep it here.",
+    openHint: "Opens your saved games from here",
+    signedOut: "Sign in to see your saved games",
+    title: "Saved",
+  },
+  signIn: {
+    banned: (email: string) =>
+      `This account has been banned for breaking hopon's rules. To appeal, email ${email}.`,
+    checking: "Checking…",
+    code: "Verification code",
+    codeIntro: (email: string) => `Enter the 6-digit code we sent to ${email}.`,
+    codeTitle: "Check your email",
+    couldNotFinish: "Could not finish signing in. Please try again.",
+    differentEmail: "Use a different email",
+    email: "Email",
+    emailIntro:
+      "We email you a 6-digit code. No password. New here? The same code creates your account.",
+    emailTitle: "Sign in to make games",
+    sendCode: "Email me a code",
+    sending: "Sending…",
+    somethingWrong: "Something went wrong. Please try again.",
+  },
+  tabs: {
+    discover: "Discover",
+    make: "Make",
+    makeGame: "Make a game",
+    me: "Me",
+    saved: "Saved",
+  },
+  ticket: {
+    anonymous: "A hopon player",
+  },
+  update: {
+    body: "This version of hopon is too old to work anymore. Get the latest one from TestFlight.",
+    open: "Open TestFlight",
+    title: "Please update",
+  },
+};
+
+export type Strings = typeof en;

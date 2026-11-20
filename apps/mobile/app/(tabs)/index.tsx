@@ -4,6 +4,7 @@ import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Feed } from "@/components/feed";
+import { t } from "@/lib/i18n";
 
 const Discover = () => {
   const insets = useSafeAreaInsets();
@@ -15,7 +16,7 @@ const Discover = () => {
       <Feed
         key={`${published}:${isSignedIn}`}
         path="/api/games"
-        empty="No games yet. Make the first one."
+        empty={t.feed.empty}
         measure
       />
     </View>
