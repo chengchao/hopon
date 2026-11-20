@@ -10,7 +10,7 @@ import { getPlatformProxy, unstable_splitSqlQuery } from "wrangler";
 
 import { FROZEN } from "../../maker/vendor/build.ts";
 import worker from "../src/api.ts";
-import { GAME_CSP } from "../src/game.ts";
+import { GAME_CSP, gameCsp } from "../src/game.ts";
 import { charge, pruneLimits, week } from "../src/storage.ts";
 
 // Throwaway RS256 key standing in for the Clerk instance; tokens below are really signed and verified.
@@ -371,9 +371,17 @@ test("publish: every file the current Revision's page loads becomes the Game's, 
   assert.equal(page.status, 200);
   assert.equal(await page.text(), INDEX_HTML);
   assert.match(page.headers.get("Content-Type"), /^text\/html/u);
-  assert.equal(page.headers.get("Content-Security-Policy"), GAME_CSP);
+  assert.equal(
+    page.headers.get("Content-Security-Policy"),
+    gameCsp("https://hopon.test")
+  );
   assert.equal(page.headers.get("Cache-Control"), "no-store");
   assert.ok(!GAME_CSP.includes("allow-same-origin"));
+  // iOS WebKit doesn't match 'self' in the sandboxed page, so its fetch of its music names the Worker's origin too.
+  assert.match(
+    page.headers.get("Content-Security-Policy"),
+    /connect-src 'self' https:\/\/hopon\.test;/u
+  );
   // 'self' lets a game load /runtime/v2.js and its own files, and fetch its music; nothing else is reachable.
   for (const directive of [
     "script-src 'self'",
@@ -392,7 +400,10 @@ test("publish: every file the current Revision's page loads becomes the Game's, 
     // oxlint-disable-next-line no-await-in-loop -- one file at a time
     const script = await file(name);
     assert.match(script.headers.get("Content-Type"), /^text\/javascript/u);
-    assert.equal(script.headers.get("Content-Security-Policy"), GAME_CSP);
+    assert.equal(
+      script.headers.get("Content-Security-Policy"),
+      gameCsp("https://hopon.test")
+    );
   }
   for (const [name, type] of [
     ["music.opus", "audio/ogg"],
@@ -2969,14 +2980,20 @@ test("preview: the minted link serves the current Revision's files, signed out, 
   assert.equal(page.status, 200);
   assert.equal(await page.text(), INDEX_HTML);
   assert.match(page.headers.get("Content-Type"), /^text\/html/u);
-  assert.equal(page.headers.get("Content-Security-Policy"), GAME_CSP);
+  assert.equal(
+    page.headers.get("Content-Security-Policy"),
+    gameCsp("https://hopon.test")
+  );
   assert.equal(page.headers.get("Cache-Control"), "no-store");
   // index.html's relative sibling, under the same link.
   const game = await open(call, path, "game.js");
   assert.equal(game.status, 200);
   assert.equal(await game.text(), "engineInit();");
   assert.match(game.headers.get("Content-Type"), /^text\/javascript/u);
-  assert.equal(game.headers.get("Content-Security-Policy"), GAME_CSP);
+  assert.equal(
+    game.headers.get("Content-Security-Policy"),
+    gameCsp("https://hopon.test")
+  );
 });
 
 test("preview: a link is 403 once its hour is up, or with its signature, expiry or Draft changed", async (t) => {
