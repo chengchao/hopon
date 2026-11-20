@@ -11,11 +11,13 @@ interface Block {
   // A toolCall's.
   id?: string;
   name?: string;
-  arguments?: { title?: string };
+  arguments?: { title?: string; command?: string; path?: string };
 }
 interface Message {
   role: string;
   content: string | Block[];
+  // A user message's, in ms.
+  timestamp?: number;
   // A toolResult's.
   toolCallId?: string;
   toolName?: string;
@@ -26,26 +28,13 @@ interface Entry {
   kind: string;
   model?: Message[];
 }
-// A running tool call; the build's output is its step labels, one a line.
-interface ToolSlot {
-  callId: string;
-  name: string;
-  status: string;
-  output?: string;
-}
 interface Snapshot {
   type: "snapshot";
   entries: Entry[];
   inbox: { mode: string }[];
   run?: unknown;
   generation?: { message?: Message };
-  tools?: ToolSlot[];
 }
-type ToolOutput = { trimStart?: number; append?: string } | { set: string };
-type ToolEvent =
-  | { type: "tool_execution_start"; toolCallId: string; toolName: string }
-  | { type: "tool_execution_update"; toolCallId: string; output?: ToolOutput }
-  | { type: "tool_execution_end"; toolCallId: string; entry?: Entry };
 type Change =
   | {
       type: "text_start" | "thinking_start" | "toolcall_start" | "block";
@@ -57,7 +46,12 @@ type Change =
       contentIndex: number;
       delta: string;
     }
-  | { type: "toolcall_delta" }
+  | {
+      type: "toolcall_delta";
+      contentIndex: number;
+      path: (string | number)[];
+      delta: string;
+    }
   | { type: "message"; message: Message };
 type AgentEvent =
   | Snapshot
@@ -67,7 +61,6 @@ type AgentEvent =
   // requestId is the operation id the messages POST answers with.
   | { type: "submission"; record: { requestId?: string; status: string } }
   | { type: "inbox_update"; items: { mode: string }[] }
-  | ToolEvent
   | { type: string; entry?: Entry };
 
 export type Frame =
@@ -94,8 +87,6 @@ export interface Chat {
   taken: string[];
   // How the last turn ended, when it didn't answer. Live only: a snapshot doesn't say.
   ended?: "stopped" | "failed" | "resting";
-  // The Maker's build call while it runs (#148): its step labels so far, and when the app first saw it.
-  build?: { callId: string; output: string; since: number };
 }
 
 export const NEW_CHAT: Chat = {
@@ -106,8 +97,7 @@ export const NEW_CHAT: Chat = {
 };
 
 export type Action =
-  // `at`: when the frame came in, for the build's timer.
-  | { type: "frame"; frame: Frame; at: number }
+  | { type: "frame"; frame: Frame }
   | { type: "send"; key: string; text: string }
   | { type: "sent"; key: string; op: string }
   // Refused (Screening) or never delivered: the text goes back to the composer.
@@ -143,22 +133,13 @@ const queuedCount = (items: { mode: string }[]) =>
 // A snapshot carries no submission records, only how many messages are still queued. They are the newest ones sent:
 // the Maker takes them in order. ponytail: a message sent while the snapshot was in flight can drop out of view
 // until the Maker takes it; snapshots with the inbox's operation ids would close that.
-const fromSnapshot = (chat: Chat, snapshot: Snapshot, at: number): Chat => {
-  const slot = snapshot.tools?.find(
-    (tool) => tool.name === "build" && tool.status !== "done"
-  );
+const fromSnapshot = (chat: Chat, snapshot: Snapshot): Chat => {
   const acked = chat.pending.filter((p) => p.op !== undefined);
   const stillQueued = new Set(
     acked.slice(acked.length - queuedCount(snapshot.inbox))
   );
   return {
     ...chat,
-    // ponytail: a snapshot doesn't say when the build started, so a build first seen in one counts from then.
-    build: slot && {
-      callId: slot.callId,
-      output: slot.output ?? "",
-      since: chat.build?.callId === slot.callId ? chat.build.since : at,
-    },
     ended: undefined,
     entries: snapshot.entries,
     partial: snapshot.generation?.message,
@@ -173,10 +154,18 @@ const applyChange = (message: Message, change: Change): Message => {
   if (change.type === "message") {
     return change.message;
   }
-  if (change.type === "toolcall_delta") {
-    return message;
-  }
   const content = [...(message.content as Block[])];
+  // A call's arguments stream in as appends to their string fields; only the top-level ones are read.
+  if (change.type === "toolcall_delta") {
+    const [field] = change.path;
+    const block = content[change.contentIndex];
+    if (block && typeof field === "string" && change.path.length === 1) {
+      const args: Record<string, unknown> = { ...block.arguments };
+      args[field] = `${args[field] ?? ""}${change.delta}`;
+      content[change.contentIndex] = { ...block, arguments: args };
+    }
+    return { ...message, content };
+  }
   if (change.type === "text_delta" || change.type === "thinking_delta") {
     const block = content[change.contentIndex];
     const field = change.type === "text_delta" ? "text" : "thinking";
@@ -190,40 +179,10 @@ const applyChange = (message: Message, change: Change): Message => {
   return { ...message, content };
 };
 
-const applyOutput = (output: string, change: ToolOutput | undefined) => {
-  if (!change) {
-    return output;
-  }
-  if ("set" in change) {
-    return change.set;
-  }
-  return output.slice(change.trimStart ?? 0) + (change.append ?? "");
-};
-
-// Of the tool events, only the build's show: its start, its step labels, its end.
-const applyTool = (chat: Chat, event: ToolEvent, at: number): Chat => {
-  if (event.type === "tool_execution_start") {
-    return event.toolName === "build"
-      ? { ...chat, build: { callId: event.toolCallId, output: "", since: at } }
-      : chat;
-  }
-  const { build } = chat;
-  if (build?.callId !== event.toolCallId) {
-    return chat;
-  }
-  if (event.type === "tool_execution_end") {
-    return { ...chat, build: undefined };
-  }
-  return {
-    ...chat,
-    build: { ...build, output: applyOutput(build.output, event.output) },
-  };
-};
-
-const applyEvent = (chat: Chat, event: AgentEvent, at: number): Chat => {
+const applyEvent = (chat: Chat, event: AgentEvent): Chat => {
   if (event.type === "snapshot") {
     // pi replaces batches a slow socket missed with a fresh snapshot.
-    return fromSnapshot(chat, event as Snapshot, at);
+    return fromSnapshot(chat, event as Snapshot);
   }
   let next = chat;
   if ("entry" in event && event.entry) {
@@ -240,10 +199,7 @@ const applyEvent = (chat: Chat, event: AgentEvent, at: number): Chat => {
     return { ...next, ended: undefined, running: true };
   }
   if (event.type === "run_end") {
-    return { ...next, build: undefined, partial: undefined, running: false };
-  }
-  if ("toolCallId" in event) {
-    return applyTool(next, event as ToolEvent, at);
+    return { ...next, partial: undefined, running: false };
   }
   if (event.type === "message_start" && "message" in event) {
     return event.message.role === "assistant"
@@ -271,9 +227,9 @@ const applyEvent = (chat: Chat, event: AgentEvent, at: number): Chat => {
   return next;
 };
 
-const applyFrame = (chat: Chat, frame: Frame, at: number): Chat => {
+const applyFrame = (chat: Chat, frame: Frame): Chat => {
   if (frame.type === "snapshot") {
-    return fromSnapshot(chat, frame.data, at);
+    return fromSnapshot(chat, frame.data);
   }
   if (frame.type === "turn_failed") {
     // Stop is pi's abort, and the Maker says "resting" when AI Gateway's credits ran out (ADR 0004); every other
@@ -287,7 +243,7 @@ const applyFrame = (chat: Chat, frame: Frame, at: number): Chat => {
   let next = chat;
   if (frame.type === "batch") {
     for (const event of frame.data) {
-      next = applyEvent(next, event, at);
+      next = applyEvent(next, event);
     }
   }
   return next;
@@ -296,7 +252,7 @@ const applyFrame = (chat: Chat, frame: Frame, at: number): Chat => {
 export const makerChat = (chat: Chat, action: Action): Chat => {
   switch (action.type) {
     case "frame": {
-      return applyFrame(chat, action.frame, action.at);
+      return applyFrame(chat, action.frame);
     }
     case "send": {
       return {
@@ -336,11 +292,61 @@ const clock = (ms: number) => {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 };
 
-// The build's current step: the last label it passed on. Past steps aren't kept (#119).
-const stepOf = (output: string) =>
-  output.trim().split("\n").at(-1) || "Building";
+// What the Maker is doing while a turn runs, so the Creator sees it isn't stuck: the call it is on or still writing,
+// by the first row whose pattern its tool name and command (or file path) match; thinking between calls.
+const ACTIVITIES: [RegExp, string][] = [
+  [/^build /u, "Building"],
+  [/^playtest |tests\.json|vitest|\btsc\b/u, "Testing"],
+  [/music\.py|\.mid\b|\.sf2\b/u, "Composing music"],
+  [
+    /design\.md|^(?:activate_skill|read_skill_resource|read|ls|grep|find) /u,
+    "Planning the game",
+  ],
+  [/starter\.js/u, "Setting up"],
+  [/^(?:bash|write|edit) /u, "Writing the game"],
+];
 
-// `now` runs the build's timer.
+const callsOf = (message: Message | undefined) =>
+  Array.isArray(message?.content)
+    ? message.content.filter((block) => block.type === "toolCall")
+    : [];
+
+// The turn's newest call without a result: the one streaming in, else the one running. A stopped turn's calls never
+// get one, hence only this turn's.
+const currentCall = (chat: Chat) => {
+  const turn = chat.entries.slice(
+    Math.max(
+      0,
+      chat.entries.findLastIndex((entry) => entry.kind === "pi.user")
+    )
+  );
+  const done = new Set(turn.map((entry) => entry.model?.[0]?.toolCallId));
+  const calls = [
+    ...turn.flatMap((entry) =>
+      entry.kind === "pi.assistant" ? callsOf(entry.model?.[0]) : []
+    ),
+    ...callsOf(chat.partial),
+  ];
+  return calls.findLast((call) => !done.has(call.id));
+};
+
+const activityOf = (chat: Chat) => {
+  const call = currentCall(chat);
+  if (!call) {
+    return "Thinking";
+  }
+  const subject = `${call.name} ${call.arguments?.command ?? call.arguments?.path ?? ""}`;
+  return (
+    ACTIVITIES.find(([pattern]) => pattern.test(subject))?.[1] ?? "Working"
+  );
+};
+
+// The turn's timer runs from the Creator's latest message the Maker took, a steer included. A message carries its
+// time, so the timer survives a reconnect.
+const startedAt = (entries: Entry[]) =>
+  entries.findLast((entry) => entry.kind === "pi.user")?.model?.[0]?.timestamp;
+
+// `now` runs the turn's timer.
 // The title each build call gave its game, by call id.
 const buildTitles = (entries: Entry[]) => {
   const titles = new Map<string, string | undefined>();
@@ -393,11 +399,14 @@ export const chatView = (chat: Chat, now: number) => {
   if (streaming) {
     rows.push({ key: "partial", text: streaming, who: "maker" });
   }
-  if (chat.build) {
-    const { output, since } = chat.build;
+  if (chat.running && !streaming) {
+    const since = startedAt(chat.entries);
     rows.push({
       key: "status",
-      text: `${stepOf(output)} · ${clock(now - since)}`,
+      text:
+        since === undefined
+          ? activityOf(chat)
+          : `${activityOf(chat)} · ${clock(now - since)}`,
       who: "status",
     });
   }

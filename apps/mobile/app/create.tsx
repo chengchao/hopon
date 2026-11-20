@@ -256,7 +256,7 @@ const Create = () => {
   const [confirming, setConfirming] = useState(false);
   // Turns ended since this chat opened; Play mints a fresh preview URL on each.
   const [turns, setTurns] = useState(0);
-  // The build's timer ticks once a second while it runs.
+  // The turn's timer ticks once a second while it runs.
   const [now, setNow] = useState(Date.now);
   const keys = useRef(0);
   const opened = useRef(false);
@@ -269,14 +269,13 @@ const Create = () => {
   const scroll = useRef<ScrollView>(null);
   const composer = useRef<TextInput>(null);
   const view = useMemo(() => chatView(chat, now), [chat, now]);
-  const building = chat.build !== undefined;
   useEffect(() => {
-    if (!building) {
+    if (!chat.running) {
       return;
     }
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [building]);
+  }, [chat.running]);
 
   const fetchDrafts = async () => {
     const list = await api<{ drafts: DraftSummary[] }>("/api/drafts", {
@@ -329,7 +328,7 @@ const Create = () => {
   });
 
   const onFrame = async (frame: Frame) => {
-    dispatch({ at: Date.now(), frame, type: "frame" });
+    dispatch({ frame, type: "frame" });
     if (frame.type === "turn_done") {
       setTurns((n) => n + 1);
     }
