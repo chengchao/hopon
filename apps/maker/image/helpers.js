@@ -31,6 +31,9 @@ const here = import.meta.dirname;
 const ORIGIN = "http://game.hopon";
 const VIEWPORT = { height: 640, width: 360 };
 const START = { x: 180, y: 320 };
+// The app shows a game in the feed's frame, shorter than a phone's screen: about 570 px tall on a 6.1" iPhone. A layout
+// that fits 640 can still lose its bottom row there, so the playtest also looks for controls off this screen.
+const SHORT_VIEWPORT = { height: 540, width: 360 };
 const RANDOM_MS = 10_000;
 const OVER_TOO_SOON_MS = 3000;
 const SAMPLE_MS = 250;
@@ -543,8 +546,12 @@ const fakeTime = ({ seed, frameMs }) => {
 const LOAD_MS = 10_000;
 const NOT_READY = `the game didn't call hopon.ready() within ${LOAD_MS / 1000} s of loading`;
 
-const openTestGame = async ({ browser, files, vite }, errors) => {
-  const context = await browser.newContext({ viewport: VIEWPORT });
+const openTestGame = async (
+  { browser, files, vite },
+  errors,
+  viewport = VIEWPORT
+) => {
+  const context = await browser.newContext({ viewport });
   await context.addInitScript(fakeTime, { frameMs: FRAME_MS, seed: TEST_SEED });
   const page = await context.newPage();
   page.on("console", (message) => {
@@ -645,6 +652,67 @@ const testState = () => {
     vars: { ...vars },
   };
   /* oxlint-enable no-undef */
+};
+
+// The labels of the controls a finger can't reach: shown, but outside the screen and in nothing that scrolls to them.
+const offScreenControls = () => {
+  // oxlint-disable-next-line unicorn/consistent-function-scoping -- page.evaluate sends only this function to the page
+  const scrollable = (element) =>
+    element.scrollHeight > element.clientHeight + 1 &&
+    /auto|scroll/u.test(getComputedStyle(element).overflowY);
+  const pageScrolls =
+    document.documentElement.scrollHeight > innerHeight + 1 &&
+    ![document.documentElement, document.body].some((element) =>
+      /hidden|clip/u.test(getComputedStyle(element).overflowY)
+    );
+  const reachable = (element) => {
+    for (let up = element.parentElement; up; up = up.parentElement) {
+      if (scrollable(up)) {
+        return true;
+      }
+    }
+    return pageScrolls;
+  };
+  return [
+    ...document.querySelectorAll(
+      "button, [role=button], a[href], input, select, textarea"
+    ),
+  ]
+    .filter((element) => {
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const shown =
+        box.width > 0 &&
+        box.height > 0 &&
+        style.visibility !== "hidden" &&
+        Number(style.opacity) > 0;
+      const outside =
+        box.bottom > innerHeight + 1 ||
+        box.right > innerWidth + 1 ||
+        box.top < -1 ||
+        box.left < -1;
+      return shown && outside && !reachable(element);
+    })
+    .map(
+      (element) =>
+        (element.textContent || element.getAttribute("aria-label") || "")
+          .trim()
+          .slice(0, 30) || element.tagName.toLowerCase()
+    );
+};
+
+// The game at the start of a round on the short screen: the error naming the controls off it, if any.
+const shortScreenErrors = async (prepared) => {
+  const { page } = await openTestGame(prepared, [], SHORT_VIEWPORT);
+  await sleep(CSS_SETTLE_MS);
+  const off = await page.evaluate(offScreenControls);
+  await page.context().close();
+  const { height, width } = SHORT_VIEWPORT;
+  return off.length > 0
+    ? [
+        `on a ${width}×${height} screen, which the app's game frame can be, these controls are off the screen and can't be tapped: ${off.map((label) => JSON.stringify(label)).join(", ")}. Fit the layout to the screen's height: let what doesn't fit shrink, or scroll.`,
+      ]
+    : [];
 };
 
 const describe = ({ vars, score, state }) =>
@@ -803,6 +871,7 @@ export const playtest = async ({ inputs = [], ms } = {}) => {
     await sleep(CSS_SETTLE_MS);
     const end = await page.screenshot({ path: "playtest-end.png" });
     const state = await page.evaluate(pageState);
+    const shortScreen = await shortScreenErrors(prepared);
     const identical = start.equals(end);
     const warnings =
       overAt !== undefined && overAt < OVER_TOO_SOON_MS
@@ -813,9 +882,14 @@ export const playtest = async ({ inputs = [], ms } = {}) => {
         ...errors.slice(0, 10),
         ...(state.clock > 0 ? [] : ["the clock didn't run"]),
         ...(identical ? ["start and end screenshots are identical"] : []),
+        ...shortScreen,
       ],
       identical,
-      ok: errors.length === 0 && state.clock > 0 && !identical,
+      ok:
+        errors.length === 0 &&
+        state.clock > 0 &&
+        !identical &&
+        shortScreen.length === 0,
       overAt,
       screenshots: ["playtest-start.png", "playtest-end.png"],
       // Real ms, by phase: where a slow playtest spent its time.

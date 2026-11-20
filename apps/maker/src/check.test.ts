@@ -1216,6 +1216,47 @@ for (const [on, start, stop] of [
   );
 }
 
+// A quiz screen 620 px tall with a 300 px picture, or with the picture shrinking (`flex: 1 1 0`) to fit the frame.
+const answers = (picture: string) =>
+  viteGame(`import { createRoot } from "react-dom/client";
+
+const root = document.querySelector("#root");
+if (root) {
+  createRoot(root).render(
+    <main style={{ boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 12, height: "100dvh", overflow: "hidden", padding: 16 }}>
+      <div style={{ ${picture}, background: "#468" }} />
+      {["Mercury", "Venus", "Earth", "Mars"].map((name) => (
+        <button key={name} style={{ flex: "none", minHeight: 60 }} type="button">{name}</button>
+      ))}
+    </main>
+  );
+  hopon.ready();
+}
+`);
+
+test(
+  "a playtest fails a game whose last answer is below a short screen, and passes it once the picture shrinks",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(box, files(answers('flex: "none", height: 300')));
+
+    const clipped = await boxPlaytest(box, "{}");
+
+    assert.equal(clipped.ok, false);
+    assert.match(
+      clipped.errors.join("\n"),
+      /on a 360×540 screen.*off the screen and can't be tapped: "Mars"\./u
+    );
+    assert.doesNotMatch(clipped.errors.join("\n"), /"Earth"/u);
+
+    await restore(box, files(answers('flex: "1 1 0", minHeight: 0')));
+
+    const fits = await boxPlaytest(box, "{}");
+
+    assert.doesNotMatch(fits.errors.join("\n"), /off the screen/u);
+  }
+);
+
 const PUB_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="gold"/></svg>';
 const loadsPub = (src: string) =>

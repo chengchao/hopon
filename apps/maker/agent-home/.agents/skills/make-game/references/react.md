@@ -111,7 +111,7 @@ What each part does:
 
 ## Layout on a phone
 
-The phone is portrait and often taller than 640 px. Fill the height and keep everything on screen.
+The phone is portrait, but the app plays a game in a frame that can be much shorter than the screen: about 570 px tall on a 6.1" iPhone, less on a small one. Fill the height and keep every control on screen from 360×540 up. Anything past the bottom is cut off and can't be tapped, so a quiz with its fourth answer below the frame can't be played.
 
 ```css
 html,
@@ -127,11 +127,12 @@ body,
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: min(12px, 2dvh);
   padding: 16px 16px 24px;
 }
 .board {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -145,7 +146,10 @@ body,
 }
 ```
 
-- Lay the screen out as a column, with the HUD at the top (score, level), the board in the middle taking the free space (`flex: 1`), and controls or a timer at the bottom.
+- Lay the screen out as a column, with the HUD at the top (score, level), the board in the middle taking the free space (`flex: 1 1 0; min-height: 0`), and controls or a timer at the bottom.
+- **The middle gives way, the controls never do.** Only the middle shrinks on a short screen: a picture, a question, a board. The answers and buttons keep their size (`flex: none`). Without `min-height: 0` a flex child won't shrink below its content, and the controls are pushed off the bottom.
+- Size what's only for looks by the height, so it shrinks with the frame: an emoji or a picture at `font-size: clamp(32px, 11dvh, 76px)`. No `min-height` on text, and buttons at `min-height: min(60px, 9dvh)`.
+- Add it up for 540 px: the padding, the gaps, the HUD and every button. If the controls alone don't fit, as with a long list of choices, put them in a box with `overflow-y: auto` so they scroll, never past the frame's bottom. The playtest fails a game with a control off a 360×540 screen.
 - Size a square board by both sides. `width: min(100%, 420px, 60dvh)` keeps it inside a short screen and a wide one. Pieces get `aspect-ratio: 1`.
 - Sizes in `px`, `%`, `vw` and `dvh`, never a fixed 640. Use `dvh`, not `vh`. Mobile browsers' `vh` includes the hidden toolbar.
 - Text at least 18 px, game pieces at least 48 px, emoji on a piece at least 24 px.
