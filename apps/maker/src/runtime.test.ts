@@ -11,7 +11,7 @@ import {
   domScaffold,
   FROZEN,
   HOPON_SERVED_PATH,
-  HOPON_V1_SHA256,
+  HOPON_V2_SHA256,
   hoponScaffold,
   SERVED_PATH,
   V4_SHA256,
@@ -34,7 +34,7 @@ test("the Worker serves the plain-DOM scaffold the box serves", () => {
 
 test("the Worker serves the Vite games' scaffold the box serves", () => {
   const served = JSON.parse(readFileSync(HOPON_SERVED_PATH, "utf-8"));
-  assertUnchanged(served, HOPON_V1_SHA256, "/hopon/v1.js");
+  assertUnchanged(served, HOPON_V2_SHA256, "/hopon/v2.js");
   assert.equal(served, hoponScaffold(), `${HOPON_SERVED_PATH} ${STALE}`);
 });
 

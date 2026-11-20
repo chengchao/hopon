@@ -2427,27 +2427,40 @@ test("vendor: each /vendor/ file loads as a sandboxed game's module, long-cached
   );
 });
 
-test("hopon: /hopon/v1.js is the box's Vite scaffold, a sandboxed game's module, frozen and cached for good", async (t) => {
+test("hopon: /hopon/v2.js is the box's Vite scaffold and /hopon/v1.js the one before it, a sandboxed game's modules, frozen and cached for good", async (t) => {
   const { env } = await setup(t);
-  const response = await moduleScript(env, "/hopon/v1.js", {});
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("Content-Type"), /^text\/javascript/u);
-  assert.equal(response.headers.get("Access-Control-Allow-Origin"), "*");
-  assert.equal(
-    response.headers.get("Cache-Control"),
-    "public, max-age=31536000, immutable"
+  const frozen = {
+    "/hopon/v1.js":
+      "5aa96fafdc0b99b88a20dfd3c165c004849ebf59ad1e5b1575d1d54a5bbcf2f2",
+    "/hopon/v2.js":
+      "e713f88d7cf3ac0c4a8815046c8f45ffac6fd21813b31dd317642af2c19bf6e6",
+  };
+  const served = await Promise.all(
+    Object.keys(frozen).map(async (route) => {
+      const response = await moduleScript(env, route, {});
+      return { code: await response.text(), response, route };
+    })
   );
-  const code = await response.text();
+  for (const { code, response, route } of served) {
+    assert.equal(response.status, 200, route);
+    assert.match(response.headers.get("Content-Type"), /^text\/javascript/u);
+    assert.equal(response.headers.get("Access-Control-Allow-Origin"), "*");
+    assert.equal(
+      response.headers.get("Cache-Control"),
+      "public, max-age=31536000, immutable"
+    );
+    assert.equal(
+      createHash("sha256").update(code).digest("hex"),
+      frozen[route],
+      route
+    );
+  }
   assert.equal(
-    code,
+    served[1].code,
     readFileSync(
       new URL("../../maker/image/hopon.js", import.meta.url),
       "utf-8"
     )
-  );
-  assert.equal(
-    createHash("sha256").update(code).digest("hex"),
-    "5aa96fafdc0b99b88a20dfd3c165c004849ebf59ad1e5b1575d1d54a5bbcf2f2"
   );
 });
 

@@ -7,6 +7,12 @@ class Play extends Scene {
 
   create() {
     this.box = this.add.rectangle(180, 320, 80, 80, 0xff_cc_00);
+    hopon.testVars.taps = 0;
+    this.input.on("pointerdown", () => {
+      if (hopon.state === "play") {
+        hopon.testVars.taps = Number(hopon.testVars.taps) + 1;
+      }
+    });
     hopon.ready();
   }
 

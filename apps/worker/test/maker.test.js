@@ -1038,7 +1038,7 @@ test(
     assert.equal(indexAt, 1);
     assert.match(
       index,
-      /<script src="\/hopon\/v1\.js" data-music="music\.opus"><\/script><script type="module" crossorigin src="\.\/index-B1x2\.js">/u
+      /<script src="\/hopon\/v2\.js" data-music="music\.opus"><\/script><script type="module" crossorigin src="\.\/index-B1x2\.js">/u
     );
     const page = await previewUrl(draft);
     const module = await fetch(page.replace(/index\.html$/u, "index-B1x2.js"));

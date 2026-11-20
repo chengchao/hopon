@@ -23,7 +23,7 @@ const FILES = {
         background: #000;
       }
     </style>
-    <script src="/hopon/v1.js"></script>
+    <script src="/hopon/v2.js"></script>
   </head>
   <body>
     <div id="root"></div>

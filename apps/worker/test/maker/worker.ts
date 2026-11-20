@@ -84,7 +84,7 @@ const VITE_GAME = [
   writeFile("vite.config.ts", "export default {};\n"),
   writeFile(
     "index.html",
-    '<script src="/hopon/v1.js"></script><script type="module" src="/src/main.tsx"></script>\n'
+    '<script src="/hopon/v2.js"></script><script type="module" src="/src/main.tsx"></script>\n'
   ),
   writeFile("src/main.tsx", "hopon.ready();\n"),
   writeFile("design.md", DESIGN),
@@ -557,7 +557,7 @@ export class Maker extends RealMaker {
         put(
           "/workspace/dist/index.html",
           encode(
-            `<script src="/hopon/v1.js"${music}></script><script type="module" crossorigin src="./index-B1x2.js"></script>`
+            `<script src="/hopon/v2.js"${music}></script><script type="module" crossorigin src="./index-B1x2.js"></script>`
           )
         );
         return;
