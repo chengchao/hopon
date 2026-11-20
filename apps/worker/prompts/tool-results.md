@@ -4,11 +4,11 @@ Each `## name` section is one tool result or refusal, filled by `toolResult` in 
 
 ## used-up
 
-The weekly Allowance is used up. Tell the Creator: "{{USED_UP}}"
+The Creator's weekly Allowance of hopon tokens is used up: nothing can be made or changed until their week resets, and the app shows them when that is. Call no more tools. Tell the Creator so in a sentence.
 
 ## busy
 
-The Maker is busy. Tell the Creator: "{{BUSY}}"
+The Maker is busy: its sandbox couldn't start. Call no more tools. Tell the Creator in a sentence that you couldn't start on it just now, and that sending the message again in a minute should work.
 
 ## run-ended
 
@@ -20,23 +20,29 @@ The sandbox restarted, and the workspace is back to the Creator's current game: 
 
 ## steps
 
-Over the {{MAX_STEPS}}-step limit. {{GIVE_UP}}
+Over this message's {{MAX_STEPS}}-step limit. {{NEXT}}
 
 ## builds
 
-Over the {{MAX_BUILDS}}-build limit. {{GIVE_UP}}
+Over this message's {{MAX_BUILDS}}-build limit. {{NEXT}}
 
-## deadline
+## ceiling
 
-Past the {{SECONDS}} s deadline. {{GIVE_UP}}
+Past this message's {{MINUTES}}-minute ceiling. {{NEXT}}
+
+## last-build
+
+One last `build` can run now, and no other tool. If the game in the workspace is finished and its last playtest passed, call `build` with it now: the Creator gets it, and you reply as `build` says. If it isn't finished, call no tool, and reply as below.
+
+{{GIVE_UP}}
 
 ## give-up
 
-Tell the Creator you couldn't make it work this time.
+Nothing from this message is published, so the Creator's game is as it was before it, or there is still no game if there was none. Call no more tools. Reply with what you were making for them, that it isn't ready yet, and that sending the request again starts it afresh. If they have a game, say it's still there as it was.
 
 ## kept
 
-Revision {{N}}, which you published in this run, stays. Tell the Creator you couldn't finish all of it this time, and that sending the rest of their request again finishes it from there.
+Revision {{N}}, which you published in this run, stays: the Creator has it. Call no more tools. Reply with what the game is and how to play it, then in a few words what of their request it doesn't have yet, and that sending that part again adds it.
 
 ## no-game
 

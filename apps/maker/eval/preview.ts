@@ -23,7 +23,7 @@ import type {
 import type { AgentEvent } from "@earendil-works/pi-durable";
 
 import { isLittlejsHtml } from "../image/page.ts";
-import { SOURCE_TAR, stepLabel } from "../src/job.ts";
+import { RUN_CEILING_MS, SOURCE_TAR, stepLabel } from "../src/job.ts";
 import type { PlaytestResult, Spec } from "../src/job.ts";
 import { passes, previewHtml, warningsOf } from "./coder.ts";
 import type { CoderJob } from "./coder.ts";
@@ -50,7 +50,8 @@ const RECONNECT_MS = 1000;
 const RETRIES = 3;
 const OPEN_MS = 30_000;
 const POLL_MS = 100;
-const TURN_MS = 10 * 60_000;
+// Past the run's ceiling and its abort timer (ADR 0009), which end any turn sooner.
+const TURN_MS = RUN_CEILING_MS + 10 * 60_000;
 // Clerk Development instances sign in any `+clerk_test` address with this code, and send no email.
 const TEST_CODE = "424242";
 // Session tokens live 60 s.
@@ -838,6 +839,7 @@ export const runPreviewE2E = async ({
           firstTokenMs: since(current.firstToken),
           firstVisibleMs: since(current.firstVisible),
           ms: Date.now() - current.sentAt,
+          published: built.filter((build) => !outcome(build).failed).length,
           // Screening's refusal is the reply the Creator sees, and nothing is built: what the off-limits chat asks.
           reply:
             "refused" in sent ? sent.refused : current.texts.join("\n").trim(),

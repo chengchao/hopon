@@ -12,6 +12,8 @@ interface ChatTurn {
   builds: number;
   steer?: string;
   briefMentions?: string;
+  // The turn passes only if one of its builds published a Revision.
+  publishes?: boolean;
 }
 export interface Chat {
   id: string;
@@ -33,6 +35,14 @@ const PROCESS =
 export const processTalk = (reply: string) =>
   [...reply.matchAll(PROCESS)].map((match) => match[0].toLowerCase());
 
+// A limit reaching the Creator (ADR 0009): the harness's words for one, or the give-up the 5-minute deadline produced.
+// "Time limit", "ceiling" and "too hard" are game words, so none counts alone.
+const LIMIT =
+  /\b(?:(?:step|build|tool[- ]call) limits?|minute ceiling|deadline|ran out of time|out of time|time ran out|took too long|(?:say|ask|try) it (?:more )?simpl[ey]\w*|(?:something|maybe|a bit|little) simpler|couldn't make it work)\b/giu;
+
+export const limitTalk = (reply: string) =>
+  [...reply.matchAll(LIMIT)].map((match) => match[0].toLowerCase());
+
 // One turn as the report reads it, from the Draft's socket (preview.ts).
 export const turnRecord = ({
   turn,
@@ -43,6 +53,7 @@ export const turnRecord = ({
   buildMs,
   firstTokenMs,
   firstVisibleMs,
+  published,
   status,
   unanswered,
 }: {
@@ -52,6 +63,8 @@ export const turnRecord = ({
   cost: number;
   ms: number;
   buildMs: number;
+  // How many of the turn's builds published a Revision.
+  published: number;
   firstTokenMs: number | undefined;
   firstVisibleMs: number | undefined;
   status: string;
@@ -65,6 +78,7 @@ export const turnRecord = ({
   creator: turn.text,
   firstTokenMs,
   firstVisibleMs,
+  limitTalk: limitTalk(reply),
   mentionOk: turn.briefMentions
     ? builds.some((spec) =>
         `${spec.title} ${spec.brief}`
@@ -73,6 +87,7 @@ export const turnRecord = ({
       )
     : true,
   processTalk: processTalk(reply),
+  publishOk: !turn.publishes || published > 0,
   reply,
   replyMs: ms - buildMs,
   status,
@@ -140,9 +155,11 @@ export const judgeChat = async ({
     (turn) =>
       turn.status === "done" &&
       turn.builds.length === turn.buildsExpected &&
-      turn.mentionOk
+      turn.mentionOk &&
+      turn.publishOk
   );
   const processOk = turns.every((turn) => turn.processTalk.length === 0);
+  const limitOk = turns.every((turn) => turn.limitTalk.length === 0);
   const scoresOk = scoresPass(agents, judged, turns);
   const record = {
     agent: "talker",
@@ -152,8 +169,9 @@ export const judgeChat = async ({
     chat: chat.id,
     cost: turns.reduce((sum, turn) => sum + turn.cost, 0),
     judge: scores,
+    limitOk,
     model: modelId,
-    pass: brevityOk && behaviourOk && processOk && scoresOk,
+    pass: brevityOk && behaviourOk && processOk && limitOk && scoresOk,
     processOk,
     run,
     thinking,

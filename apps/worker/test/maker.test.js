@@ -218,6 +218,11 @@ const transcript = async (draft) => {
       .join(" "),
   }));
 };
+// Every entry's text, tool results included.
+const texts = async (draft) => {
+  const entries = await transcript(draft);
+  return entries.map((entry) => entry.text);
+};
 const lastReply = async (draft) => {
   const entries = await transcript(draft);
   return entries.findLast((entry) => entry.kind === "pi.assistant")?.text;
@@ -411,7 +416,7 @@ test(
     assert.equal(await socket.turn("build one"), "turn_done");
     assert.match(
       await lastReply(draft),
-      /The Maker is busy\. Try again in a minute\./u
+      /The Maker is busy: its sandbox couldn't start\./u
     );
     assert.equal(await revisionOf(draft), 4);
 
@@ -611,30 +616,136 @@ test(
   }
 );
 
+const LAST_BUILD = /One last `build` can run now, and no other tool\./u;
+
 test(
-  "limits: the 21st step and the 5th build are refused; the agent is told to give up, or that what it published stays",
+  "limits: past the step limit a finished game still publishes with one last build; the 5th build is refused; the agent is told what it published stays",
   { timeout: 120_000 },
   async (t) => {
     await serve(t);
     const { id: draft } = await json("/api/drafts", { text: "build loop" });
     const socket = await connect(draft);
     await socket.until("the loop turn's end", over);
+    // The 31st call is refused, and the agent told it may still build; its build publishes, and the call after it is
+    // refused with the Revision it published.
+    const results = await texts(draft);
+    assert.ok(
+      results.some(
+        (text) =>
+          text.includes(
+            "Tool call blocked: Over this message's 30-step limit."
+          ) && LAST_BUILD.test(text)
+      ),
+      JSON.stringify(results.slice(-6))
+    );
+    assert.equal(await revisionOf(draft), 1);
     assert.match(
       await lastReply(draft),
-      /Over the 20-step limit\. Tell the Creator you couldn't make it work this time\./u
+      /said: [^]*Over this message's 30-step limit\. Revision 1, which you published in this run, stays: the Creator has it\./u
     );
-    // 21 tool calls, then the reply.
-    assert.equal(await modelCalls(draft), 22);
-    await noRevision(draft);
+    // 31 writes, the build, the refused playtest, then the reply.
+    assert.equal(await modelCalls(draft), 34);
 
     // Four builds publish; the fifth is refused, and the agent is told the fourth stays, so the Creator can send the
     // rest again (an old Draft's port, published before its change, survives a limit this way).
     assert.equal(await socket.turn("build five"), "turn_done");
     assert.match(
       await lastReply(draft),
-      /Over the 4-build limit\. Revision 4, which you published in this run, stays\. .*sending the rest/u
+      /Over this message's 4-build limit\. Revision 5, which you published in this run, stays: .*sending that part again adds it/u
     );
-    assert.equal(await revisionOf(draft), 4);
+    assert.equal(await revisionOf(draft), 5);
+    socket.close();
+  }
+);
+
+test(
+  "time: a run past 5 minutes still publishes; past the ceiling a finished game publishes with one last build, and a broken one is reported, not retried",
+  { timeout: 120_000 },
+  async (t) => {
+    await serve(t);
+    const { id: draft } = await json("/api/drafts", { text: "hello" });
+    const socket = await connect(draft);
+    await socket.until("the hello's end", over);
+
+    // The incident's run: 6 minutes in, it writes, builds and playtests, with no call refused.
+    let step = socket.after("the playtest", played);
+    let turn = socket.turn("build late");
+    await step();
+    await fake(draft, "age/360");
+    await fake(draft, "release");
+    assert.equal(await turn, "turn_done");
+    assert.equal(await revisionOf(draft), 1);
+    const early = await texts(draft);
+    assert.ok(early.every((text) => !text.includes("Tool call blocked")));
+
+    // 21 minutes in, past the ceiling: the write is refused and the agent told it may build once; the build publishes
+    // the finished game, and the call after it is refused with that Revision.
+    step = socket.after("the playtest", played);
+    turn = socket.turn("build late");
+    await step();
+    await fake(draft, "age/1260");
+    await fake(draft, "release");
+    assert.equal(await turn, "turn_done");
+    const late = await texts(draft);
+    assert.ok(
+      late.some(
+        (text) =>
+          text.includes(
+            "Tool call blocked: Past this message's 20-minute ceiling."
+          ) && LAST_BUILD.test(text)
+      ),
+      JSON.stringify(late.slice(-6))
+    );
+    assert.equal(await revisionOf(draft), 2);
+    assert.match(
+      await lastReply(draft),
+      /said: [^]*Past this message's 20-minute ceiling\. Revision 2, which you published in this run, stays/u
+    );
+
+    // Past the ceiling with a broken game: its one last build fails the check, and the next is refused with nothing
+    // published, so the agent says the game is as it was and the request can be sent again.
+    step = socket.after("the playtest", played);
+    turn = socket.turn("build latebroken");
+    await step();
+    await fake(draft, "age/1260");
+    await fake(draft, "release");
+    assert.equal(await turn, "turn_done");
+    assert.match(
+      await lastReply(draft),
+      /said: [^]*Past this message's 20-minute ceiling\. Nothing from this message is published[^]*sending the request again starts it afresh/u
+    );
+    assert.equal(await revisionOf(draft), 2);
+    socket.close();
+  }
+);
+
+test(
+  "a hung call: bash and the playtest each end at the command timeout, the agent is told it timed out, and the run goes on to publish",
+  { timeout: 120_000 },
+  async (t) => {
+    await serve(t);
+    const { id: draft } = await json("/api/drafts", { text: "hello" });
+    const socket = await connect(draft);
+    await socket.until("the hello's end", over);
+    await fake(draft, "hangplay");
+    assert.equal(await socket.turn("build timedout"), "turn_done");
+    const said = await texts(draft);
+    assert.ok(
+      said.some((text) => text.includes("Command timed out after 180 seconds")),
+      JSON.stringify(said)
+    );
+    assert.ok(
+      said.some((text) =>
+        text.includes("playtest crashed: exit 124: timed out after 180 s")
+      ),
+      JSON.stringify(said)
+    );
+    assert.equal(await lastReply(draft), published(1));
+    // bash asked for 9,999 s and got the command timeout.
+    const log = await boxLog(draft);
+    assert.ok(
+      log.includes("/usr/bin/timeout --kill-after=5 180 bash -lc sleep 9999")
+    );
     socket.close();
   }
 );
@@ -978,42 +1089,6 @@ test("allowance: each model call is charged to its Creator's week; a run's work 
     const { left: tokens } = await json("/api/allowance");
     return tokens;
   };
-  // One chat turn, one model call: 1,000 input tokens at $0.10 a million is $0.0001, × 10,000,000.
-  const before = await left();
-  const { id: draft } = await json("/api/drafts", { text: "hello" });
-  const socket = await connect(draft);
-  await socket.until("the first turn's end", over);
-  assert.equal(await left(), before - 1000);
-
-  // Out of AI Gateway credits, the Maker is resting, and the refused call costs nothing.
-  const resting = socket.after("the resting turn's end", ended);
-  await send(draft, "no credits");
-  const { reason } = await resting();
-  assert.equal(reason, "resting");
-  assert.equal(await left(), before - 1000);
-
-  // 1,000 left: the call that asks for a tool takes it to zero, so the tool is refused and the box never starts; the
-  // reply after it overshoots.
-  await socket.turn(`spend ${before - 2000}`);
-  assert.equal(await left(), 1000);
-  assert.equal(await socket.turn("build one"), "turn_done");
-  assert.match(
-    await lastReply(draft),
-    /You've used this week's hopon tokens\. They come back when the week resets\./u
-  );
-  assert.deepEqual(await boxLog(draft), []);
-  assert.equal(await left(), -1000);
-
-  // At or below zero, chat and builds are refused before any model call: the transcript doesn't change.
-  const entries = await transcript(draft);
-  const calls = await modelCalls(draft);
-  await refused(`/api/drafts/${draft}/messages`, "hello again");
-  await refused(`/api/drafts/${draft}/messages`, "build new");
-  await refused("/api/drafts", "build new");
-  assert.deepEqual(await transcript(draft), entries);
-  assert.equal(await modelCalls(draft), calls);
-  socket.close();
-
   // A new week: this one's bucket becomes an old week's, and the Allowance is full again.
   const newWeek = async (old) => {
     kill();
@@ -1035,6 +1110,46 @@ test("allowance: each model call is charged to its Creator's week; a run's work 
     await start();
     assert.equal(await left(), 200_000);
   };
+  // The earlier tests spent this week's: start from a full one.
+  await newWeek("2026-W00");
+
+  // One chat turn, one model call: 1,000 input tokens at $0.10 a million is $0.0001, × 10,000,000.
+  const before = await left();
+  const { id: draft } = await json("/api/drafts", { text: "hello" });
+  const socket = await connect(draft);
+  await socket.until("the first turn's end", over);
+  assert.equal(await left(), before - 1000);
+
+  // Out of AI Gateway credits, the Maker is resting, and the refused call costs nothing.
+  const resting = socket.after("the resting turn's end", ended);
+  await send(draft, "no credits");
+  const { reason } = await resting();
+  assert.equal(reason, "resting");
+  assert.equal(await left(), before - 1000);
+
+  // 1,000 left: the call that asks for a tool takes it to zero, so the tool is refused and the box never starts; the
+  // reply after it overshoots.
+  // Two calls: one of 198,000 input tokens would overflow the model's context.
+  await socket.turn(`spend ${(before - 2000) / 2}`);
+  await socket.turn(`spend ${(before - 2000) / 2}`);
+  assert.equal(await left(), 1000);
+  assert.equal(await socket.turn("build one"), "turn_done");
+  assert.match(
+    await lastReply(draft),
+    /The Creator's weekly Allowance of hopon tokens is used up/u
+  );
+  assert.deepEqual(await boxLog(draft), []);
+  assert.equal(await left(), -1000);
+
+  // At or below zero, chat and builds are refused before any model call: the transcript doesn't change.
+  const entries = await transcript(draft);
+  const calls = await modelCalls(draft);
+  await refused(`/api/drafts/${draft}/messages`, "hello again");
+  await refused(`/api/drafts/${draft}/messages`, "build new");
+  await refused("/api/drafts", "build new");
+  assert.deepEqual(await transcript(draft), entries);
+  assert.equal(await modelCalls(draft), calls);
+  socket.close();
   await newWeek("2026-W01");
 
   // 1,500 left: the run's first call leaves 500, so its work starts, and it finishes though its later calls overshoot:

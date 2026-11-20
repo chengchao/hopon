@@ -37,8 +37,11 @@ const BOX_IDLE_MS = 300_000;
 // A cold box answers exec() in 0.2–0.5 s, a first boot on a new host in up to 21 s.
 const READY_MS = 60_000;
 const READY_POLL_MS = 100;
-// No command a job runs (a playtest, the music render) should take longer; pi's bash passes its own.
-const COMMAND_TIMEOUT_S = 120;
+// Each command's own limit (ADR 0009): a hung one is ended and the run goes on, its tool told it timed out. A big
+// game's tests take about a minute; pi's bash may ask for less, never more.
+export const COMMAND_TIMEOUT_S = 180;
+export const commandSeconds = (asked?: unknown) =>
+  Math.min(Number(asked) || COMMAND_TIMEOUT_S, COMMAND_TIMEOUT_S);
 // How long `timeout` waits after its SIGTERM before it SIGKILLs what's left.
 const KILL_AFTER_S = 5;
 const SIGTERM = 15;
@@ -366,7 +369,7 @@ export const boxEnv = (box: BoxOps, id: string): ExecutionEnv => {
     cwd: WORKSPACE,
     exec: async (cmd, options, context) => {
       const argv = typeof cmd === "string" ? ["bash", "-lc", cmd] : [...cmd];
-      const seconds = options?.timeout ?? COMMAND_TIMEOUT_S;
+      const seconds = commandSeconds(options?.timeout);
       try {
         const result = await box.exec(timed(argv, seconds), {
           cwd: options?.cwd ? resolve(options.cwd) : WORKSPACE,
@@ -468,12 +471,20 @@ export const boxEnv = (box: BoxOps, id: string): ExecutionEnv => {
   };
 };
 
-// The game rules' Box: programs in the workspace under the command timeout, their output whatever the exit code.
-// An abort of `signal` stops the program and everything it started.
+// The game rules' Box: programs in the workspace under the command timeout, their output whatever the exit code, and
+// a program that ran out of time says so in its stderr. An abort of `signal` stops the program and everything it
+// started.
 export const jobBox = (box: BoxOps, signal?: AbortSignal): JobBox => ({
   exec: async (argv) => {
     const result = await box.exec(timed(argv), { signal });
-    return { ...result, stdout: decode(result.stdout) };
+    const timedOut = result.exitCode === TIMED_OUT && !signal?.aborted;
+    return {
+      ...result,
+      stderr: timedOut
+        ? `timed out after ${COMMAND_TIMEOUT_S} s`
+        : result.stderr,
+      stdout: decode(result.stdout),
+    };
   },
   read: (file) => readText(box.files, file),
   readBytes: (file) => readBytes(box.files, file),
