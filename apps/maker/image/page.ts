@@ -5,7 +5,7 @@
 export const RUNTIME_SRC = "/runtime/v4.js";
 export const DOM_SRC = "/dom/v4.js";
 // The Vite games' scaffold (hopon.js). Its page is the one `vite build` writes from the game's own index.html.
-export const HOPON_SRC = "/hopon/v1.js";
+export const HOPON_SRC = "/hopon/v2.js";
 // The served-runtime CSP: scripts, styles, images, fonts, media and fetches from the game's own origin only. The box's
 // playtest serves a game under it (helpers.js), and check.test.ts loads the Vite fixtures under it.
 export const GAME_CSP =
@@ -49,9 +49,10 @@ export const domHtml = (html: string, files: PageFiles = {}) => {
     : `${css}${page}`;
 };
 
-// A Vite game's built index.html with its scaffold tag naming its music exactly when it has some.
+// A Vite game's built index.html on the current scaffold, its tag naming its music exactly when it has some. A game
+// written on an older scaffold moves to the current one when it's built again.
 export const viteHtml = (html: string, files: PageFiles = {}) =>
   html.replace(
-    /<script src="\/hopon\/v1\.js"[^>]*><\/script>/u,
+    /<script src="\/hopon\/v\d+\.js"[^>]*><\/script>/u,
     scaffoldTag(HOPON_SRC, files)
   );

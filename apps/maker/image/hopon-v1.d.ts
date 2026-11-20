@@ -1,4 +1,4 @@
-// The Vite games' scaffold (hopon.js, served at /hopon/v1.js), a global the game's modules read.
+// The Vite games' scaffold (hopon.js, served at /hopon/v2.js), a global the game's modules read.
 // A sound effect: the pitch glides from freq to `to` Hz over ms; noise is band-passed noise.
 interface HoponSound {
   freq: number;

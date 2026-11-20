@@ -1,4 +1,4 @@
-// hopon's scaffold for Vite games (React, Phaser, r3f), served at /hopon/v1.js as a classic script before the game's
+// hopon's scaffold for Vite games (React, Phaser, r3f), served at /hopon/v2.js as a classic script before the game's
 // module, by the Worker and the box's playtest, the same bytes. It draws on no engine: it keeps the score and the state,
 // shows the start and over screens as a DOM overlay above whatever the game draws, plays the music, and carries the
 // feed's pause, resume and mute. The game calls addScore and gameOver, and follows the rest with subscribe.
@@ -245,10 +245,12 @@
     },
   });
 
-  // The tap that starts a round is the overlay's alone. The overlay hides on its press, so the release, and the
-  // touchend and click after it, would land on the game: each is swallowed once, before the game's own listeners. A
-  // browser may not send them all, so the next press ends the swallowing too.
-  const RELEASES = ["pointerup", "touchend", "mouseup", "click"];
+  // The tap that starts a round is the overlay's alone. The overlay hides on its press, so the release and the click
+  // after it would land on the game: each is swallowed once, before the game's own listeners. A browser may not send
+  // them all, so the next press ends the swallowing too. A touchend goes to the overlay, where its touch started, so
+  // it passes: Phaser reads it on window to free the touch's pointer, and without it ignored every later tap on iOS,
+  // which gives each touch a new identifier (/hopon/v1.js swallowed it).
+  const RELEASES = ["pointerup", "mouseup", "click"];
   // oxlint-disable-next-line unicorn/consistent-function-scoping -- the IIFE keeps it off the page's globals
   const swallow = (event) => {
     event.stopImmediatePropagation();

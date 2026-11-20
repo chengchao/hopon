@@ -707,7 +707,7 @@ test(
 );
 
 test(
-  "a plain-DOM page that loads /hopon/v1.js fails the check: only a Vite game's page gets that scaffold",
+  "a plain-DOM page that loads /hopon/v2.js fails the check: only a Vite game's page gets that scaffold",
   { skip, timeout: 300_000 },
   async () => {
     await restore(
@@ -717,7 +717,7 @@ test(
         "game.ts": ocean("game.ts"),
         "index.html": ocean("index.html").replace(
           "</body>",
-          '<script src="/hopon/v1.js"></script></body>'
+          '<script src="/hopon/v2.js"></script></body>'
         ),
       })
     );
@@ -926,6 +926,7 @@ interface Loaded {
   loaded: boolean;
   ownGzipBytes: number;
   requested: string[];
+  tapped: { testVars: Record<string, unknown> };
 }
 
 // The built game in the workspace's dist/, served by a real HTTP server in the box as the Worker serves it.
@@ -1015,8 +1016,8 @@ for (const [engine, libs] of [
       assert.match(
         text(verdict.files["index.html"]),
         music
-          ? /<script src="\/hopon\/v1\.js" data-music="music\.opus"><\/script>/u
-          : /<script src="\/hopon\/v1\.js"><\/script>/u
+          ? /<script src="\/hopon\/v2\.js" data-music="music\.opus"><\/script>/u
+          : /<script src="\/hopon\/v2\.js"><\/script>/u
       );
 
       const played = await boxPlaytest(box, "random");
@@ -1030,6 +1031,13 @@ for (const [engine, libs] of [
       assert.equal(page.before.state, "start");
       assert.equal(page.after.state, "play");
       assert.equal(page.after.overlay, "none");
+      if (engine === "phaser") {
+        assert.equal(
+          page.tapped.testVars.taps,
+          3,
+          "Phaser takes each tap after the start tap, each touch a new identifier as on iOS"
+        );
+      }
       assert.ok(
         page.ownGzipBytes < OWN_GZIP_BYTES,
         `own files ${page.ownGzipBytes} B gzip`
@@ -1771,8 +1779,8 @@ for (const [game, engine, music] of [
       assert.match(
         text(ported.files["index.html"]),
         music
-          ? /<script src="\/hopon\/v1\.js" data-music="music\.opus"><\/script>/u
-          : /<script src="\/hopon\/v1\.js"><\/script>/u
+          ? /<script src="\/hopon\/v2\.js" data-music="music\.opus"><\/script>/u
+          : /<script src="\/hopon\/v2\.js"><\/script>/u
       );
       assert.equal("music.opus" in ported.files, music);
       const source = await unpacked(ported.files[SOURCE_TAR]);

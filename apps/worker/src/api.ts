@@ -51,6 +51,7 @@ import DOM_V2 from "./runtime/dom-v2.json" with { type: "json" };
 import DOM_V3 from "./runtime/dom-v3.json" with { type: "json" };
 import DOM_V4 from "./runtime/dom-v4.json" with { type: "json" };
 import HOPON_V1 from "./runtime/hopon-v1.json" with { type: "json" };
+import HOPON_V2 from "./runtime/hopon-v2.json" with { type: "json" };
 import RUNTIME_V2 from "./runtime/v2.json" with { type: "json" };
 import RUNTIME_V3 from "./runtime/v3.json" with { type: "json" };
 import RUNTIME_V4 from "./runtime/v4.json" with { type: "json" };
@@ -445,6 +446,7 @@ for (const [route, code, cache] of [
   ["/dom/v3.js", DOM_V3, IMMUTABLE],
   ["/dom/v4.js", DOM_V4, IMMUTABLE],
   ["/hopon/v1.js", HOPON_V1, IMMUTABLE],
+  ["/hopon/v2.js", HOPON_V2, IMMUTABLE],
 ]) {
   app.get(route, (c) =>
     c.body(code, 200, { ...SCRIPT, "Cache-Control": cache, ...gzipped(c) })

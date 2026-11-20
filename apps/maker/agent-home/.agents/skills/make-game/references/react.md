@@ -22,7 +22,7 @@ The rules of the box:
 
 ## Wiring to hopon
 
-The scaffold (`/hopon/v1.js`, the global `hopon`) owns the start screen, the over screen and the score. It covers the game in "start" and "over" with a dimmed overlay that shows the title, the score and the best score, and it takes the tap that starts a round. That tap never reaches the game. During "play" the scaffold draws nothing, so the game shows its own score.
+The scaffold (`/hopon/v2.js`, the global `hopon`) owns the start screen, the over screen and the score. It covers the game in "start" and "over" with a dimmed overlay that shows the title, the score and the best score, and it takes the tap that starts a round. That tap never reaches the game. During "play" the scaffold draws nothing, so the game shows its own score.
 
 ```tsx
 import { useEffect, useState, useSyncExternalStore } from "react";
