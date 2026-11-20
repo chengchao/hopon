@@ -34,7 +34,13 @@ import { allowanceLine, low, usedUp } from "@/lib/allowance";
 import { api, ApiError } from "@/lib/api";
 import { draftTitle } from "@/lib/draft-list";
 import { t } from "@/lib/i18n";
-import { chatView, makerChat, NEW_CHAT, publishable } from "@/lib/maker-chat";
+import {
+  chatView,
+  makerChat,
+  NEW_CHAT,
+  publishable,
+  shownDraft,
+} from "@/lib/maker-chat";
 import type { Frame, Row } from "@/lib/maker-chat";
 import { useMakerSocket } from "@/lib/maker-socket";
 import type { Link } from "@/lib/maker-socket";
@@ -447,12 +453,13 @@ const Create = () => {
   const showStop = view.running && !message;
   // A new chat with nothing in it yet: the welcome and the example ideas.
   const blank = draft === null && view.rows.length === 0;
-  const game = withGame(draft, view.rows);
+  const shown = shownDraft(draft, view.game);
+  const game = withGame(shown, view.rows);
   const play = () => {
     Keyboard.dismiss();
     setPlaying(true);
   };
-  const canPublish = publishable(draft, view);
+  const canPublish = publishable(shown, view);
   const publish = () => {
     Keyboard.dismiss();
     setConfirming(true);
@@ -461,7 +468,7 @@ const Create = () => {
   return (
     <KeyboardAvoidingView behavior="padding" className="flex-1 bg-background">
       <Header
-        draft={draft}
+        draft={shown}
         // Not before the list has answered, nor while a new chat's Draft is being born.
         onDrafts={
           ready
@@ -586,7 +593,7 @@ const Create = () => {
         />
       )}
       <PublishSheet
-        draft={draft}
+        draft={shown}
         open={confirming}
         onClose={() => setConfirming(false)}
       />

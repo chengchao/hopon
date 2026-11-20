@@ -7,6 +7,7 @@ import {
   NEW_CHAT,
   newRevision,
   publishable,
+  shownDraft,
 } from "../lib/maker-chat.ts";
 
 // pi's frames as the Maker sends them (apps/worker/src/maker.ts).
@@ -595,4 +596,26 @@ test("Publish waits for a Revision (the Maker's title) and for the turn to end",
   assert.equal(publishable(untitled, view(start)), false);
   assert.equal(publishable(titled, view(start, turn)), false);
   assert.equal(publishable(titled, view(start, turn, done)), true);
+});
+
+test("a game card names the Draft and opens Publish even when the Draft list still has no title", () => {
+  // The Draft list was read before the build, and the socket dropped through the turn_done that rereads it.
+  const untitled = { description: null, id: "d", title: null };
+  const built = view(
+    snapshot({
+      entries: [
+        user(1, "A trading game at sea"),
+        buildCall(2, "call-1", "Great Voyage"),
+        buildResult(3, "call-1", "Built it."),
+        maker(4, "Here it is!"),
+      ],
+    })
+  );
+  const shown = shownDraft(untitled, built.game);
+  assert.equal(shown.title, "Great Voyage");
+  assert.equal(publishable(shown, built), true);
+  // Before any build, the Draft is as the list has it.
+  const chat = view(snapshot({ entries: [user(1, "Hi")] }));
+  assert.equal(shownDraft(untitled, chat.game), untitled);
+  assert.equal(publishable(shownDraft(untitled, chat.game), chat), false);
 });
