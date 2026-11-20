@@ -40,7 +40,7 @@ A Draft from before Vite games has a `game.ts` and no `vite.config.ts`. hopon no
 3. Delete `game.ts` and the old `index.html`, run `node /opt/hopon/starter.js` for the skeleton, and write the game's own files. Keep `design.md`, `tests.json` and the music file (`music.mjs` or `music.py`) as they are.
 4. Playtest the port, and run the old tests with `node /opt/hopon/playtest.js tests`. They pass on the port before you make the change.
 5. Publish the port on its own: call `build` with kind `"change"`, with no advisor check. A port and a change together may not fit in one message's limits, and work you haven't published is lost when a limit stops you. Once the port is published, the Creator's next message starts from it.
-6. Then make the Creator's change as usual (update `design.md`, the tests, the code), and call `build` with kind `"change"` again. Don't mention the port to the Creator unless they ask. When a limit stops you after the port's `build`, tell the Creator you couldn't finish their change this time and that sending it again finishes it.
+6. Then make the Creator's change as usual (update `design.md`, the tests, the code), and call `build` with kind `"change"` again. Don't mention the port to the Creator unless they ask. When a limit stops you after the port's `build`, its refusal says what to tell the Creator.
 
 ## Workflow
 

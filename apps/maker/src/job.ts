@@ -20,13 +20,14 @@ export interface Box {
   write: (file: string, data: string | Uint8Array) => Promise<void>;
 }
 
-// #116's turn limits. Steps are the owner's call, raised from #111's 12 to 20 on 2026-11-03: a p95 cap of 10 failed 2
-// of 72 good builds. The deadline is the owner's call too, raised from 210 s to 5 minutes on 2026-11-09 with the move to
-// Sonnet at high effort. The turn's abort timer sits 30 s past it (#122).
-export const MAX_STEPS = 20;
-export const DEADLINE_MS = 300_000;
+// A message's limits (ADR 0009): money and steps, not time. Steps were #111's 12, the owner's 20 on 2026-11-03, and 30
+// from P6a, once the 5-minute deadline that bound first went: a step late in a run reads ~56K cached tokens, ~$0.015.
+export const MAX_STEPS = 30;
 // `build` calls per message (ADR 0006): a failed check comes back as errors to fix, this many times in all.
 export const MAX_BUILDS = 4;
+// A safety ceiling against a broken loop, not a budget: no normal run comes near it. Past it the agent may still
+// publish a finished game with one last `build`.
+export const RUN_CEILING_MS = 20 * 60_000;
 const MUSIC_MIN_S = 20;
 const MUSIC_MAX_S = 40;
 

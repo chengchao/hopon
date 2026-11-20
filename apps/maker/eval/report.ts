@@ -59,11 +59,22 @@ const groupBy = <T>(items: T[], key: (item: T) => string) => {
 const reported = <T>(values: (T | null)[]) =>
   values.filter((value): value is T => value !== null);
 
-// Why a build failed, its first cause: the Coder's own ending, then the eval's final playtest, then the judge.
-const ENDINGS = ["deadline", "steps", "busy"] as const;
+// Why a build failed, its first cause: the Coder's own ending, then the eval's final playtest, then the judge. A
+// refused `build` names its limit (apps/worker/prompts/tool-results.md); "deadline" is the 5-minute limit older sweeps
+// ran under (ADR 0009).
+const ENDINGS = [
+  ["deadline", /deadline/u],
+  ["ceiling", /-minute ceiling/u],
+  ["steps", /-step limit/u],
+  ["builds", /-build limit/u],
+  ["busy", /busy/u],
+] as const;
 const failure = (run: CoderRecord) => {
   if (run.reason) {
-    return ENDINGS.find((word) => run.reason?.includes(word)) ?? "coder failed";
+    return (
+      ENDINGS.find(([, pattern]) => pattern.test(run.reason ?? ""))?.[0] ??
+      "coder failed"
+    );
   }
   if (!run.finalGreen) {
     return "playtest red";

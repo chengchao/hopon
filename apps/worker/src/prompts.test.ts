@@ -9,30 +9,50 @@ const MAKER = readFileSync(
   "utf-8"
 );
 
+const TOOL_RESULTS = readFileSync(
+  new URL("../prompts/tool-results.md", import.meta.url),
+  "utf-8"
+);
+
 test("maker.md renders with every placeholder filled", () => {
   const rendered = renderPrompt(MAKER, MAKER_VALUES);
   assert.doesNotMatch(rendered, /\{\{|\}\}/u);
-  assert.ok(rendered.includes(MAKER_VALUES.USED_UP));
   assert.ok(rendered.includes(`${MAKER_VALUES.MAX_STEPS} tool calls`));
 });
 
+// ADR 0009: the harness gives the agent facts and what to do, and the agent writes the reply in the Creator's
+// language. No line in a prompt is a sentence for the Creator, and none asks them to cut their request down.
+test("no prompt tells the agent to quote a line or to ask the Creator for something simpler", () => {
+  for (const prompt of [renderPrompt(MAKER, MAKER_VALUES), TOOL_RESULTS]) {
+    assert.doesNotMatch(prompt, /Tell the Creator: "|word for word/u);
+    assert.doesNotMatch(
+      prompt,
+      /maybe simpler|more simply|couldn't make it work/u
+    );
+    assert.doesNotMatch(prompt, /deadline|\d+ s\b/u);
+  }
+});
+
 test("tool-results.md has every tool result the Maker gives, each with the values it's given", () => {
-  const toolResult = toolResults(
-    readFileSync(
-      new URL("../prompts/tool-results.md", import.meta.url),
-      "utf-8"
-    )
-  );
-  assert.equal(
-    toolResult("steps", { GIVE_UP: toolResult("give-up"), MAX_STEPS: 20 }),
-    "Over the 20-step limit. Tell the Creator you couldn't make it work this time."
+  const toolResult = toolResults(TOOL_RESULTS);
+  const GIVE_UP = toolResult("give-up");
+  assert.match(
+    toolResult("steps", { MAX_STEPS: 30, NEXT: GIVE_UP }),
+    /^Over this message's 30-step limit\. Nothing from this message is published.* sending the request again starts it afresh/u
   );
   assert.match(
-    toolResult("deadline", {
-      GIVE_UP: toolResult("kept", { N: 2 }),
-      SECONDS: 300,
+    toolResult("ceiling", {
+      MINUTES: 20,
+      NEXT: toolResult("last-build", { GIVE_UP }),
     }),
-    /^Past the 300 s deadline\. Revision 2, which you published in this run, stays\. .*sending the rest/u
+    /^Past this message's 20-minute ceiling\. One last `build` can run now.*If it isn't finished, call no tool.*\s+Nothing from this message is published/su
+  );
+  assert.match(
+    toolResult("builds", {
+      MAX_BUILDS: 4,
+      NEXT: toolResult("kept", { N: 2 }),
+    }),
+    /^Over this message's 4-build limit\. Revision 2, which you published in this run, stays: the Creator has it\. .*sending that part again adds it/u
   );
   assert.match(
     toolResult("check-failed", { ERRORS: "- boom", SKIPPED: "" }),

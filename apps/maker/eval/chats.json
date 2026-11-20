@@ -71,6 +71,17 @@
     ]
   },
   {
+    "id": "big-voyage",
+    "behaviour": "A big request, a whole sailing and trading game, ends in a published game however long it takes, and the reply never mentions a limit or asks for something simpler.",
+    "turns": [
+      {
+        "text": "Make a big sailing and trading game, like the classic age-of-exploration games. I captain a ship around a world map with lots of ports. Each port has its own market, so I buy goods cheap in one and sell them dear in another. I earn gold to upgrade my ship and hire more crew, and pirates attack me at sea.",
+        "builds": 1,
+        "publishes": true
+      }
+    ]
+  },
+  {
     "id": "start-over",
     "behaviour": "\"Start over\" is briefed as a complete new game, not a change.",
     "turns": [

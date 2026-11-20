@@ -14,7 +14,8 @@
 // /__maker/<draftId>/fake/<what> (MAKER_DEV's route) reaches the Draft's Maker: `log` returns the box's commands, and
 // its start, destroy and inactivity timeout; `puts` the start and end of each R2 put; `release` lets a held step answer; `nobox` stops the box and makes its
 // next start fail; `lose` makes the box stop with the server, as a box on another host would; `stopbox` stops it once;
-// `slowplay/<ms>` slows its next playtest; `stopatverify` stops the box once `build`'s verify has answered;
+// `slowplay/<ms>` slows its next playtest; `hangplay` times its next playtest out, as `timeout` would, and `sleep 9999`
+// always times out; `age/<s>` moves the run in flight's start <s> seconds back; `stopatverify` stops the box once `build`'s verify has answered;
 // `partial` leaves the next Revision half-written in R2, as an eviction mid-build would; `legacy` writes the next
 // Revision as one from before source.tgz; `calls` counts the model calls; `advisor` returns the advisor's requests; `mistagged` counts calls whose gateway tag
 // doesn't name the Maker; `destroyed` says whether the Draft's box was destroyed, and `startsafterdestroy` how often it
@@ -155,8 +156,17 @@ const SCRIPTS: Record<string, readonly Step[]> = {
   ],
   // Runs a command until it's stopped.
   hang: [{ input: { command: "sleep 600" }, tool: "bash" }],
-  // Writes 21 times: the step limit's case.
-  loop: Array.from({ length: 21 }, () => write()),
+  // Writes once released, then builds and playtests: the ceiling's case, once the run is aged past it.
+  late: [write(), play, { ...write(), hold: true }, build("new"), play],
+  // Builds a broken game once released, then builds it again.
+  latebroken: [
+    write(`${GAME}// BROKEN\n`),
+    play,
+    { ...build("new"), hold: true },
+    build("new"),
+  ],
+  // Writes 31 times, then builds and playtests: the step limit's case.
+  loop: [...Array.from({ length: 31 }, () => write()), build("new"), play],
   // A first game with music.
   music: [
     write(),
@@ -177,6 +187,15 @@ const SCRIPTS: Record<string, readonly Step[]> = {
   readdesign: [{ input: { path: "design.md" }, tool: "read" }],
   // Changes the game, then builds after 2 s.
   slow: [edit("speed = 3"), play, { ...build("change"), sleep: 2000 }],
+  // A bash command that runs out of time, asking for far more than the command timeout, then two playtests and a
+  // build: `hangplay` times the first out.
+  timedout: [
+    write(),
+    { input: { command: "sleep 9999", timeout: 9999 }, tool: "bash" },
+    play,
+    play,
+    build("new"),
+  ],
   // Builds two new games in one run, then reads what the Creator has said.
   twice: [write(), build("new"), build("new"), READ_ASKED],
   // A Vite game with music, played and built new.
@@ -618,6 +637,18 @@ export class Maker extends RealMaker {
           });
           return ended.promise;
         }
+        // What `timeout` gives back for a command that ran past its seconds: exit 124 and no output.
+        const timedOut = { exitCode: 124, stderr: "", stdout: encode("") };
+        if (command.includes("sleep 9999")) {
+          return Promise.resolve(timedOut);
+        }
+        if (
+          kv.get("fakebox:hangplay") === true &&
+          command.includes("/opt/hopon/playtest.js")
+        ) {
+          kv.delete("fakebox:hangplay");
+          return Promise.resolve(timedOut);
+        }
         if (command.includes("sleep 600")) {
           // Ends only when aborted.
           const ended = Promise.withResolvers<Exec>();
@@ -728,6 +759,10 @@ export class Maker extends RealMaker {
         kv.put("fakebox:stopatverify", true);
         return done();
       }
+      case "/fake/hangplay": {
+        kv.put("fakebox:hangplay", true);
+        return done();
+      }
       // Revision n+1 cut short: some files, no index.html.
       case "/fake/partial": {
         return currentRevision(this.env.FILES, this.name).then(async (n) => {
@@ -771,6 +806,13 @@ export class Maker extends RealMaker {
     const slow = /^\/fake\/slowplay\/(?<ms>\d+)$/u.exec(pathname)?.groups?.ms;
     if (slow) {
       kv.put("fakebox:slowplay", Number(slow));
+      return done();
+    }
+    // The run in flight began this many seconds earlier: /fake/age/<s>.
+    const age = /^\/fake\/age\/(?<s>\d+)$/u.exec(pathname)?.groups?.s;
+    const run = this.runState;
+    if (age && run) {
+      this.runState = { ...run, startedAt: run.startedAt - Number(age) * 1000 };
       return done();
     }
     return super.onRequest(request);

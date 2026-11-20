@@ -2,22 +2,13 @@
 // placeholders, filled here. maker.ts imports the Markdown as text and renders it once, at load.
 import { GAME_DESCRIPTION_MAX, GAME_TITLE_MAX } from "@hopon/schemas";
 
-import { DEADLINE_MS, MAX_BUILDS, MAX_STEPS } from "../../maker/src/job.ts";
-
-// What the Maker says word for word when a tool reports these. The app shows when the Allowance resets, in the
-// Creator's time.
-export const BUSY = "The Maker is busy. Try again in a minute.";
-export const USED_UP =
-  "You've used this week's hopon tokens. They come back when the week resets.";
+import { MAX_BUILDS, MAX_STEPS } from "../../maker/src/job.ts";
 
 export const MAKER_VALUES = {
   BUILDS: MAX_BUILDS,
-  BUSY,
   DESCRIPTION_MAX: GAME_DESCRIPTION_MAX,
   MAX_STEPS,
-  MINUTES: DEADLINE_MS / 60_000,
   TITLE_MAX: GAME_TITLE_MAX,
-  USED_UP,
 };
 
 const PLACEHOLDER = /\{\{(?<name>\w+)\}\}/gu;
@@ -55,7 +46,8 @@ const TOOL_RESULTS = [
   "restarted",
   "steps",
   "builds",
-  "deadline",
+  "ceiling",
+  "last-build",
   "give-up",
   "kept",
   "no-game",

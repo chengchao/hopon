@@ -48,10 +48,10 @@ import SOUND_EFFECTS from "../../maker/agent-home/.agents/skills/make-game/refer
 import MAKE_GAME from "../../maker/agent-home/.agents/skills/make-game/SKILL.md";
 import {
   boxPlaytest,
-  DEADLINE_MS,
   MAX_BUILDS,
   MAX_STEPS,
   restore,
+  RUN_CEILING_MS,
   screenshots,
 } from "../../maker/src/job.ts";
 import MAKER from "../prompts/maker.md";
@@ -60,12 +60,15 @@ import {
   AgentSandbox,
   BoxStartFailed,
   boxEnv,
+  commandSeconds,
   containerBox,
   jobBox,
   readyFirst,
 } from "./agent-sandbox.ts";
+import { checkLimits } from "./limits.ts";
+import type { After, Limit, RunCounts } from "./limits.ts";
 import { metered, piModels } from "./pi-models.ts";
-import { BUSY, MAKER_VALUES, renderPrompt, USED_UP } from "./prompts.ts";
+import { MAKER_VALUES, renderPrompt } from "./prompts.ts";
 import { publishTool, revisionSource, writeAsked } from "./publish.ts";
 import { creatorView } from "./reply.ts";
 import { drafts, now } from "./schema.ts";
@@ -139,7 +142,7 @@ if (!makeGame) {
   throw new Error("make-game's SKILL.md has no frontmatter");
 }
 const SKILLS = fromManifest({
-  fingerprint: "v12",
+  fingerprint: "v13",
   id: "hopon-maker",
   skills: [
     {
@@ -164,24 +167,36 @@ const Input = Type.Object({
   y: Type.Number(),
 });
 
-// The limits of the run in flight, in the object's storage, keyed by the input that began pi's run (a turn's steers
-// join it). Each run's work begins at its first tool call.
-interface RunState {
+// The run in flight, in the object's storage, keyed by the input that began pi's run (a turn's steers join it): its
+// limits' counts (limits.ts) and the rest. Each run's work begins at its first tool call. The Revision it last
+// published outlives a limit that stops the run, as an old Draft's port published before its change does, so the
+// refusal tells the agent that game stays.
+interface RunState extends RunCounts {
   run: string;
-  deadlineAt: number;
-  // Tool calls but `build`, and `build` calls.
-  steps: number;
-  builds: number;
   // The box started again mid-run, from the current Revision, and the agent hasn't yet been told.
   restarted?: boolean;
   // Where the run's messages begin in `asked`.
   from: number;
   // How many of the Creator's messages the agent had seen when the run's last `build` began: not those still queued.
   seen?: number;
-  // The Revision the run last published. It outlives a limit that stops the run, as an old Draft's port published
-  // before its change does, so the refusal tells the Creator to send the rest again.
-  published?: number;
 }
+
+const LIMIT_VALUES: Record<Limit, Record<string, number>> = {
+  builds: { MAX_BUILDS },
+  ceiling: { MINUTES: RUN_CEILING_MS / 60_000 },
+  steps: { MAX_STEPS },
+};
+
+// A limit's refusal: which limit, then what the agent does next.
+const refusal = (limit: Limit, after: After, published?: number) => {
+  const GIVE_UP = toolResult("give-up");
+  const NEXT = {
+    "give-up": () => GIVE_UP,
+    kept: () => toolResult("kept", { N: published ?? 0 }),
+    "last-build": () => toolResult("last-build", { GIVE_UP }),
+  }[after]();
+  return toolResult(limit, { ...LIMIT_VALUES[limit], NEXT });
+};
 
 const PROVIDER = "anthropic";
 // Tools that change the workspace, after which it no longer holds the Revision it was restored to.
@@ -232,7 +247,8 @@ export class Maker extends Agent<Env> {
 
   // One run begins at a time: a round's parallel first calls restore the workspace once.
   beginning = Semaphore.makeUnsafe(1);
-  // The run's abort timer, 30 s past its deadline (MAKER_BUILD_ABORT_S), cleared at its end.
+  // The run's abort timer (MAKER_BUILD_ABORT_S), past its ceiling and one last `build`, cleared at its end: it ends a
+  // model call that never returns, which no tool call's limit sees.
   abortTimer: ReturnType<typeof setTimeout> | undefined;
   // Set by Delete: from then on nothing starts the box or reopens pi.
   closing = false;
@@ -310,7 +326,7 @@ export class Maker extends Agent<Env> {
   async begin(run: string, from: number): Promise<string | undefined> {
     const begun = this.runState?.run === run;
     if (!begun && !(await this.allowed())) {
-      return toolResult("used-up", { USED_UP });
+      return toolResult("used-up");
     }
     const up = await this.sandbox.runPromise(
       this.up.pipe(
@@ -325,7 +341,7 @@ export class Maker extends Agent<Env> {
       )
     );
     if (!up) {
-      return toolResult("busy", { BUSY });
+      return toolResult("busy");
     }
     if (begun) {
       return;
@@ -335,13 +351,7 @@ export class Maker extends Agent<Env> {
       await restore(jobBox(this.box), source);
       this.workspace = n;
     }
-    const state = {
-      builds: 0,
-      deadlineAt: Date.now() + DEADLINE_MS,
-      from,
-      run,
-      steps: 0,
-    };
+    const state = { builds: 0, from, run, startedAt: Date.now(), steps: 0 };
     await writeAsked(jobBox(this.box), this.askedSinceNew(state));
     this.runState = state;
     clearTimeout(this.abortTimer);
@@ -365,7 +375,11 @@ export class Maker extends Agent<Env> {
         box,
         JSON.stringify({ inputs: inputs ?? [] })
       );
-      const images = result.typeErrors.length > 0 ? [] : await screenshots(box);
+      // A playtest that crashed or timed out may have left none.
+      const images =
+        result.typeErrors.length > 0
+          ? []
+          : await screenshots(box).catch(() => []);
       return {
         output: [
           { text: JSON.stringify(result), type: "text" as const },
@@ -408,8 +422,8 @@ export class Maker extends Agent<Env> {
     }
   );
 
-  // #116's limits, per run: the 21st step, the 5th `build` and any call past the deadline are refused, and the agent
-  // tells the Creator. The run's first call begins its work.
+  // The run's limits (limits.ts): a call past one is refused, and the refusal tells the agent what to do next. The
+  // run's first call begins its work. bash runs under the command timeout, which its own `timeout` may only shorten.
   limits = hook(ToolTask, {
     beforeTool: async (toolCall, api, context) => {
       if (toolCall.parent) {
@@ -435,33 +449,21 @@ export class Maker extends Agent<Env> {
         return { block: toolResult("restarted") };
       }
       const building = toolCall.name === "build";
-      const next = {
-        ...state,
-        builds: state.builds + (building ? 1 : 0),
-        ...(building && { seen }),
-        steps: state.steps + (building ? 0 : 1),
-      };
-      this.runState = next;
-      const GIVE_UP =
-        state.published === undefined
-          ? toolResult("give-up")
-          : toolResult("kept", { N: state.published });
-      if (next.steps > MAX_STEPS) {
-        return { block: toolResult("steps", { GIVE_UP, MAX_STEPS }) };
-      }
-      if (next.builds > MAX_BUILDS) {
-        return { block: toolResult("builds", { GIVE_UP, MAX_BUILDS }) };
-      }
-      if (Date.now() > state.deadlineAt) {
-        return {
-          block: toolResult("deadline", {
-            GIVE_UP,
-            SECONDS: DEADLINE_MS / 1000,
-          }),
-        };
+      const { next, refused: over } = checkLimits(state, building, Date.now());
+      this.runState = { ...next, ...(building && { seen }) };
+      if (over) {
+        return { block: refusal(over.limit, over.after, state.published) };
       }
       if (WRITES.has(toolCall.name)) {
         this.workspace = undefined;
+      }
+      if (toolCall.name === "bash") {
+        return {
+          arguments: {
+            ...toolCall.arguments,
+            timeout: commandSeconds(toolCall.arguments.timeout),
+          },
+        };
       }
     },
   });

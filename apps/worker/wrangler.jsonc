@@ -37,9 +37,9 @@
     "MAKER_EFFORT": "medium",
     // The model `ask_advisor` asks (src/advisor.ts): Opus 5.5, or Fable 5.2 as "claude-fable-5-2".
     "MAKER_ADVISOR_MODEL": "claude-opus-5-5",
-    // The abort timer on a turn's work (#116, #122): 30 s past the run's own deadline (job.ts), so its tools are refused
-    // first. The Maker test shortens it.
-    "MAKER_BUILD_ABORT_S": "330",
+    // The abort timer on a run's work (ADR 0009): 25 minutes, 5 past its ceiling (job.ts), so a run stopped by the
+    // ceiling has time for its last `build`. It ends only a model call that never returns. The Maker test shortens it.
+    "MAKER_BUILD_ABORT_S": "1500",
     // Each Creator's weekly Allowance of hopon tokens (ADR 0004): $8 a week, the owner's call on 2026-11-11. A build turn
     // measured about 3,600,000 (ADR 0005), so about 22 a week.
     "MAKER_WEEKLY_TOKENS": "80000000",
@@ -110,7 +110,7 @@
       "MAKER_MODEL": "claude-sonnet-5-5",
       "MAKER_EFFORT": "medium",
       "MAKER_ADVISOR_MODEL": "claude-opus-5-5",
-      "MAKER_BUILD_ABORT_S": "330",
+      "MAKER_BUILD_ABORT_S": "1500",
       "MAKER_WEEKLY_TOKENS": "80000000",
       "MIN_IOS_BUILD": "11",
       "CLOUDFLARE_ACCOUNT_ID": "51a5a41f7bd8425703a6f1d92f867f4d",
