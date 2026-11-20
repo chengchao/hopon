@@ -163,6 +163,7 @@ test("a steer shows Queued until the Talker takes it", () => {
   ];
   assert.deepEqual(lines(view(...sent)), [
     "creator: A cat game",
+    "status: Thinking",
     "creator (Queued): Make it blue",
   ]);
   const taken = view(
@@ -176,6 +177,7 @@ test("a steer shows Queued until the Talker takes it", () => {
   assert.deepEqual(lines(taken), [
     "creator: A cat game",
     "creator: Make it blue",
+    "status: Thinking",
   ]);
   // The Talker can take it before the POST's answer reaches the app.
   assert.deepEqual(
@@ -190,7 +192,7 @@ test("a steer shows Queued until the Talker takes it", () => {
         { key: "a", op: "op-a", type: "sent" }
       )
     ),
-    ["creator: A cat game", "creator: Make it blue"]
+    ["creator: A cat game", "creator: Make it blue", "status: Thinking"]
   );
   // A message Screening refused never joins the chat.
   assert.deepEqual(
@@ -201,7 +203,7 @@ test("a steer shows Queued until the Talker takes it", () => {
         { key: "a", type: "unsent" }
       )
     ),
-    ["creator: A cat game"]
+    ["creator: A cat game", "status: Thinking"]
   );
 });
 
@@ -233,7 +235,7 @@ test("turn_failed says the game hasn't changed, and Try again re-sends the last 
         frame({ id: 3, reason: "model_error", type: "turn_failed" }),
         batch({ inputs: [4], type: "run_start" })
       )
-    ).at(-1),
+    ).at(-2),
     "creator: Make it faster"
   );
 });
@@ -303,6 +305,7 @@ test("a reconnect snapshot replaces the view; of the messages sent, those still 
     "creator: A cat game",
     "maker: Here's your cat game.",
     "creator: Make it blue",
+    "status: Thinking",
     "creator (Queued): And bigger",
     "creator (Queued): And louder",
   ]);
@@ -323,22 +326,29 @@ test("switching to another Draft starts from an empty chat, until its snapshot d
   assert.equal(v.running, false);
 });
 
-// A build (#148): pi's tool events for the Talker's `build` call, whose running output is the Coder's step labels.
-const buildStart = (callId = "call-1") => ({
-  args: { brief: "", music: null, title: "Moon Cat" },
-  toolCallId: callId,
-  toolName: "build",
-  type: "tool_execution_start",
+// A turn's progress: the Creator's message (its time starts the timer), and the Maker's calls as pi streams them.
+const asked = (id, text, timestamp) => ({
+  id,
+  kind: "pi.user",
+  model: [{ content: [{ text, type: "text" }], role: "user", timestamp }],
 });
-const buildOutput = (output, callId = "call-1") => ({
-  output,
-  toolCallId: callId,
-  toolName: "build",
-  type: "tool_execution_update",
+const call = (id, callId, name, args) => ({
+  id,
+  kind: "pi.assistant",
+  model: [
+    {
+      content: [{ arguments: args, id: callId, name, type: "toolCall" }],
+      role: "assistant",
+    },
+  ],
 });
-// The time the app took the frame in.
-const at = (ms, action) => ({ ...action, at: ms });
-const statusOf = (v) => v.rows.find((row) => row.who === "status")?.text;
+const result = (id, callId) => ({
+  id,
+  kind: "pi.tool-result",
+  model: [{ content: [], role: "toolResult", toolCallId: callId }],
+});
+const statusOf = (chat, now) =>
+  chatView(chat, now).rows.find((row) => row.who === "status")?.text;
 const chatOf = (...actions) => {
   let chat = NEW_CHAT;
   for (const action of actions) {
@@ -347,86 +357,111 @@ const chatOf = (...actions) => {
   return chat;
 };
 
-test("while build runs, one status row under the Maker's bubble shows the current step and a timer", () => {
-  const building = [
-    snapshot({ entries: [user(1, "A cat on the moon")], run: {} }),
-    batch({ entry: maker(2, "On it!"), type: "message_end" }),
-    at(1000, batch(buildStart())),
+test("while a turn runs, a status row says what the Maker is doing and how long the turn has taken", () => {
+  const start = [
+    snapshot({ entries: [asked(1, "A sailing game", 10_000)], run: {} }),
+  ];
+  assert.equal(statusOf(chatOf(...start), 10_000), "Thinking · 0:00");
+  // A call shows while its arguments still stream in.
+  const writing = [
+    ...start,
+    batch({
+      message: { content: [], role: "assistant" },
+      type: "message_start",
+    }),
+    batch({
+      changes: [
+        {
+          block: { arguments: {}, id: "c1", name: "bash", type: "toolCall" },
+          contentIndex: 0,
+          type: "toolcall_start",
+        },
+        {
+          contentIndex: 0,
+          delta: "cd /workspace && cat > design.md <<'EOF'",
+          path: ["command"],
+          type: "toolcall_delta",
+        },
+      ],
+      type: "message_update",
+    }),
   ];
   assert.equal(
-    statusOf(chatView(chatOf(...building), 1000)),
-    "Building · 0:00"
+    statusOf(chatOf(...writing), 15_000),
+    "Planning the game · 0:05"
   );
-  const stepped = [
-    ...building,
-    batch(buildOutput({ append: "Writing the game\n" })),
-    batch(buildOutput({ append: "Playtesting\n" })),
+  const turn = [
+    ...start,
+    batch({
+      entry: call(2, "c1", "bash", { command: "cat > design.md <<'EOF'" }),
+      type: "message_end",
+    }),
+    batch({ entry: result(3, "c1"), type: "tool_execution_end" }),
   ];
-  assert.deepEqual(lines(chatView(chatOf(...stepped), 73_000)), [
-    "creator: A cat on the moon",
-    "maker: On it!",
-    "status: Playtesting · 1:12",
-  ]);
-  // pi trims its retained window from the front, or replaces it.
-  const trimmed = [
-    ...stepped,
-    batch(buildOutput({ append: "Fixing the game\n", trimStart: 17 })),
+  // Between calls, it thinks.
+  assert.equal(statusOf(chatOf(...turn), 20_000), "Thinking · 0:10");
+  const steps = [
+    ["bash", { command: "node /opt/hopon/starter.js" }, "Setting up"],
+    [
+      "bash",
+      { command: "cd src && cat > play.ts <<'EOF'" },
+      "Writing the game",
+    ],
+    ["bash", { command: "sed -i 's/230/252/' tests.json" }, "Testing"],
+    ["playtest", { inputs: [] }, "Testing"],
+    ["bash", { command: "python3 music.py" }, "Composing music"],
+    [
+      "read_skill_resource",
+      { path: "references/phaser.md" },
+      "Planning the game",
+    ],
+    ["bash", { command: "ls" }, "Writing the game"],
+    ["ask_advisor", { question: "?" }, "Working"],
+    ["build", { title: "Seven Ports" }, "Building"],
   ];
+  for (const [index, [name, args, label]] of steps.entries()) {
+    const id = 10 + index * 2;
+    turn.push(
+      batch({ entry: call(id, `s${id}`, name, args), type: "message_end" })
+    );
+    assert.equal(statusOf(chatOf(...turn), 82_000), `${label} · 1:12`);
+    turn.push(
+      batch({ entry: result(id + 1, `s${id}`), type: "tool_execution_end" })
+    );
+  }
+  // The Maker's words are the news while they stream, and the turn's end clears the row.
+  const replying = [
+    ...turn,
+    batch({
+      message: {
+        content: [{ text: "Seven Ports is ready", type: "text" }],
+        role: "assistant",
+      },
+      type: "message_start",
+    }),
+  ];
+  assert.equal(statusOf(chatOf(...replying), 90_000), undefined);
   assert.equal(
-    statusOf(chatView(chatOf(...trimmed), 73_000)),
-    "Fixing the game · 1:12"
-  );
-  assert.equal(
-    statusOf(
-      chatView(
-        chatOf(...trimmed, batch(buildOutput({ set: "Writing music\n" }))),
-        73_000
-      )
-    ),
-    "Writing music · 1:12"
-  );
-  // It goes when the build ends.
-  const ended = batch({
-    toolCallId: "call-1",
-    toolName: "build",
-    type: "tool_execution_end",
-  });
-  assert.equal(
-    statusOf(chatView(chatOf(...trimmed, ended), 80_000)),
+    statusOf(chatOf(...turn, batch({ type: "run_end" })), 90_000),
     undefined
   );
 });
 
-test("a build running at connect shows its step; a reconnect keeps the timer, and the turn's end clears it", () => {
-  const connected = snapshot({
-    entries: [user(1, "A cat game")],
+test("a turn running at connect shows its call and keeps its timer; a stopped turn's call doesn't carry over", () => {
+  const entries = [
+    asked(1, "A sailing game", 0),
+    call(2, "c1", "build", { title: "Seven Ports" }),
+  ];
+  assert.equal(
+    statusOf(chatOf(snapshot({ entries, run: {} })), 72_000),
+    "Building · 1:12"
+  );
+  // Stopped mid-build, the call has no result; the next turn thinks.
+  const next = snapshot({
+    entries: [...entries, asked(3, "Bigger ships", 100_000)],
     run: {},
-    tools: [
-      {
-        callId: "call-1",
-        name: "build",
-        output: "Writing the game\nPlaytesting\n",
-        status: "running",
-      },
-    ],
   });
-  // The snapshot doesn't say when the build started, so the timer counts from the connect.
-  const first = at(5000, connected);
-  assert.equal(statusOf(chatView(chatOf(first), 9000)), "Playtesting · 0:04");
-  const again = at(20_000, connected);
-  assert.equal(
-    statusOf(chatView(chatOf(first, again), 21_000)),
-    "Playtesting · 0:16"
-  );
-  assert.equal(
-    statusOf(
-      chatView(
-        chatOf(first, again, batch({ inputs: [1], type: "run_end" })),
-        22_000
-      )
-    ),
-    undefined
-  );
+  assert.equal(statusOf(chatOf(next), 101_000), "Thinking · 0:01");
 });
 
 // The Maker's call to `build`, and pi's entry for its result.
