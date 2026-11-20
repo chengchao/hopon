@@ -113,3 +113,36 @@ The coordinator's call in the fix round: a new Vite game shouldn't start from ze
 - **The guides say so.** make-game names the skeleton and says to keep it and write `src/main.tsx` over the stub. The three engine guides lost their copies of the three files, and each example's `main.tsx` sets `hopon.title`. `sound-effects.md` is the table and `hopon.play`'s parameters, 2.7 KB from 4.9 KB.
 - **Checked in the box** (image from this head, arm64): the Start over case now expects the skeleton; "the starter seeds only a workspace with no game, and never writes over one"; each guide's example, extracted from the guide and written over the skeleton by make-game's own command, builds, passes its tests and plays green (Phaser, r3f and React); "a game's sound effects play through the scaffold" plays two sounds on a tap with no console error. The sound case and the guide-example cases are red on the image from before this change, and the refusal case passes there only because it has no starter to run (measured).
 - **After, estimated.** A new game no longer writes about 0.9 KB of skeleton and 2.3 KB of synth, about 900 output tokens or $0.009 a build at 3.5 bytes a token (inferred). Its reads shrink by about 2 KB: sound effects by 2.2 KB and the Phaser guide by 1 KB, against make-game's 1.2 KB more. Together about $0.01 of the $0.284 median, so around 4% (inferred). The sweep measures it.
+
+## Fix round 2
+
+Live review on iOS found three defects in what Creators see. Evidence is the lane logs, reply texts and Revision sources of the coordinator's `p5v` sweep, and the screenshots `media/p5-edit-chat.png` and `media/p5-port-dom.png`.
+
+### The Creator saw process talk
+
+Penguin Slide's first reply ended "I didn't ask the advisor for a final check before publishing. The tests passed, but I didn't play a run that jumped any rocks, so the jump-and-score loop is untested." (`p5-edit-chat.png`; its lane logged `ask_advisor: 0`). A prompt rule alone isn't reliable here, so the fix is a rule, a reminder at the moment of writing, and an eval check:
+
+- **Rule.** `prompts/maker.md` says to talk about the game, never how it was made, and never what wasn't checked; a shortfall is said as what the game does now ("the slope is flat for now"). make-game's Reply step says the same.
+- **Reminder where the reply is written.** The `published` tool result, the last thing the agent reads before its reply, now ends "If you're done, reply to the Creator with what the game is and how to play it. Say nothing about how you made it: not the advisor, tests, playtests or checks, and nothing you skipped." A server-side rewrite of the reply was rejected: any heuristic that strips sentences can mangle a normal one.
+- **Eval check.** `processTalk(reply)` in `eval/talker.ts` lists a reply's process words; a turn with any fails the chat (`processOk`, part of `pass`). Plain "test", "build", "check" and "tool" are game words ("test your reflexes", "build a tower", "collect tools"), so they match only in a phrase about the work ("the tests", "tests passed", "final check", "tool call"). `advisor`, `playtest*`, `untested`, `verif*`, `typecheck*`, `screenshot`, `harness`, `workspace`, `tests.json` and `design.md` match alone. The unit test fails the Penguin Slide reply on `advisor`, `final check`, `the tests` and `untested`, and passes five game replies that use the game words.
+
+### Lily Hop's taps: not reproduced
+
+The suspected cause, screen against world coordinates under `setZoom(ZOOM)`, is ruled out. The game reads `pointer.worldX` and `pointer.worldY`, as phaser.md already teaches. Its source, built in the box image, gives the same `index-C8A3E6Hw.js` as the Revision. A tap on the pad above the frog hopped (`hops` 0 to 1) in every case run:
+
+- the game's own tests at DPR 1, 2 and 3 (the box's context patched to take a `deviceScaleFactor`; ZOOM is 2 at DPR 3);
+- Chromium with mouse and with touch (`hasTouch`, `isMobile`), at DPR 1 and 3, at 360×640 and 390×844;
+- Playwright's WebKit, the same eight cases;
+- WebKit with touch at DPR 3, the viewport cut from 390×844 to 390×664 after load, tapping the pad where the screenshot drew it.
+
+So no guide change or box test for it; a guess at a cause would teach a trap that isn't one. What's left is the device: a real touch in the app's WKWebView, the pond scrolling under the finger (the pad moves 24 to 60 px a second, and a tap must land within 60 px of its centre), or something in how the app embeds the page. Reproducing it needs the app on the Simulator or a phone.
+
+The box plays every test at DPR 1, where ZOOM is 1 and `pointer.x` equals `pointer.worldX`, so a game that read the wrong one would pass. Playing tests at DPR 2 would catch it, but the pause test's wall time went from 7 s to 24 s there (measured), so it isn't done here.
+
+### The quiz's fourth answer was cut off
+
+The cause is the frame, not the CSS alone. The app shows a game at the feed's measured height (`feedGameHeight`), about 570 px tall on the 844 px iPhone in `p5-port-dom.png` (the card runs from y 408 to 1755 of 2000 at 1.27 px a point over 3×). The box plays at 360×640. The ported quiz's answers end at y 591 (measured in the box from Revision r2's source): inside 640, outside 570. Its column can't shrink: a 76 px emoji, a question with `min-height: 84px`, and four 60 px buttons under `overflow: hidden`.
+
+- **Guide.** react.md's layout section says the frame can be much shorter than the screen, and that controls must stay on screen from 360×540 up. The middle of the column shrinks (`flex: 1 1 0; min-height: 0`), the controls keep their size (`flex: none`), decorations size by height (`clamp(32px, 11dvh, 76px)`), buttons at `min(60px, 9dvh)`, and a list of controls that can't fit scrolls in its own box.
+- **Playtest.** After the play, `playtest()` loads the game again at 360×540, taps start, and fails on any shown `button`, `[role=button]`, link or input outside the screen with no scrolling box or scrolling page to reach it, naming each by its label. The quiz's Revision fails it on its fourth answer; with the guide's rules added to its stylesheet it passes and fits at 640, 570 and 560 (measured in the box).
+- **Box test.** "a playtest fails a game whose last answer is below a short screen, and passes it once the picture shrinks." The guide examples and the three engine fixtures play through the same check.
