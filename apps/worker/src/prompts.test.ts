@@ -23,17 +23,24 @@ test("tool-results.md has every tool result the Maker gives, each with the value
       "utf-8"
     )
   );
+  assert.equal(
+    toolResult("steps", { GIVE_UP: toolResult("give-up"), MAX_STEPS: 20 }),
+    "Over the 20-step limit. Tell the Creator you couldn't make it work this time."
+  );
   assert.match(
-    toolResult("steps", { MAX_STEPS: 20 }),
-    /^Over the 20-step limit\. Tell the Creator/u
+    toolResult("deadline", {
+      GIVE_UP: toolResult("kept", { N: 2 }),
+      SECONDS: 300,
+    }),
+    /^Past the 300 s deadline\. Revision 2, which you published in this run, stays\. .*sending the rest/u
   );
   assert.match(
     toolResult("check-failed", { ERRORS: "- boom", SKIPPED: "" }),
     /^The harness check failed:\s+- boom\s+Fix these/u
   );
-  assert.equal(
+  assert.match(
     toolResult("published", { N: 3, SKIPPED: "" }),
-    "Published: the Creator now has Revision 3."
+    /^Published: the Creator now has Revision 3\. If you're done, reply .*nothing about how you made it/u
   );
   assert.throws(() => toolResult("published", { N: 3 }), /SKIPPED/u);
   assert.throws(

@@ -24,6 +24,14 @@ export const CHATS = JSON.parse(
 
 const MAX_WORDS = 60;
 const CODE = /```|<\/?[a-z][\w-]*[\s>]|\bfunction\b|=>|\bconst \w+ =|;\s*$/mu;
+// How the Maker works, which the Creator must never hear about. Plain "test", "build", "check" and "tool" are game
+// words too ("test your reflexes", "build a tower", "collect tools"), so those match only in a phrase about the work.
+const PROCESS =
+  /\b(?:advis[eo]r|playtest\w*|untested|(?:the|my|all|every) tests?\b|tests? (?:pass|fail|ran|run)\w*|tests\.json|verif(?:y|ied|ies|ying|ication)|typecheck\w*|harness|screenshots?|tool calls?|(?:build|bash|edit) tool|the build (?:pass|fail|succeed)\w*|(?:final|done) check|design\.md|workspace)\b/giu;
+
+// The words in a reply that talk about the Maker's process instead of the game.
+export const processTalk = (reply: string) =>
+  [...reply.matchAll(PROCESS)].map((match) => match[0].toLowerCase());
 
 // One turn as the report reads it, from the Draft's socket (preview.ts).
 export const turnRecord = ({
@@ -64,6 +72,7 @@ export const turnRecord = ({
           .includes(turn.briefMentions ?? "")
       )
     : true,
+  processTalk: processTalk(reply),
   reply,
   replyMs: ms - buildMs,
   status,
@@ -133,6 +142,7 @@ export const judgeChat = async ({
       turn.builds.length === turn.buildsExpected &&
       turn.mentionOk
   );
+  const processOk = turns.every((turn) => turn.processTalk.length === 0);
   const scoresOk = scoresPass(agents, judged, turns);
   const record = {
     agent: "talker",
@@ -143,7 +153,8 @@ export const judgeChat = async ({
     cost: turns.reduce((sum, turn) => sum + turn.cost, 0),
     judge: scores,
     model: modelId,
-    pass: brevityOk && behaviourOk && scoresOk,
+    pass: brevityOk && behaviourOk && processOk && scoresOk,
+    processOk,
     run,
     thinking,
     turns,

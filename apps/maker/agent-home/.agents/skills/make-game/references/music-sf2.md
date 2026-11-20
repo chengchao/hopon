@@ -1,8 +1,3 @@
----
-name: music-sf2
-description: How to write a game's looping background music as music.py, a Python score that recorded instruments play (FluidSynth and a General MIDI bank) into music.wav. Load when a job asks for music in an acoustic, orchestral, folk, period or world style that chiptune can't voice.
----
-
 # Sampled music (music.py)
 
 You write the notes; FluidSynth plays them with recorded instruments: strings, flutes, guitars, harps, horns, accordions. Copy the skeleton below into `music.py`, write the score where it says so, and run `python3 music.py`. It writes `music.wav`, a 44.1 kHz stereo loop of 20–40 s that wraps without a click: whatever rings past the end (releases, reverb) is folded back onto the start.

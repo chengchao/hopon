@@ -110,9 +110,16 @@ if (tests === null) {
   }
 }
 
-// A Vite game (ADR 0007) is its vite.config.ts and the modules its index.html loads, with no game.ts.
-if (!existsSync("game.ts") && !existsSync("vite.config.ts")) {
-  failures.push("game.ts is missing.");
+// A game is a Vite project (ADR 0008). A LittleJS or plain-DOM game.ts from before it is published no more: a change
+// ports it first, so `build` refuses it here.
+if (existsSync("game.ts") && !existsSync("vite.config.ts")) {
+  failures.push(
+    'This is an old LittleJS or plain-DOM game (a game.ts and no vite.config.ts), which hopon no longer builds: port it to a Vite project first, as make-game\'s "An old game" says.'
+  );
+} else if (!existsSync("vite.config.ts")) {
+  failures.push(
+    "vite.config.ts is missing: a game is a Vite project, as make-game says."
+  );
 }
 
 const scores = ["music.mjs", "music.py"].filter((file) => existsSync(file));
@@ -121,7 +128,7 @@ if (scores.length > 1) {
 } else if (scores.length === 0 && needsMusic && !noMusic) {
   failures.push(
     kind === "new"
-      ? 'No music: write music.mjs (music-synth skill) or music.py (music-sf2 skill). Only when the Creator asked for no music, write Music: none ("their words") in design.md instead.'
+      ? 'No music: write music.mjs (make-game: references/music-synth.md) or music.py (references/music-sf2.md). Only when the Creator asked for no music, write Music: none ("their words") in design.md instead.'
       : 'No music: the game had music, so keep its music.mjs or music.py. Only when the Creator asked to drop it, write Music: none ("their words") in design.md instead.'
   );
 }

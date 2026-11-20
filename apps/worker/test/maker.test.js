@@ -268,7 +268,8 @@ const noRevision = async (draft) => {
   const preview = await call(`/api/drafts/${draft}/preview`);
   assert.equal(preview.status, 404);
 };
-const published = (n) => `said: Published: the Creator now has Revision ${n}.`;
+const published = (n) =>
+  `said: Published: the Creator now has Revision ${n}. If you're done, reply to the Creator with what the game is and how to play it. Say nothing about how you made it: not the advisor, tests, playtests or checks, and nothing you skipped.`;
 // Whether the box's log has `build`'s verify run for a build of `kind`.
 const verified = (log, kind) =>
   log.some((command) => command.endsWith(`/opt/hopon/verify.js ${kind}`));
@@ -563,21 +564,76 @@ test(
 );
 
 test(
-  "limits: the 21st step and the 5th build are refused, and the agent is told to give up",
+  "skills: the agent loads make-game, and reads an engine's guide from it through the real tools",
+  { timeout: 120_000 },
+  async (t) => {
+    await serve(t);
+    const { id: draft } = await json("/api/drafts", { text: "build guide" });
+    const socket = await connect(draft);
+    await socket.until("the guide turn's end", over);
+    assert.deepEqual(await toolsCalled(draft), [
+      "activate_skill",
+      "read_skill_resource",
+      "read_skill_resource",
+    ]);
+    const { entries } = await snapshot(draft);
+    const results = entries
+      .filter((entry) => entry.kind !== "pi.assistant")
+      .flatMap((entry) =>
+        blocks(entry).flatMap((block) =>
+          block.type === "text" ? [block.text] : []
+        )
+      )
+      .join("\n");
+    // activate_skill's result lists each guide as a bundled file.
+    for (const guide of [
+      "phaser",
+      "r3f",
+      "react",
+      "sound-effects",
+      "music-synth",
+      "music-sf2",
+    ]) {
+      assert.match(
+        results,
+        new RegExp(
+          `<file kind="reference"[^>]*>references/${guide}\\.md</file>`,
+          "u"
+        )
+      );
+    }
+    assert.match(results, /# Writing a hopon game in Phaser 4/u);
+    assert.match(
+      await lastReply(draft),
+      /said: .*Skill resource not found: make-game\/references\/littlejs\.md/u
+    );
+    socket.close();
+  }
+);
+
+test(
+  "limits: the 21st step and the 5th build are refused; the agent is told to give up, or that what it published stays",
   { timeout: 120_000 },
   async (t) => {
     await serve(t);
     const { id: draft } = await json("/api/drafts", { text: "build loop" });
     const socket = await connect(draft);
     await socket.until("the loop turn's end", over);
-    assert.match(await lastReply(draft), /Over the 20-step limit/u);
+    assert.match(
+      await lastReply(draft),
+      /Over the 20-step limit\. Tell the Creator you couldn't make it work this time\./u
+    );
     // 21 tool calls, then the reply.
     assert.equal(await modelCalls(draft), 22);
     await noRevision(draft);
 
-    // Four builds publish; the fifth is refused.
+    // Four builds publish; the fifth is refused, and the agent is told the fourth stays, so the Creator can send the
+    // rest again (an old Draft's port, published before its change, survives a limit this way).
     assert.equal(await socket.turn("build five"), "turn_done");
-    assert.match(await lastReply(draft), /Over the 4-build limit/u);
+    assert.match(
+      await lastReply(draft),
+      /Over the 4-build limit\. Revision 4, which you published in this run, stays\. .*sending the rest/u
+    );
     assert.equal(await revisionOf(draft), 4);
     socket.close();
   }

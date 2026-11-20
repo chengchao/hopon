@@ -12,7 +12,6 @@
   const RESTART_AFTER_MS = 500;
   const hopon = {
     best: 0,
-    hint: "Tap to start",
     // Set by ready(), which the game calls once it has drawn its first screen, so the playtest knows it loaded.
     loaded: false,
     muted: false,
@@ -20,8 +19,20 @@
     score: 0,
     state: "start",
     testVars: {},
-    title: "",
     won: false,
+  };
+  // The screens' words: the start screen's title and hint, and the over screen's, which a game in another language
+  // replaces. A game may set them after the overlay first draws (from an effect, after a load), so each one redraws it.
+  const words = {
+    hint: "Tap to start",
+    text: {
+      again: "Tap to play again",
+      best: "Best",
+      over: "Game over",
+      score: "Score",
+      win: "You win",
+    },
+    title: "",
   };
   const listeners = new Set();
   let overAt = 0;
@@ -38,17 +49,17 @@
   const overlay = document.createElement("div");
   overlay.id = "hopon-overlay";
   overlay.style.cssText =
-    "position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;box-sizing:border-box;background:rgba(0,0,0,.55);color:#fff;font:600 24px system-ui,sans-serif;text-align:center;touch-action:none;user-select:none;-webkit-user-select:none";
+    "position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;box-sizing:border-box;background:radial-gradient(circle at 50% 40%,rgba(0,0,0,.35),rgba(0,0,0,.72));color:#fff;font:700 24px system-ui,sans-serif;text-align:center;overflow-wrap:anywhere;word-break:break-word;text-shadow:0 2px 6px rgba(0,0,0,.6);touch-action:none;user-select:none;-webkit-user-select:none";
   const draw = () => {
     overlay.style.display = hopon.state === "play" ? "none" : "flex";
     const lines =
       hopon.state === "start"
         ? [[hopon.title || document.title, 32], [hopon.hint]]
         : [
-            [hopon.won ? "You win" : "Game over", 32],
-            [`Score ${hopon.score}`],
-            [`Best ${hopon.best}`, 16],
-            ["Tap to play again"],
+            [hopon.won ? hopon.text.win : hopon.text.over, 32],
+            [`${hopon.text.score} ${hopon.score}`],
+            [`${hopon.text.best} ${hopon.best}`, 16],
+            [hopon.text.again],
           ];
     overlay.replaceChildren(
       ...lines.map(([text, size]) => {
@@ -61,6 +72,16 @@
       })
     );
   };
+  for (const name of Object.keys(words)) {
+    Object.defineProperty(hopon, name, {
+      enumerable: true,
+      get: () => words[name],
+      set(value) {
+        words[name] = value;
+        draw();
+      },
+    });
+  }
   const mount = () => {
     document.body.append(overlay);
     draw();
@@ -95,12 +116,10 @@
       audio.context.resume();
     }
   };
-  const startMusic = async () => {
+  // The game's sound effects play through the same context, so they follow the mute and the pause with the music.
+  const startAudio = async () => {
     if (audio) {
       syncAudio();
-      return;
-    }
-    if (!musicFile) {
       return;
     }
     const context = new AudioContext();
@@ -108,6 +127,9 @@
     gain.connect(context.destination);
     audio = { context, gain };
     syncAudio();
+    if (!musicFile) {
+      return;
+    }
     try {
       const source = context.createBufferSource();
       source.buffer = await context.decodeAudioData(await musicFile);
@@ -118,9 +140,69 @@
       console.warn("hopon: the music didn't load", error);
     }
   };
-  for (const type of ["pointerdown", "touchend", "keydown"]) {
-    addEventListener(type, startMusic, { capture: true });
+  // iOS lets audio start only at a touch's end, so pointerup and touchend; other browsers at its start.
+  for (const type of ["pointerdown", "pointerup", "touchend", "keydown"]) {
+    addEventListener(type, startAudio, { capture: true });
   }
+
+  // A sound effect, synthesized: an oscillator or band-passed noise whose pitch glides from freq to `to` Hz over ms,
+  // with a short attack and an exponential fade. Silent until the first touch, and while paused.
+  let noise;
+  // oxlint-disable-next-line unicorn/consistent-function-scoping -- the IIFE keeps it off the page's globals
+  const whiteNoise = (context) => {
+    const buffer = context.createBuffer(
+      1,
+      context.sampleRate,
+      context.sampleRate
+    );
+    const data = buffer.getChannelData(0);
+    let seed = 7;
+    for (let i = 0; i < data.length; i += 1) {
+      seed = (seed * 16_807) % 2_147_483_647;
+      data[i] = (seed / 2_147_483_647) * 2 - 1;
+    }
+    return buffer;
+  };
+  const play = ({
+    freq,
+    to = freq,
+    ms,
+    wave = "square",
+    volume = 0.3,
+    delayMs = 0,
+  }) => {
+    if (!audio || hopon.paused) {
+      return;
+    }
+    const { context } = audio;
+    const start = context.currentTime + delayMs / 1000;
+    const end = start + ms / 1000;
+    const envelope = context.createGain();
+    envelope.gain.setValueAtTime(0.0001, start);
+    envelope.gain.exponentialRampToValueAtTime(volume, start + 0.005);
+    envelope.gain.exponentialRampToValueAtTime(0.0001, end);
+    envelope.connect(audio.gain);
+    let source;
+    if (wave === "noise") {
+      noise ??= whiteNoise(context);
+      source = context.createBufferSource();
+      source.buffer = noise;
+      source.loop = true;
+      const filter = context.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.frequency.setValueAtTime(freq, start);
+      filter.frequency.exponentialRampToValueAtTime(to, end);
+      source.connect(filter).connect(envelope);
+    } else {
+      source = context.createOscillator();
+      source.type = wave;
+      source.frequency.setValueAtTime(freq, start);
+      source.frequency.exponentialRampToValueAtTime(to, end);
+      source.connect(envelope);
+    }
+    source.start(start);
+    source.stop(end + 0.02);
+  };
 
   const changed = () => {
     for (const listener of listeners) {
@@ -146,8 +228,10 @@
       overAt = performance.now();
       changed();
     },
+    play,
     ready() {
       hopon.loaded = true;
+      draw();
     },
     start() {
       hopon.score = 0;
@@ -161,6 +245,21 @@
     },
   });
 
+  // The tap that starts a round is the overlay's alone. The overlay hides on its press, so the release, and the
+  // touchend and click after it, would land on the game: each is swallowed once, before the game's own listeners. A
+  // browser may not send them all, so the next press ends the swallowing too.
+  const RELEASES = ["pointerup", "touchend", "mouseup", "click"];
+  // oxlint-disable-next-line unicorn/consistent-function-scoping -- the IIFE keeps it off the page's globals
+  const swallow = (event) => {
+    event.stopImmediatePropagation();
+    removeEventListener(event.type, swallow, { capture: true });
+  };
+  const disarm = () => {
+    for (const type of RELEASES) {
+      removeEventListener(type, swallow, { capture: true });
+    }
+  };
+  addEventListener("pointerdown", disarm, { capture: true });
   overlay.addEventListener("pointerdown", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -169,6 +268,9 @@
       performance.now() - overAt < RESTART_AFTER_MS
     ) {
       return;
+    }
+    for (const type of RELEASES) {
+      addEventListener(type, swallow, { capture: true });
     }
     hopon.start();
   });

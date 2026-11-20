@@ -20,15 +20,23 @@ The sandbox restarted, and the workspace is back to the Creator's current game: 
 
 ## steps
 
-Over the {{MAX_STEPS}}-step limit. Tell the Creator you couldn't make it work this time.
+Over the {{MAX_STEPS}}-step limit. {{GIVE_UP}}
 
 ## builds
 
-Over the {{MAX_BUILDS}}-build limit. Tell the Creator you couldn't make it work this time.
+Over the {{MAX_BUILDS}}-build limit. {{GIVE_UP}}
 
 ## deadline
 
-Past the {{SECONDS}} s deadline. Tell the Creator you couldn't make it work this time.
+Past the {{SECONDS}} s deadline. {{GIVE_UP}}
+
+## give-up
+
+Tell the Creator you couldn't make it work this time.
+
+## kept
+
+Revision {{N}}, which you published in this run, stays. Tell the Creator you couldn't finish all of it this time, and that sending the rest of their request again finishes it from there.
 
 ## no-game
 
@@ -54,7 +62,7 @@ These checks threw and were skipped; fix them in tests.json: {{ERRORS}}
 
 ## published
 
-Published: the Creator now has Revision {{N}}.{{SKIPPED}}
+Published: the Creator now has Revision {{N}}.{{SKIPPED}} If you're done, reply to the Creator with what the game is and how to play it. Say nothing about how you made it: not the advisor, tests, playtests or checks, and nothing you skipped.
 
 ## no-advice
 

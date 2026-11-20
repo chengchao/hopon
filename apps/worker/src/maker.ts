@@ -1,6 +1,6 @@
 // The Maker (ADR 0006): one Durable Object per Draft, `env.MAKER.getByName(draftId)`, running one agent in a
 // pi-durable Harness through PiHarness on the Agent class. The agent chats with the Creator and, when asked for a game
-// or a change, loads the make-game skill and writes the game itself in the sandbox, with pi's coding tools, the skills,
+// or a change, loads the make-game skill and writes the game itself in the sandbox, with pi's coding tools, make-game's guides,
 // `playtest`, and `build` (publish.ts), which checks the workspace and writes the next Revision. The sandbox is the Draft's Container, which the Maker
 // starts and drives itself (agent-sandbox.ts).
 //
@@ -39,12 +39,13 @@ import {
   Semaphore,
 } from "effect";
 
-import DOM_GAMES from "../../maker/agent-home/.agents/skills/dom-games/SKILL.md";
-import LITTLEJS from "../../maker/agent-home/.agents/skills/littlejs-api/SKILL.md";
+import MUSIC_SF2 from "../../maker/agent-home/.agents/skills/make-game/references/music-sf2.md";
+import MUSIC_SYNTH from "../../maker/agent-home/.agents/skills/make-game/references/music-synth.md";
+import PHASER from "../../maker/agent-home/.agents/skills/make-game/references/phaser.md";
+import R3F from "../../maker/agent-home/.agents/skills/make-game/references/r3f.md";
+import REACT from "../../maker/agent-home/.agents/skills/make-game/references/react.md";
+import SOUND_EFFECTS from "../../maker/agent-home/.agents/skills/make-game/references/sound-effects.md";
 import MAKE_GAME from "../../maker/agent-home/.agents/skills/make-game/SKILL.md";
-import MUSIC_SF2 from "../../maker/agent-home/.agents/skills/music-sf2/SKILL.md";
-import MUSIC_SYNTH from "../../maker/agent-home/.agents/skills/music-synth/SKILL.md";
-import ZZFX from "../../maker/agent-home/.agents/skills/zzfx/SKILL.md";
 import {
   boxPlaytest,
   DEADLINE_MS,
@@ -123,19 +124,35 @@ const SILENT_MS = 60_000;
 
 const PROMPT = renderPrompt(MAKER, MAKER_VALUES);
 
+// The one skill, make-game (ADR 0008). Its guides (each engine, sound effects, music) are files beside its SKILL.md,
+// which the agent reads with read_skill_resource, so every game starts from make-game's own rules.
+const GUIDES = {
+  "references/music-sf2.md": MUSIC_SF2,
+  "references/music-synth.md": MUSIC_SYNTH,
+  "references/phaser.md": PHASER,
+  "references/r3f.md": R3F,
+  "references/react.md": REACT,
+  "references/sound-effects.md": SOUND_EFFECTS,
+};
+const makeGame = parseSkillMarkdown(MAKE_GAME);
+if (!makeGame) {
+  throw new Error("make-game's SKILL.md has no frontmatter");
+}
 const SKILLS = fromManifest({
-  fingerprint: "v10",
+  fingerprint: "v12",
   id: "hopon-maker",
-  skills: [MAKE_GAME, DOM_GAMES, LITTLEJS, MUSIC_SF2, MUSIC_SYNTH, ZZFX].map(
-    (raw) => {
-      const parsed = parseSkillMarkdown(raw);
-      if (!parsed) {
-        throw new Error(`a SKILL.md without frontmatter: ${raw.slice(0, 80)}`);
-      }
-      const { body, description, name } = parsed;
-      return { body, description, name };
-    }
-  ),
+  skills: [
+    {
+      body: makeGame.body,
+      description: makeGame.description,
+      name: makeGame.name,
+      resources: Object.entries(GUIDES).map(([path, content]) => ({
+        content,
+        kind: "reference" as const,
+        path,
+      })),
+    },
+  ],
 });
 
 const Input = Type.Object({
@@ -161,6 +178,9 @@ interface RunState {
   from: number;
   // How many of the Creator's messages the agent had seen when the run's last `build` began: not those still queued.
   seen?: number;
+  // The Revision the run last published. It outlives a limit that stops the run, as an old Draft's port published
+  // before its change does, so the refusal tells the Creator to send the rest again.
+  published?: number;
 }
 
 const PROVIDER = "anthropic";
@@ -375,6 +395,10 @@ export class Maker extends Agent<Env> {
     () => this.tellRestart(),
     (n, kind) => {
       this.workspace = n;
+      const state = this.runState;
+      if (state) {
+        this.runState = { ...state, published: n };
+      }
       if (kind === "new") {
         this.ctx.storage.kv.put(
           "askedFrom",
@@ -418,15 +442,22 @@ export class Maker extends Agent<Env> {
         steps: state.steps + (building ? 0 : 1),
       };
       this.runState = next;
+      const GIVE_UP =
+        state.published === undefined
+          ? toolResult("give-up")
+          : toolResult("kept", { N: state.published });
       if (next.steps > MAX_STEPS) {
-        return { block: toolResult("steps", { MAX_STEPS }) };
+        return { block: toolResult("steps", { GIVE_UP, MAX_STEPS }) };
       }
       if (next.builds > MAX_BUILDS) {
-        return { block: toolResult("builds", { MAX_BUILDS }) };
+        return { block: toolResult("builds", { GIVE_UP, MAX_BUILDS }) };
       }
       if (Date.now() > state.deadlineAt) {
         return {
-          block: toolResult("deadline", { SECONDS: DEADLINE_MS / 1000 }),
+          block: toolResult("deadline", {
+            GIVE_UP,
+            SECONDS: DEADLINE_MS / 1000,
+          }),
         };
       }
       if (WRITES.has(toolCall.name)) {

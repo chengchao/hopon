@@ -3,9 +3,7 @@
 // The same bytes go to the Worker, which serves them as /runtime/v4.js, so the box's playtest runs what the phone runs.
 // It also copies the plain-DOM scaffold (image/dom.js) to the Worker as is, served as /dom/v4.js, and the Vite games'
 // scaffold (image/hopon.js), served as /hopon/v1.js, and writes image/vendor.json, the box's copy of the Worker's vendor
-// files. The versions before them stay frozen in their JSON for the Games that load them (FROZEN). /hopon/v1.js freezes
-// when the first Game uses it (P5); until then only a Vite game's page, which the agent doesn't write before P5, loads
-// it.
+// files. The versions before them stay frozen in their JSON for the Games that load them (FROZEN).
 // `pnpm -F maker build:runtime` rebuilds; runtime.test.ts fails when the Worker's copy is stale.
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -137,6 +135,9 @@ export const V4_SHA256 =
   "6a9dd3463f3c65addfa701e1244dec8c9d4aaa1a83de05581f6cc1d03f37a3fb";
 export const DOM_V4_SHA256 =
   "f91cb7a4dcb47a031ae1211838f6449654fb09826e2535b85683fb623acb2d8a";
+// Frozen with the first Games that load it (P5, ADR 0008).
+export const HOPON_V1_SHA256 =
+  "5aa96fafdc0b99b88a20dfd3c165c004849ebf59ad1e5b1575d1d54a5bbcf2f2";
 
 const sha256 = (code: string) =>
   createHash("sha256").update(code).digest("hex");
@@ -178,6 +179,7 @@ export const buildRuntime = async () => {
   const dom = domScaffold();
   assertUnchanged(dom, DOM_V4_SHA256, "/dom/v4.js");
   const vite = hoponScaffold();
+  assertUnchanged(vite, HOPON_V1_SHA256, "/hopon/v1.js");
   writeFileSync(RUNTIME_PATH, code);
   writeFileSync(SERVED_PATH, `${JSON.stringify(code)}\n`);
   writeFileSync(DOM_SERVED_PATH, `${JSON.stringify(dom)}\n`);

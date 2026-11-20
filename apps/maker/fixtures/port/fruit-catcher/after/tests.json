@@ -1,0 +1,56 @@
+{
+  "expose": [
+    {
+      "name": "basketX",
+      "means": "the basket's centre across the screen, from 0 at the left edge to 1 at the right edge"
+    },
+    {
+      "name": "bombsCaught",
+      "means": "bombs that landed in the basket this round"
+    }
+  ],
+  "tests": [
+    {
+      "name": "dragging moves the basket to the finger",
+      "inputs": [
+        { "at": 500, "type": "swipe", "x": 300, "y": 560, "dx": -260, "dy": 0 },
+        { "at": 900, "type": "tap", "x": 320, "y": 560 }
+      ],
+      "checks": [
+        { "at": 400, "expect": "vars.basketX > 0.4 && vars.basketX < 0.6" },
+        { "at": 700, "expect": "vars.basketX < 0.3" },
+        { "at": 1100, "expect": "vars.basketX > 0.6" }
+      ]
+    },
+    {
+      "name": "apples in the basket score, and only a bomb in it ends the round",
+      "inputs": [],
+      "checks": [
+        {
+          "at": 3000,
+          "expect": "(state === 'over') === (vars.bombsCaught > 0)"
+        },
+        {
+          "at": 6000,
+          "expect": "(state === 'over') === (vars.bombsCaught > 0) && score >= prev.score"
+        },
+        {
+          "at": 9000,
+          "expect": "(state === 'over') === (vars.bombsCaught > 0) && score >= prev.score"
+        },
+        {
+          "at": 12000,
+          "expect": "(state === 'over') === (vars.bombsCaught > 0) && score >= prev.score"
+        },
+        {
+          "at": 15000,
+          "expect": "(state === 'over') === (vars.bombsCaught > 0) && score >= prev.score"
+        },
+        {
+          "at": 18000,
+          "expect": "(state === 'over') === (vars.bombsCaught > 0) && score >= prev.score && score + vars.bombsCaught > 0"
+        }
+      ]
+    }
+  ]
+}

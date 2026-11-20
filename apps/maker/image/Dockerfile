@@ -1,5 +1,5 @@
 # The Maker's box (#175): node, python3, Chromium, ffmpeg, typescript and the box scripts under /opt/hopon, and for
-# the music-sf2 skill FluidSynth, midiutil, numpy and the GeneralUser GS bank (its license: "use without restriction").
+# make-game's music-sf2 guide FluidSynth, midiutil, numpy and the GeneralUser GS bank (its license: "use without restriction").
 # apps/worker/wrangler.jsonc builds it from this directory, and `wrangler deploy` pushes it;
 # `pnpm -F maker build:runtime` makes runtime.js and littlejs.d.ts first. It runs with no internet and no secrets.
 FROM node:24-slim
@@ -31,7 +31,7 @@ RUN echo "9575028c7a1f589f5770fccc8cff2734566af40cd26ed836944e9a5152688cfe  /opt
 # @cloudflare/sandbox's Files runs this helper through exec(); its tag is apps/worker's @cloudflare/sandbox version
 # (test/previews.test.js checks).
 COPY --from=docker.io/cloudflare/sandbox:1.0.3 /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
-COPY assets.d.ts browser.js dom.d.ts dom.js helpers.js hopon.js hopon-v1.d.ts littlejs.d.ts page.ts playtest.js runtime.js vendor.json verify.js /opt/hopon/
+COPY assets.d.ts browser.js dom.d.ts dom.js helpers.js hopon.js hopon-v1.d.ts littlejs.d.ts page.ts playtest.js runtime.js starter.js vendor.json verify.js /opt/hopon/
 RUN useradd -m -u 1001 user && chown -R user:user /workspace
 USER user
 WORKDIR /workspace

@@ -2427,19 +2427,27 @@ test("vendor: each /vendor/ file loads as a sandboxed game's module, long-cached
   );
 });
 
-test("hopon: /hopon/v1.js is the box's Vite scaffold, a sandboxed game's module, and not cached until it is frozen", async (t) => {
+test("hopon: /hopon/v1.js is the box's Vite scaffold, a sandboxed game's module, frozen and cached for good", async (t) => {
   const { env } = await setup(t);
   const response = await moduleScript(env, "/hopon/v1.js", {});
   assert.equal(response.status, 200);
   assert.match(response.headers.get("Content-Type"), /^text\/javascript/u);
   assert.equal(response.headers.get("Access-Control-Allow-Origin"), "*");
-  assert.equal(response.headers.get("Cache-Control"), "no-cache");
   assert.equal(
-    await response.text(),
+    response.headers.get("Cache-Control"),
+    "public, max-age=31536000, immutable"
+  );
+  const code = await response.text();
+  assert.equal(
+    code,
     readFileSync(
       new URL("../../maker/image/hopon.js", import.meta.url),
       "utf-8"
     )
+  );
+  assert.equal(
+    createHash("sha256").update(code).digest("hex"),
+    "5aa96fafdc0b99b88a20dfd3c165c004849ebf59ad1e5b1575d1d54a5bbcf2f2"
   );
 });
 

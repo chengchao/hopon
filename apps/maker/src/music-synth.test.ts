@@ -6,7 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 
 const SKILL = new URL(
-  "../agent-home/.agents/skills/music-synth/SKILL.md",
+  "../agent-home/.agents/skills/make-game/references/music-synth.md",
   import.meta.url
 );
 const SKELETON = /```js\n(?<code>[\s\S]*?)```/u;

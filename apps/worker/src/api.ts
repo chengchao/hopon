@@ -444,8 +444,7 @@ for (const [route, code, cache] of [
   ["/dom/v2.js", DOM_V2, IMMUTABLE],
   ["/dom/v3.js", DOM_V3, IMMUTABLE],
   ["/dom/v4.js", DOM_V4, IMMUTABLE],
-  // Frozen when the first Game uses it (P5). Until then a page revalidates it, so a change reaches every page.
-  ["/hopon/v1.js", HOPON_V1, "no-cache"],
+  ["/hopon/v1.js", HOPON_V1, IMMUTABLE],
 ]) {
   app.get(route, (c) =>
     c.body(code, 200, { ...SCRIPT, "Cache-Control": cache, ...gzipped(c) })
