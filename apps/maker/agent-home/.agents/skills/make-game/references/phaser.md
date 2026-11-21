@@ -204,6 +204,7 @@ this.input.on("pointerup", (pointer: Input.Pointer) => {
 
 - Let the whole screen be the control. A drag moves the player's x only, so the finger, low on the screen, never covers what it moves.
 - A button is a shape at least 48 px across with `.setInteractive()` and `.on("pointerdown", ...)`. Its hit test goes through the camera, so it needs no help.
+- A panel of words and buttons (a shop, an inventory, a dialogue) is not drawn in Phaser, which has no lists, wrapping or layout. It is React over the canvas: read `references/phaser-panels.md`.
 - Keys are a bonus, never the only control: `this.input.keyboard?.createCursorKeys()` (the keyboard can be null).
 
 ## Hits and collisions
