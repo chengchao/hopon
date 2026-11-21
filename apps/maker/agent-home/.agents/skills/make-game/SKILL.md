@@ -44,7 +44,7 @@ A Draft from before Vite games has a `game.ts` and no `vite.config.ts`. hopon no
 
 ## Workflow
 
-1. **Design.** Write `design.md` (see Design).
+1. **Design.** Write `design.md` (see Design), before you read any guide: the design needs only this skill. When it has Pillars, ask the advisor for the design check, and change `design.md` as it says before you go on.
 2. **Tests.** Write `tests.json` from the design's Done-when criteria (see Tests).
 3. **Code.** Read the engine's guide, then write the whole game with the write tool: every file the guide names but the skeleton the starter wrote. Split the code into modules when it grows past a few hundred lines. For a change, change the existing files with the `edit` tool, and don't rewrite what works.
 4. **Playtest.** Call `playtest` with `inputs` that play the game the way a player would: taps where the buttons, cards or targets are, swipes for swipe controls, timed so the game gets going. It typechecks first, and type errors come back with no screenshots.
@@ -57,8 +57,9 @@ A Draft from before Vite games has a `game.ts` and no `vite.config.ts`. hopon no
 
 ## Asking the advisor
 
-`ask_advisor`'s description names the four moments to ask and the limit of two calls a run. It costs the Creator more than your own steps, so ask at those moments only. What the description leaves out:
+`ask_advisor`'s description names the five moments to ask and the limit of three calls a run. It costs the Creator more than your own steps, so ask at those moments only. What the description leaves out:
 
+- **The design check goes before the tests and the code.** A pillar that was dropped or made into a menu costs one line to put back in `design.md`, and most of the game once it is written. Ask with the design written and nothing else: "Design check."
 - **The done check goes before `build`, not after.** A `build` that succeeds publishes the game, so advice taken after it would cost a second `build`. When the check finds nothing, call `build`. When `build` then fails, fix what it lists and build again without a second done check.
 - **A hard design choice** is one where you can't tell which way is right, such as whether to keep the level data apart from the physics. **A large structural change** is a request such as multiplayer, saves or levels: ask how to restructure first, or whether it fits a hopon game at all.
 - **A small, clear change** needs no advice before you make it, only the done check.
