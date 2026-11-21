@@ -132,6 +132,15 @@ test("Music: none passes with the Creator's own words, in any case and spacing",
   );
 });
 
+test("Music: none passes under a Music heading that names it again", () => {
+  assert.deepEqual(
+    verify(noMusic('## Music\n\nMusic: none ("no music please")'), [
+      "no music please, it's annoying",
+    ]),
+    { failures: [], ok: true }
+  );
+});
+
 test("Music: none passes with the phone's curly quotes on either side", () => {
   assert.deepEqual(
     verify(noMusic("- **Music:** none (“don’t add any music”)"), [

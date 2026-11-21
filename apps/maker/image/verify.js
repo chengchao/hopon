@@ -39,8 +39,9 @@ const part = (text, name) => {
   if (at === -1) {
     return null;
   }
-  const rest = all[at].replace(new RegExp(`^${name}\\b\\s*:?\\s*`, "iu"), "");
-  return rest || all[at + 1] || "";
+  // A "Music" heading may be followed by "Music: none", so the name comes off the line after it too.
+  const named = new RegExp(`^${name}\\b\\s*:?\\s*`, "iu");
+  return all[at].replace(named, "") || (all[at + 1] ?? "").replace(named, "");
 };
 const asked = () => {
   try {
