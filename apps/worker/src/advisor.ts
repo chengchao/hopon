@@ -16,6 +16,8 @@ export const ADVISOR_PROVIDER = "advisor";
 // tool calls, the code it wrote included, are sent whole.
 const RESULT_CHARS = 4000;
 
+const SKILL_TEXT = new Set(["activate_skill", "read_skill_resource"]);
+
 const clip = (text: string) =>
   text.length > RESULT_CHARS
     ? `${text.slice(0, RESULT_CHARS)}\n[${text.length - RESULT_CHARS} more characters cut]`
@@ -54,6 +56,10 @@ const render = (messages: readonly Message[]) =>
             (message.details as { reason?: string } | undefined)?.reason ===
             "missing_result"
           ) {
+            return [];
+          }
+          // The skill and its references: the Maker's reading, of which a cut-off start tells the advisor nothing.
+          if (SKILL_TEXT.has(message.toolName)) {
             return [];
           }
           const status = message.isError ? " (error)" : "";

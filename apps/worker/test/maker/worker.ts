@@ -142,11 +142,18 @@ const SCRIPTS: Record<string, readonly Step[]> = {
     play,
     build("new"),
   ],
-  // Loads make-game and reads its Phaser guide, then a guide it doesn't have.
+  // Loads make-game and reads its Phaser guide, then the panels example before any playtest, then a guide it doesn't have.
   guide: [
     { input: { name: "make-game" }, tool: "activate_skill" },
     {
       input: { name: "make-game", path: "references/phaser.md" },
+      tool: "read_skill_resource",
+    },
+    {
+      input: {
+        name: "make-game",
+        path: "references/phaser-panels-example.md",
+      },
       tool: "read_skill_resource",
     },
     {

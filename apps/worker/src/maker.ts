@@ -151,6 +151,9 @@ const GUIDES = {
 };
 // pi's tools that load the skill and read its references.
 const SKILL_READS = new Set(["activate_skill", "read_skill_resource"]);
+// A whole game of 773 lines, which every later model call would read again: refused until the run has played its own.
+const PANELS_EXAMPLE = "references/phaser-panels-example.md";
+const PLAYS = new Set(["build", "playtest"]);
 const makeGame = parseSkillMarkdown(MAKE_GAME);
 if (!makeGame) {
   throw new Error("make-game's SKILL.md has no frontmatter");
@@ -193,6 +196,8 @@ interface RunState extends RunCounts {
   from: number;
   // How many of the Creator's messages the agent had seen when the run's last `build` began: not those still queued.
   seen?: number;
+  // The run has playtested or built its game, so it may read the panels example.
+  played?: true;
 }
 
 const LIMIT_VALUES: Record<Limit, Record<string, number>> = {
@@ -462,6 +467,13 @@ export class Maker extends Agent<Env> {
       if (this.tellRestart()) {
         return { block: toolResult("restarted") };
       }
+      if (
+        toolCall.name === "read_skill_resource" &&
+        toolCall.arguments.path === PANELS_EXAMPLE &&
+        !state.played
+      ) {
+        return { block: toolResult("example-early") };
+      }
       const building = toolCall.name === "build";
       const { next, refused: over } = checkLimits(
         state,
@@ -469,7 +481,11 @@ export class Maker extends Agent<Env> {
         Date.now(),
         SKILL_READS.has(toolCall.name)
       );
-      this.runState = { ...next, ...(building && { seen }) };
+      this.runState = {
+        ...next,
+        ...(building && { seen }),
+        ...(PLAYS.has(toolCall.name) && { played: true as const }),
+      };
       if (over) {
         return { block: refusal(over.limit, over.after, state.published) };
       }

@@ -580,6 +580,7 @@ test(
       "activate_skill",
       "read_skill_resource",
       "read_skill_resource",
+      "read_skill_resource",
     ]);
     const { entries } = await snapshot(draft);
     const results = entries
@@ -610,6 +611,9 @@ test(
       );
     }
     assert.match(results, /# Writing a hopon game in Phaser 4/u);
+    // The panels example is refused until the run has played its game.
+    assert.match(results, /Not yet: `references\/phaser-panels-example\.md`/u);
+    assert.doesNotMatch(results, /Example: Spice Run/u);
     assert.match(
       await lastReply(draft),
       /said: .*Skill resource not found: make-game\/references\/littlejs\.md/u
