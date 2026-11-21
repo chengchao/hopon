@@ -149,6 +149,8 @@ const GUIDES = {
   "references/sound-effects.md": SOUND_EFFECTS,
   "references/tests.md": TESTS,
 };
+// pi's tools that load the skill and read its references.
+const SKILL_READS = new Set(["activate_skill", "read_skill_resource"]);
 const makeGame = parseSkillMarkdown(MAKE_GAME);
 if (!makeGame) {
   throw new Error("make-game's SKILL.md has no frontmatter");
@@ -461,7 +463,12 @@ export class Maker extends Agent<Env> {
         return { block: toolResult("restarted") };
       }
       const building = toolCall.name === "build";
-      const { next, refused: over } = checkLimits(state, building, Date.now());
+      const { next, refused: over } = checkLimits(
+        state,
+        building,
+        Date.now(),
+        SKILL_READS.has(toolCall.name)
+      );
       this.runState = { ...next, ...(building && { seen }) };
       if (over) {
         return { block: refusal(over.limit, over.after, state.published) };

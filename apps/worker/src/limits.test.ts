@@ -58,3 +58,11 @@ test("the build limit allows no last build", () => {
   );
   assert.deepEqual(refused, { after: "give-up", limit: "builds" });
 });
+
+test("a read of the skill is no step", () => {
+  const state: RunCounts = { builds: 0, startedAt: 0, steps: MAX_STEPS };
+  const read = checkLimits(state, false, 0, true);
+  assert.equal(read.refused, undefined);
+  assert.equal(read.next.steps, MAX_STEPS);
+  assert.equal(checkLimits(state, false, 0).refused?.limit, "steps");
+});
