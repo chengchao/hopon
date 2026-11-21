@@ -31,10 +31,10 @@
     ],
   },
   "vars": {
-    // The Maker's one agent (ADR 0006): Sonnet 5.5 at medium effort, through modelFetch on the account's gateway. Medium
-    // is the owner's call on 2026-11-11 for the sub agent this replaces (high ran out of time on 3 of 6 builds).
+    // The Maker's one agent (ADR 0006): Sonnet 5.5 at low effort, through modelFetch on the account's gateway. Low is the
+    // owner's call on 2026-11-20: at medium, 45% of a big game's output was thinking, and the advisor now designs it.
     "MAKER_MODEL": "claude-sonnet-5-5",
-    "MAKER_EFFORT": "medium",
+    "MAKER_EFFORT": "low",
     // The model `ask_advisor` asks (src/advisor.ts): Opus 5.5, or Fable 5.2 as "claude-fable-5-2".
     "MAKER_ADVISOR_MODEL": "claude-opus-5-5",
     // The abort timer on a run's work (ADR 0009): 25 minutes, 5 past its ceiling (job.ts), so a run stopped by the
@@ -108,7 +108,7 @@
     // No `secrets` here: wrangler 4.152 rejects previews.secrets, so a Preview missing one deploys anyway.
     "vars": {
       "MAKER_MODEL": "claude-sonnet-5-5",
-      "MAKER_EFFORT": "medium",
+      "MAKER_EFFORT": "low",
       "MAKER_ADVISOR_MODEL": "claude-opus-5-5",
       "MAKER_BUILD_ABORT_S": "1500",
       "MAKER_WEEKLY_TOKENS": "80000000",

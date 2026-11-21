@@ -73,3 +73,7 @@ Published: the Creator now has Revision {{N}}.{{SKIPPED}} If you're done, reply 
 ## no-advice
 
 The advisor {{WHY}}. Go on without its advice: finish the work, and call `build` when the game is ready.
+
+## example-early
+
+Not yet: `references/phaser-panels-example.md` is a whole game, and a long one. Write the panels from `references/phaser-panels.md`, and playtest them. Open the example only when that playtest fails and the guide doesn't say why.

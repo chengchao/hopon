@@ -16,6 +16,8 @@ export const ADVISOR_PROVIDER = "advisor";
 // tool calls, the code it wrote included, are sent whole.
 const RESULT_CHARS = 4000;
 
+const SKILL_TEXT = new Set(["activate_skill", "read_skill_resource"]);
+
 const clip = (text: string) =>
   text.length > RESULT_CHARS
     ? `${text.slice(0, RESULT_CHARS)}\n[${text.length - RESULT_CHARS} more characters cut]`
@@ -56,6 +58,10 @@ const render = (messages: readonly Message[]) =>
           ) {
             return [];
           }
+          // The skill and its references: the Maker's reading, of which a cut-off start tells the advisor nothing.
+          if (SKILL_TEXT.has(message.toolName)) {
+            return [];
+          }
           const status = message.isError ? " (error)" : "";
           return [
             `RESULT of ${message.toolName}${status}:\n${clip(texts(message.content))}`,
@@ -78,11 +84,12 @@ const noAdvice = (why: string) => ({
 
 // The model sees this with the tool every turn, the make-game skill loaded or not.
 const DESCRIPTION = `Ask a stronger model for advice. It sees this whole conversation, your tool calls and their results included, plus your question. It only advises: it can't read or change files, run anything, or see screenshots. Ask it:
+- Before you write design.md for a new game, when the Creator names a game or a kind of game or asks for a big one, as the design brief: ask it to design the game, and write design.md from its brief.
 - Before every build, as the done check: once the playtest, verify and your tests pass, ask what the game misses of what the Creator asked and what is obviously broken.
 - Before a hard design choice you can't settle.
 - When you're stuck after two failed fixes of the same bug: give the errors and what each fix tried.
 - Before a large structural change, such as multiplayer, saves or levels.
-At most twice a run, the done check included; calls when stuck don't count. Don't paste code it can already see.`;
+Don't paste code it can already see.`;
 
 export const askAdvisor = (
   env: Env,
@@ -131,7 +138,6 @@ export const askAdvisor = (
         // One call with nothing after it to read a cache, so writing one only costs more.
         {
           cacheRetention: "none",
-          maxTokens: 16_000,
           reasoning: "medium",
           signal: call?.abortSignal,
         }

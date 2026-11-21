@@ -69,7 +69,7 @@ test("an old LittleJS or plain-DOM game fails until it is ported to a Vite proje
     "vite.config.ts": undefined,
   };
   const port =
-    'This is an old LittleJS or plain-DOM game (a game.ts and no vite.config.ts), which hopon no longer builds: port it to a Vite project first, as make-game\'s "An old game" says.';
+    "This is an old LittleJS or plain-DOM game (a game.ts and no vite.config.ts), which hopon no longer builds: port it to a Vite project first, as make-game's references/old-game.md says.";
   assert.deepEqual(verify(old, undefined, "change"), {
     failures: [port],
     ok: false,
@@ -127,6 +127,15 @@ test("Music: none passes with the Creator's own words, in any case and spacing",
   assert.deepEqual(
     verify(noMusic('## Music\nNone ("keep it silent")'), [
       "A frog game.\nKeep it silent, I play on the bus.",
+    ]),
+    { failures: [], ok: true }
+  );
+});
+
+test("Music: none passes under a Music heading that names it again", () => {
+  assert.deepEqual(
+    verify(noMusic('## Music\n\nMusic: none ("no music please")'), [
+      "no music please, it's annoying",
     ]),
     { failures: [], ok: true }
   );

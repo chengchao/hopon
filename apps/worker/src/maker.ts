@@ -39,14 +39,18 @@ import {
   Semaphore,
 } from "effect";
 
+import DESIGN from "../../maker/agent-home/.agents/skills/make-game/references/design.md";
+import FINISH from "../../maker/agent-home/.agents/skills/make-game/references/finish.md";
 import MUSIC_SF2 from "../../maker/agent-home/.agents/skills/make-game/references/music-sf2.md";
 import MUSIC_SYNTH from "../../maker/agent-home/.agents/skills/make-game/references/music-synth.md";
+import OLD_GAME from "../../maker/agent-home/.agents/skills/make-game/references/old-game.md";
 import PHASER_PANELS_EXAMPLE from "../../maker/agent-home/.agents/skills/make-game/references/phaser-panels-example.md";
 import PHASER_PANELS from "../../maker/agent-home/.agents/skills/make-game/references/phaser-panels.md";
 import PHASER from "../../maker/agent-home/.agents/skills/make-game/references/phaser.md";
 import R3F from "../../maker/agent-home/.agents/skills/make-game/references/r3f.md";
 import REACT from "../../maker/agent-home/.agents/skills/make-game/references/react.md";
 import SOUND_EFFECTS from "../../maker/agent-home/.agents/skills/make-game/references/sound-effects.md";
+import TESTS from "../../maker/agent-home/.agents/skills/make-game/references/tests.md";
 import MAKE_GAME from "../../maker/agent-home/.agents/skills/make-game/SKILL.md";
 import {
   boxPlaytest,
@@ -132,21 +136,30 @@ const PROMPT = renderPrompt(MAKER, MAKER_VALUES);
 // The one skill, make-game (ADR 0008). Its guides (each engine, sound effects, music) are files beside its SKILL.md,
 // which the agent reads with read_skill_resource, so every game starts from make-game's own rules.
 const GUIDES = {
+  "references/design.md": DESIGN,
+  "references/finish.md": FINISH,
   "references/music-sf2.md": MUSIC_SF2,
   "references/music-synth.md": MUSIC_SYNTH,
+  "references/old-game.md": OLD_GAME,
   "references/phaser-panels-example.md": PHASER_PANELS_EXAMPLE,
   "references/phaser-panels.md": PHASER_PANELS,
   "references/phaser.md": PHASER,
   "references/r3f.md": R3F,
   "references/react.md": REACT,
   "references/sound-effects.md": SOUND_EFFECTS,
+  "references/tests.md": TESTS,
 };
+// pi's tools that load the skill and read its references.
+const SKILL_READS = new Set(["activate_skill", "read_skill_resource"]);
+// A whole game of 773 lines, which every later model call would read again: refused until the run has played its own.
+const PANELS_EXAMPLE = "references/phaser-panels-example.md";
+const PLAYS = new Set(["build", "playtest"]);
 const makeGame = parseSkillMarkdown(MAKE_GAME);
 if (!makeGame) {
   throw new Error("make-game's SKILL.md has no frontmatter");
 }
 const SKILLS = fromManifest({
-  fingerprint: "v14",
+  fingerprint: "v15",
   id: "hopon-maker",
   skills: [
     {
@@ -183,6 +196,8 @@ interface RunState extends RunCounts {
   from: number;
   // How many of the Creator's messages the agent had seen when the run's last `build` began: not those still queued.
   seen?: number;
+  // The run has playtested or built its game, so it may read the panels example.
+  played?: true;
 }
 
 const LIMIT_VALUES: Record<Limit, Record<string, number>> = {
@@ -452,9 +467,25 @@ export class Maker extends Agent<Env> {
       if (this.tellRestart()) {
         return { block: toolResult("restarted") };
       }
+      if (
+        toolCall.name === "read_skill_resource" &&
+        toolCall.arguments.path === PANELS_EXAMPLE &&
+        !state.played
+      ) {
+        return { block: toolResult("example-early") };
+      }
       const building = toolCall.name === "build";
-      const { next, refused: over } = checkLimits(state, building, Date.now());
-      this.runState = { ...next, ...(building && { seen }) };
+      const { next, refused: over } = checkLimits(
+        state,
+        building,
+        Date.now(),
+        SKILL_READS.has(toolCall.name)
+      );
+      this.runState = {
+        ...next,
+        ...(building && { seen }),
+        ...(PLAYS.has(toolCall.name) && { played: true as const }),
+      };
       if (over) {
         return { block: refusal(over.limit, over.after, state.published) };
       }

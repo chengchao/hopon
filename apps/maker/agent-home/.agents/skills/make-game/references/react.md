@@ -993,7 +993,7 @@ body {
 
 ## Checking your work
 
-How a test and a playtest run is in `make-game`. For a React game:
+How a test and a playtest run is in `references/tests.md`. For a React game:
 
 - **Tests read `hopon.testVars`.** Expose what the player sees, such as pieces left, moves, the level, the time left or the question on screen. Write them in the render body.
 - **Tap where the pieces are.** The playtest's screen is 360 × 640 CSS px. Work out each piece's centre from the layout, then check it on the first screenshot. A tap in the gap between two pieces hits nothing.

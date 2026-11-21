@@ -5,7 +5,7 @@ import { MAX_BUILDS, MAX_STEPS, RUN_CEILING_MS } from "../../maker/src/job.ts";
 
 export interface RunCounts {
   startedAt: number;
-  // Tool calls but `build`, and `build` calls.
+  // Tool calls but `build` and reads of the skill, and `build` calls.
   steps: number;
   builds: number;
   // The Revision the run last published.
@@ -22,12 +22,14 @@ export type After = "kept" | "last-build" | "give-up";
 export const checkLimits = <S extends RunCounts>(
   state: S,
   building: boolean,
-  now: number
+  now: number,
+  // A read of the skill or one of its references: no step, so a skill split into more files costs no more of them.
+  reading = false
 ): { next: S; refused?: { limit: Limit; after: After } } => {
   const next = {
     ...state,
     builds: state.builds + (building ? 1 : 0),
-    steps: state.steps + (building ? 0 : 1),
+    steps: state.steps + (building || reading ? 0 : 1),
   };
   let limit: Limit | undefined;
   if (next.builds > MAX_BUILDS) {

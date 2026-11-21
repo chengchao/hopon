@@ -39,8 +39,9 @@ const part = (text, name) => {
   if (at === -1) {
     return null;
   }
-  const rest = all[at].replace(new RegExp(`^${name}\\b\\s*:?\\s*`, "iu"), "");
-  return rest || all[at + 1] || "";
+  // A "Music" heading may be followed by "Music: none", so the name comes off the line after it too.
+  const named = new RegExp(`^${name}\\b\\s*:?\\s*`, "iu");
+  return all[at].replace(named, "") || (all[at + 1] ?? "").replace(named, "");
 };
 const asked = () => {
   try {
@@ -114,7 +115,7 @@ if (tests === null) {
 // ports it first, so `build` refuses it here.
 if (existsSync("game.ts") && !existsSync("vite.config.ts")) {
   failures.push(
-    'This is an old LittleJS or plain-DOM game (a game.ts and no vite.config.ts), which hopon no longer builds: port it to a Vite project first, as make-game\'s "An old game" says.'
+    "This is an old LittleJS or plain-DOM game (a game.ts and no vite.config.ts), which hopon no longer builds: port it to a Vite project first, as make-game's references/old-game.md says."
   );
 } else if (!existsSync("vite.config.ts")) {
   failures.push(
