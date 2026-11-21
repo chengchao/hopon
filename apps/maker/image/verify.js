@@ -115,7 +115,7 @@ if (tests === null) {
 // ports it first, so `build` refuses it here.
 if (existsSync("game.ts") && !existsSync("vite.config.ts")) {
   failures.push(
-    'This is an old LittleJS or plain-DOM game (a game.ts and no vite.config.ts), which hopon no longer builds: port it to a Vite project first, as make-game\'s "An old game" says.'
+    "This is an old LittleJS or plain-DOM game (a game.ts and no vite.config.ts), which hopon no longer builds: port it to a Vite project first, as make-game's references/old-game.md says."
   );
 } else if (!existsSync("vite.config.ts")) {
   failures.push(

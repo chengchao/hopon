@@ -69,7 +69,7 @@ test("an old LittleJS or plain-DOM game fails until it is ported to a Vite proje
     "vite.config.ts": undefined,
   };
   const port =
-    'This is an old LittleJS or plain-DOM game (a game.ts and no vite.config.ts), which hopon no longer builds: port it to a Vite project first, as make-game\'s "An old game" says.';
+    "This is an old LittleJS or plain-DOM game (a game.ts and no vite.config.ts), which hopon no longer builds: port it to a Vite project first, as make-game's references/old-game.md says.";
   assert.deepEqual(verify(old, undefined, "change"), {
     failures: [port],
     ok: false,

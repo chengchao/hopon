@@ -1778,7 +1778,7 @@ const verifyChange = async (music: boolean) => {
   };
 };
 
-// A LittleJS Draft with music and a plain-DOM one without, as make-game's "An old game" ports them: design.md,
+// A LittleJS Draft with music and a plain-DOM one without, as make-game's references/old-game.md ports them: design.md,
 // tests.json and the music kept.
 for (const [game, engine, music] of [
   ["fruit-catcher", "phaser", true],

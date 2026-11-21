@@ -78,7 +78,7 @@ const noAdvice = (why: string) => ({
 
 // The model sees this with the tool every turn, the make-game skill loaded or not.
 const DESCRIPTION = `Ask a stronger model for advice. It sees this whole conversation, your tool calls and their results included, plus your question. It only advises: it can't read or change files, run anything, or see screenshots. Ask it:
-- After you write design.md for a new game, when the Creator names a game or a kind of game or asks for a big one, as the design check: before any tests or code, ask whether the design keeps what the Creator asked for.
+- Before you write design.md for a new game, when the Creator names a game or a kind of game or asks for a big one, as the design brief: ask it to design the game, and write design.md from its brief.
 - Before every build, as the done check: once the playtest, verify and your tests pass, ask what the game misses of what the Creator asked and what is obviously broken.
 - Before a hard design choice you can't settle.
 - When you're stuck after two failed fixes of the same bug: give the errors and what each fix tried.
