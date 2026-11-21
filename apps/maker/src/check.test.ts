@@ -848,6 +848,41 @@ test(
   }
 );
 
+test(
+  "the starter's panels add the bridge to a new game or to a Vite game without one, and never write over it",
+  { skip, timeout: 300_000 },
+  async () => {
+    await restore(box, files({}));
+    const fresh = await bash("node /opt/hopon/starter.js panels");
+    assert.equal(fresh.exitCode, 0, fresh.stderr.toString());
+    const listed = await bash("find . -mindepth 1 | sort");
+    assert.equal(
+      listed.stdout.toString(),
+      "./index.html\n./src\n./src/main.tsx\n./src/panels.tsx\n./tsconfig.json\n./vite.config.ts\n"
+    );
+
+    await restore(
+      box,
+      files({ "src/main.tsx": "// the game\n", "vite.config.ts": "// vite\n" })
+    );
+    const added = await bash("node /opt/hopon/starter.js panels");
+    assert.equal(added.exitCode, 0, added.stderr.toString());
+    const main = await bash("cat src/main.tsx && test -s src/panels.tsx");
+    assert.equal(main.stdout.toString(), "// the game\n");
+    assert.equal(main.exitCode, 0);
+
+    await bash("echo kept > src/panels.tsx");
+    const again = await bash("node /opt/hopon/starter.js panels");
+    assert.equal(again.exitCode, 1);
+    const kept = await bash("cat src/panels.tsx");
+    assert.equal(kept.stdout.toString(), "kept\n");
+
+    await restore(box, files({ "game.ts": "// an old game\n" }));
+    const old = await bash("node /opt/hopon/starter.js panels");
+    assert.equal(old.exitCode, 1);
+  }
+);
+
 // Each engine guide's example (make-game's references), on the starter's skeleton as make-game's new-game command
 // leaves it: the guide's files are the game's own, and its tests.json is the example's.
 const REFERENCES = path.join(
@@ -856,7 +891,7 @@ const REFERENCES = path.join(
 );
 const guideExample = (engine: string) => {
   const guide = readFileSync(path.join(REFERENCES, `${engine}.md`), "utf-8");
-  const example = guide.slice(guide.indexOf("\n## Example"));
+  const example = guide.slice(Math.max(guide.indexOf("\n## Example"), 0));
   return Object.fromEntries(
     [
       ...example.matchAll(
@@ -865,7 +900,7 @@ const guideExample = (engine: string) => {
     ].map((match) => [match.groups?.file, `${match.groups?.code}\n`])
   ) as Record<string, string>;
 };
-for (const engine of ["phaser", "r3f", "react"]) {
+for (const engine of ["phaser", "phaser-panels-example", "r3f", "react"]) {
   test(
     `the ${engine} guide's example builds on the starter's skeleton, passes its tests and plays green`,
     { skip, timeout: 300_000 },
@@ -876,7 +911,8 @@ for (const engine of ["phaser", "r3f", "react"]) {
       const example = guideExample(engine);
       assert.ok(example["src/main.tsx"] && example["tests.json"], engine);
       await restore(box, files({ ".hopon/asked.json": "[]" }));
-      const seeded = await bash(command ?? "false");
+      const panels = engine === "phaser-panels-example" ? " panels" : "";
+      const seeded = await bash(`${command ?? "false"}${panels}`);
       assert.equal(seeded.exitCode, 0, seeded.stderr.toString());
       const { "tests.json": tests = "", ...own } = example;
       await bash(
