@@ -41,6 +41,8 @@ import {
 
 import MUSIC_SF2 from "../../maker/agent-home/.agents/skills/make-game/references/music-sf2.md";
 import MUSIC_SYNTH from "../../maker/agent-home/.agents/skills/make-game/references/music-synth.md";
+import PHASER_PANELS_EXAMPLE from "../../maker/agent-home/.agents/skills/make-game/references/phaser-panels-example.md";
+import PHASER_PANELS from "../../maker/agent-home/.agents/skills/make-game/references/phaser-panels.md";
 import PHASER from "../../maker/agent-home/.agents/skills/make-game/references/phaser.md";
 import R3F from "../../maker/agent-home/.agents/skills/make-game/references/r3f.md";
 import REACT from "../../maker/agent-home/.agents/skills/make-game/references/react.md";
@@ -132,6 +134,8 @@ const PROMPT = renderPrompt(MAKER, MAKER_VALUES);
 const GUIDES = {
   "references/music-sf2.md": MUSIC_SF2,
   "references/music-synth.md": MUSIC_SYNTH,
+  "references/phaser-panels-example.md": PHASER_PANELS_EXAMPLE,
+  "references/phaser-panels.md": PHASER_PANELS,
   "references/phaser.md": PHASER,
   "references/r3f.md": R3F,
   "references/react.md": REACT,
@@ -142,7 +146,7 @@ if (!makeGame) {
   throw new Error("make-game's SKILL.md has no frontmatter");
 }
 const SKILLS = fromManifest({
-  fingerprint: "v13",
+  fingerprint: "v14",
   id: "hopon-maker",
   skills: [
     {
