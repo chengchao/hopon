@@ -132,7 +132,6 @@ export const askAdvisor = (
         // One call with nothing after it to read a cache, so writing one only costs more.
         {
           cacheRetention: "none",
-          maxTokens: 16_000,
           reasoning: "medium",
           signal: call?.abortSignal,
         }
