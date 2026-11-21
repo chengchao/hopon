@@ -83,7 +83,7 @@ const DESCRIPTION = `Ask a stronger model for advice. It sees this whole convers
 - Before a hard design choice you can't settle.
 - When you're stuck after two failed fixes of the same bug: give the errors and what each fix tried.
 - Before a large structural change, such as multiplayer, saves or levels.
-At most three times a run, the design check and the done check included; calls when stuck don't count. Don't paste code it can already see.`;
+Don't paste code it can already see.`;
 
 export const askAdvisor = (
   env: Env,

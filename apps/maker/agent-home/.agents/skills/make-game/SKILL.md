@@ -7,6 +7,12 @@ description: How to make or change the Creator's game, from the design to `build
 
 You design the game, write it, test it, and publish it with `build`. The Creator sees only your final reply and the game.
 
+**References (load on demand).** This file is all the design and the tests need. Open a reference with `read_skill_resource` (name `make-game` and its path) at the Workflow step that names it, one at a time, and never ahead of that step: a guide read early crowds out the design.
+
+- `references/phaser.md`, `references/r3f.md`, `references/react.md`: one engine's files, API, traps and looks. Open the one engine's guide at step 4 (Code), once `design.md` and `tests.json` are written. Never open a second engine's.
+- `references/sound-effects.md`: the scaffold's sounds and how to write the game's own. Open it at step 4 (Code), when you write the code that plays them.
+- `references/music-synth.md`: chiptune, electronic and arcade music, as `music.mjs`. `references/music-sf2.md`: acoustic, orchestral, folk and world music on sampled instruments, as `music.py`. Open the one that fits at step 7 (Music), once the playtest is green.
+
 ## The workspace
 
 The workspace holds one game: the files of the game the Creator has now, or nothing before the first one. A game is played on a phone, in portrait, by touch.
@@ -20,16 +26,15 @@ The workspace holds one game: the files of the game the Creator has now, or noth
 - **A change:** edit the existing files and call `build` with kind `"change"`.
 - **Until a `build` succeeds, the Creator has no game.** Treat every request until then as a complete new game that includes everything the Creator has asked for so far.
 
-A game is a Vite project: `index.html`, `vite.config.ts`, one `tsconfig.json`, and its code in `src/`, entered at `src/main.tsx`. `node /opt/hopon/starter.js` writes the first three, the same for every engine and every game, and a `src/main.tsx` stub. Keep the three as they are: the game's title and hint are `hopon.title` and `hopon.hint`, set at the top of `src/main.tsx`, and its look lives in its code. Write `src/main.tsx` over the stub. Sound effects are the scaffold's too (`hopon.play`), so a game writes only its own sounds. Each engine has a guide in this skill's `references/`, which gives every file, the engine's API and its traps, and how to make the game look good. Pick the engine by what the game is, then read its guide before you write any code:
+A game is a Vite project: `index.html`, `vite.config.ts`, one `tsconfig.json`, and its code in `src/`, entered at `src/main.tsx`. `node /opt/hopon/starter.js` writes the first three, the same for every engine and every game, and a `src/main.tsx` stub. Keep the three as they are: the game's title and hint are `hopon.title` and `hopon.hint`, set at the top of `src/main.tsx`, and its look lives in its code. Write `src/main.tsx` over the stub. Sound effects are the scaffold's too (`hopon.play`), so a game writes only its own sounds. Each engine has a guide in this skill's `references/`, which gives every file, the engine's API and its traps, and how to make the game look good. Pick the engine by what the game is:
 
 - **Phaser** (`references/phaser.md`) for 2D games with motion or a world to move around in: action, arcade, physics, runners, shooters, catchers, flappers, and games on a map, such as role-playing, adventure, strategy, trading and farming games.
 - **React Three Fiber** (`references/r3f.md`) for 3D games: racers, flyers, 3D runners and dodgers, and anything the Creator calls 3D.
 - **React** (`references/react.md`) for cards, quizzes, word games, trivia, and puzzles of tiles or buttons.
 - **A vague request:** pick a game with motion, in Phaser, or in r3f when 3D fits it better.
-- **When the workspace already has a Vite game, keep its engine.** `src/` importing `phaser` means Phaser, `@react-three/fiber` means r3f, and React alone means React. Read the matching guide and the game's files before you change anything.
-- **Sound effects** for every engine: `references/sound-effects.md`.
+- **When the workspace already has a Vite game, keep its engine.** `src/` importing `phaser` means Phaser, `@react-three/fiber` means r3f, and React alone means React. Read the game's files before you change anything.
 
-Read a guide with `read_skill_resource`, name `make-game` and its path, such as `references/phaser.md`. The guides and the skills are not in the workspace, so bash can't see them. Don't explore the workspace either: it holds only the game's files. Each guide's example is a whole game: build your own game from its patterns, with its own design, names, look and rules, never a copy of the example.
+The guides and the skills are not in the workspace, so bash can't see them. Don't explore the workspace either: it holds only the game's files. Each guide's example is a whole game: build your own game from its patterns, with its own design, names, look and rules, never a copy of the example.
 
 ## An old game
 
@@ -44,20 +49,21 @@ A Draft from before Vite games has a `game.ts` and no `vite.config.ts`. hopon no
 
 ## Workflow
 
-1. **Design.** Write `design.md` (see Design), before you read any guide: the design needs only this skill. When it has Pillars, ask the advisor for the design check, and change `design.md` as it says before you go on.
-2. **Tests.** Write `tests.json` from the design's Done-when criteria (see Tests).
-3. **Code.** Read the engine's guide, then write the whole game with the write tool: every file the guide names but the skeleton the starter wrote. Split the code into modules when it grows past a few hundred lines. For a change, change the existing files with the `edit` tool, and don't rewrite what works.
-4. **Playtest.** Call `playtest` with `inputs` that play the game the way a player would: taps where the buttons, cards or targets are, swipes for swipe controls, timed so the game gets going. It typechecks first, and type errors come back with no screenshots.
-5. **Fix.** Look at both screenshots. Fix every error and anything that looks wrong or unreadable, then playtest again. Fix with the `edit` tool, changing only the lines that need it: a file written again in full costs the Creator as much as writing it the first time. Screenshots show how the game looks. Your tests and the playtest's `state`, `score` and `overAt` show what the game does (it ends, the score goes up, a swipe moves the player), so don't replay a game only to see that in a screenshot.
-6. **Music.** Once the playtest is green, write the music (see Music).
-7. **Verify.** In the workspace, run `node /opt/hopon/verify.js new` for a new game, or `node /opt/hopon/verify.js change` for a change (`node /opt/hopon/verify.js change --had-music` when the game had a `music.mjs` or `music.py`). It checks that `design.md`, `tests.json`, the game and, for a new game or a game that had music, the music are all there. Fix everything it lists.
-8. **Check with the advisor.** When verify passes, run your tests with `node /opt/hopon/playtest.js tests` until they pass, then ask the advisor for the done check (see Asking the advisor). Fix what it finds that the Creator asked for or that is broken, then playtest and run the tests again.
-9. **Build.** When the done check is answered and the game does what the Creator asked, call `build` with the game's title, a one-line description for the feed (what the game is and how to play it), kind, and whether it has music. `build` runs verify again, typechecks the game, renders the music, plays the game for a second and runs `tests.json`. If it fails, fix what it lists, playtest, and call `build` again.
-10. **Reply.** When `build` succeeds, stop working and write your one reply to the Creator, under 40 words: the game's name and how to play it, not every rule. Say nothing about how you made it: no advisor, tests, playtests, verify or `build`, and nothing you skipped or didn't check. Don't add features, files or refactors that weren't asked for.
+1. **Design.** Write `design.md` (see Design). It needs no reference.
+2. **Design check.** When `design.md` has Pillars, call `ask_advisor` with "Design check." now, before the tests and the code, and change `design.md` as it says. A design without Pillars skips this step.
+3. **Tests.** Write `tests.json` from the design's Done-when criteria (see Tests).
+4. **Code.** Open the engine's guide and `references/sound-effects.md`, then write the whole game with the write tool: every file the guide names but the skeleton the starter wrote. Split the code into modules when it grows past a few hundred lines. For a change, change the existing files with the `edit` tool, and don't rewrite what works.
+5. **Playtest.** Call `playtest` with `inputs` that play the game the way a player would: taps where the buttons, cards or targets are, swipes for swipe controls, timed so the game gets going. It typechecks first, and type errors come back with no screenshots.
+6. **Fix.** Look at both screenshots. Fix every error and anything that looks wrong or unreadable, then playtest again. Fix with the `edit` tool, changing only the lines that need it: a file written again in full costs the Creator as much as writing it the first time. Screenshots show how the game looks. Your tests and the playtest's `state`, `score` and `overAt` show what the game does (it ends, the score goes up, a swipe moves the player), so don't replay a game only to see that in a screenshot.
+7. **Music.** Once the playtest is green, open the music guide and write the music (see Music).
+8. **Verify.** In the workspace, run `node /opt/hopon/verify.js new` for a new game, or `node /opt/hopon/verify.js change` for a change (`node /opt/hopon/verify.js change --had-music` when the game had a `music.mjs` or `music.py`). It checks that `design.md`, `tests.json`, the game and, for a new game or a game that had music, the music are all there. Fix everything it lists.
+9. **Check with the advisor.** When verify passes, run your tests with `node /opt/hopon/playtest.js tests` until they pass, then ask the advisor for the done check (see Asking the advisor). Fix what it finds that the Creator asked for or that is broken, then playtest and run the tests again.
+10. **Build.** When the done check is answered and the game does what the Creator asked, call `build` with the game's title, a one-line description for the feed (what the game is and how to play it), kind, and whether it has music. `build` runs verify again, typechecks the game, renders the music, plays the game for a second and runs `tests.json`. If it fails, fix what it lists, playtest, and call `build` again.
+11. **Reply.** When `build` succeeds, stop working and write your one reply to the Creator, under 40 words: the game's name and how to play it, not every rule. Say nothing about how you made it: no advisor, tests, playtests, verify or `build`, and nothing you skipped or didn't check. Don't add features, files or refactors that weren't asked for.
 
 ## Asking the advisor
 
-`ask_advisor`'s description names the five moments to ask and the limit of three calls a run. It costs the Creator more than your own steps, so ask at those moments only. What the description leaves out:
+`ask_advisor`'s description names the moments to ask. It costs the Creator more than your own steps, so ask at those moments only. What the description leaves out:
 
 - **The design check goes before the tests and the code.** A pillar that was dropped or made into a menu costs one line to put back in `design.md`, and most of the game once it is written. Ask with the design written and nothing else: "Design check."
 - **The done check goes before `build`, not after.** A `build` that succeeds publishes the game, so advice taken after it would cost a second `build`. When the check finds nothing, call `build`. When `build` then fails, fix what it lists and build again without a second done check.
@@ -148,6 +154,6 @@ Every new game has music unless the Creator asked for none. Pick a genre, mood a
 
 When the Creator asks for silence ("silent", "no sound", "mute", "quiet"), the game has no music and no sound effects either. When they only say no music, sound effects are fine.
 
-Sound effects make a game feel finished: read `references/sound-effects.md` when you write the game, and give every player action, point, hit, win and loss a sound.
+Sound effects make a game feel finished: give every player action, point, hit, win and loss a sound.
 
-Write it once the game is green. Read `references/music-synth.md` for chiptune, electronic or arcade styles (`music.mjs`), or `references/music-sf2.md` for acoustic, orchestral, folk, period or world styles played on real instruments (`music.py`). A game has one music file, so when you switch, delete the other. `build` renders it whenever there is one.
+Write it once the game is green: `music.mjs` for chiptune, electronic or arcade styles, or `music.py` for acoustic, orchestral, folk, period or world styles played on real instruments. A game has one music file, so when you switch, delete the other. `build` renders it whenever there is one.
