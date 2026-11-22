@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed. Amends ADR 0006's limits per message and the 300 s in ADR 0008. ADR 0004's Allowance stays as it is.
+Proposed. Amends ADR 0006's limits per message and the 300 s in ADR 0008. ADR 0004's Allowance stays as it is. The step limit is 45 since 2026-11-22: a designed game with a scene for each screen spent 30 before it was done.
 
 ## Context
 

@@ -23,6 +23,7 @@
 // started after that.
 import { Effect, Layer } from "effect";
 
+import { MAX_STEPS } from "../../../maker/src/job.ts";
 import { AgentSandbox, NoBox } from "../../src/agent-sandbox.ts";
 import type { Exec } from "../../src/agent-sandbox.ts";
 import { Maker as RealMaker } from "../../src/maker.ts";
@@ -180,8 +181,12 @@ const SCRIPTS: Record<string, readonly Step[]> = {
     { ...build("new"), hold: true },
     build("new"),
   ],
-  // Writes 31 times, then builds and playtests: the step limit's case.
-  loop: [...Array.from({ length: 31 }, () => write()), build("new"), play],
+  // Writes once more than the step limit allows, then builds and playtests: the step limit's case.
+  loop: [
+    ...Array.from({ length: MAX_STEPS + 1 }, () => write()),
+    build("new"),
+    play,
+  ],
   // A first game with music.
   music: [
     write(),

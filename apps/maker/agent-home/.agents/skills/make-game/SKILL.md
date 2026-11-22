@@ -103,6 +103,7 @@ Pick the engine by what the game is, and read its guide, and only its guide, bef
 - **Look at both screenshots.** Fix every error and anything that looks wrong or unreadable, then playtest again.
 - **Screenshots show how the game looks. Values show what it does.** Your tests and the playtest's `state`, `score` and `overAt` show that it ends, that the score goes up, that a swipe moves the player. Don't replay a game only to see that in a screenshot.
 - **`node /opt/hopon/playtest.js tests`** runs `tests.json` in the workspace.
+- **Check a rule by calling it.** What lies deep in a game, such as a battle, a late level or the win, is slow to reach with taps. When the rules are a module of their own, import it in a short script and run it with `node`: start from the state you need, call the rule, print what it gives. Never change the game to reach a state sooner.
 
 ## Music
 

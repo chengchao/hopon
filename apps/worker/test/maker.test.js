@@ -654,14 +654,14 @@ test(
     const { id: draft } = await json("/api/drafts", { text: "build loop" });
     const socket = await connect(draft);
     await socket.until("the loop turn's end", over);
-    // The 31st call is refused, and the agent told it may still build; its build publishes, and the call after it is
+    // The call past the limit is refused, and the agent told it may still build; its build publishes, and the call after it is
     // refused with the Revision it published.
     const results = await texts(draft);
     assert.ok(
       results.some(
         (text) =>
           text.includes(
-            "Tool call blocked: Over this message's 30-step limit."
+            "Tool call blocked: Over this message's 45-step limit."
           ) && LAST_BUILD.test(text)
       ),
       JSON.stringify(results.slice(-6))
@@ -669,10 +669,10 @@ test(
     assert.equal(await revisionOf(draft), 1);
     assert.match(
       await lastReply(draft),
-      /said: [^]*Over this message's 30-step limit\. Revision 1, which you published in this run, stays: the Creator has it\./u
+      /said: [^]*Over this message's 45-step limit\. Revision 1, which you published in this run, stays: the Creator has it\./u
     );
-    // 31 writes, the build, the refused playtest, then the reply.
-    assert.equal(await modelCalls(draft), 34);
+    // 46 writes, the build, the refused playtest, then the reply.
+    assert.equal(await modelCalls(draft), 49);
 
     // Four builds publish; the fifth is refused, and the agent is told the fourth stays, so the Creator can send the
     // rest again (an old Draft's port, published before its change, survives a limit this way).
@@ -962,6 +962,8 @@ test(
   "ask_advisor: the advisor gets the conversation and the question with no tools, its advice is the tool's result, and a failed advisor doesn't end the run",
   { timeout: 120_000 },
   async (t) => {
+    // The step limit's test spent most of this week's Allowance.
+    await endWeek("2026-W08");
     await serve(t);
     const { left: before } = await json("/api/allowance");
     const { id: draft } = await json("/api/drafts", { text: "build advised" });
