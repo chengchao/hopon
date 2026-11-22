@@ -104,7 +104,9 @@ export const zh: Strings = {
   make: {
     activity: {
       building: "正在构建",
+      checking: "正在检查游戏",
       composing: "正在作曲",
+      designing: "正在设计游戏",
       planning: "正在构思游戏",
       settingUp: "正在准备",
       testing: "正在测试",
@@ -142,6 +144,16 @@ export const zh: Strings = {
     resting: "制作助手正在休息，请稍后再试。",
     retry: "重试",
     send: "发送",
+    step: {
+      checking: "检查了游戏",
+      composing: "作了曲",
+      designing: "设计了游戏",
+      planning: "构思了游戏",
+      settingUp: "做了准备",
+      testing: "测试了游戏",
+      working: "做了些工作",
+      writing: "编写了游戏",
+    },
     stop: "停止",
     stopped: "已停止，你的游戏没有改动。",
     tapToPlay: (title: string) => `${title} · 点击试玩`,

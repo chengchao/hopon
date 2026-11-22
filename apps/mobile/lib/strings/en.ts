@@ -112,7 +112,9 @@ export const en = {
   make: {
     activity: {
       building: "Building",
+      checking: "Checking the game",
       composing: "Composing music",
+      designing: "Designing the game",
       planning: "Planning the game",
       settingUp: "Setting up",
       testing: "Testing",
@@ -153,6 +155,16 @@ export const en = {
     resting: "The Maker is resting. Try again later.",
     retry: "Retry",
     send: "Send",
+    step: {
+      checking: "Checked the game",
+      composing: "Composed music",
+      designing: "Designed the game",
+      planning: "Planned the game",
+      settingUp: "Set up",
+      testing: "Tested",
+      working: "Worked",
+      writing: "Wrote the game",
+    },
     stop: "Stop",
     stopped: "Stopped. Your game hasn't changed.",
     tapToPlay: (title: string) => `${title} · tap to play`,
