@@ -317,12 +317,15 @@ const ACTIVITIES: [RegExp, Activity][] = [
   [/^(?:bash|write|edit) /u, "writing"],
 ];
 
-const activityOfCall = (call: Block): Activity => {
-  const subject = `${call.name} ${call.arguments?.command ?? call.arguments?.path ?? ""}`;
-  return (
-    ACTIVITIES.find(([pattern]) => pattern.test(subject))?.[1] ?? "working"
-  );
-};
+const subjectOf = (call: Block) =>
+  `${call.name} ${call.arguments?.command ?? call.arguments?.path ?? ""}`;
+
+const activityOfCall = (call: Block): Activity =>
+  ACTIVITIES.find(([pattern]) => pattern.test(subjectOf(call)))?.[1] ??
+  "working";
+
+// Looking something up, the skill's guides or the game's files, is part of the work around it and no step of its own.
+const LOOKUP = /^(?:activate_skill|read_skill_resource|read|ls|grep|find) /u;
 
 const callsOf = (message: Message | undefined) =>
   Array.isArray(message?.content)
@@ -388,65 +391,62 @@ const revisionOf = (entry: Entry) => {
     : undefined;
 };
 
-// A finished stretch of the Maker's work: consecutive calls of one activity, from the end of the work before them to
-// the last one's result.
+// A finished stretch of the Maker's work: consecutive calls of one activity.
 interface Step {
-  activity: Exclude<Activity, "building">;
+  activity: Activity;
   row: Row;
-  from?: number;
 }
 
-const stepText = (step: Step, to: number | undefined) =>
-  step.from === undefined || to === undefined
-    ? t.make.step[step.activity]
-    : `${t.make.step[step.activity]} · ${clock(to - step.from)}`;
-
-// Every finished call stays in the chat as a step, so the Creator can see what the Maker did: each step's row, by
-// the entry of its first result. The step the Maker is still on (`live`, with nothing the chat shows after it) has no
-// row: the status row says so, with the turn's timer.
-// What each call did, by its id.
-const activities = (entries: Entry[]) =>
+// The step each call belongs to, by its id: null for a call that is no step.
+const stepActivities = (entries: Entry[]) =>
   new Map(
     entries.flatMap((entry) =>
       entry.kind === "pi.assistant"
         ? callsOf(entry.model?.[0]).map(
-            (call) => [call.id ?? "", activityOfCall(call)] as const
+            (call) =>
+              [
+                call.id ?? "",
+                LOOKUP.test(subjectOf(call)) ? null : activityOfCall(call),
+              ] as const
           )
         : []
     )
   );
 
+// Every finished call stays in the chat as a step, so the Creator can see what the Maker did: each step's row, by
+// the entry of its first result. A step has no time: the time between two results is mostly the Maker thinking, which
+// would read as the step's own. A call that failed is no step, and neither is a build: one that wrote a Revision is
+// its card. The step the Maker is still on (`live`, with nothing the chat shows after it) has no row either: the
+// status row says so, with the turn's timer.
 const stepsOf = (entries: Entry[], live: Activity | undefined) => {
   const rows = new Map<number, Row>();
-  const did = activities(entries);
+  const did = stepActivities(entries);
   let step: Step | undefined;
-  // When the work before the next step ended: the Creator's message, then each call's result.
-  let mark: number | undefined;
   for (const entry of entries) {
     const message = entry.model?.[0];
-    const activity = did.get(message?.toolCallId ?? "") ?? "working";
     if (entry.kind !== "pi.tool-result") {
-      // A message the chat shows ends the step, and the Creator's starts the turn's clock.
+      // A message the chat shows ends the step.
       if (entry.kind === "pi.user" || textOf(message)) {
         step = undefined;
       }
-      mark = entry.kind === "pi.user" ? message?.timestamp : mark;
-    } else if (activity === "building") {
-      // A build's Revision is its card, and one that wrote none was refused or failed, which the Maker's reply or
-      // its next steps say.
+      continue;
+    }
+    const activity = did.get(message?.toolCallId ?? "") ?? null;
+    if (message?.isError || activity === null) {
+      continue;
+    }
+    if (activity === "building") {
       step = undefined;
-      mark = message?.timestamp;
-    } else {
-      if (step?.activity !== activity) {
-        step = {
-          activity,
-          from: mark,
-          row: { key: `step-${entry.id}`, text: "", who: "step" },
-        };
-        rows.set(entry.id, step.row);
-      }
-      mark = message?.timestamp;
-      step.row.text = stepText(step, mark);
+    } else if (step?.activity !== activity) {
+      step = {
+        activity,
+        row: {
+          key: `step-${entry.id}`,
+          text: t.make.step[activity],
+          who: "step",
+        },
+      };
+      rows.set(entry.id, step.row);
     }
   }
   if (step && step.activity === live) {
