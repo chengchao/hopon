@@ -71,6 +71,7 @@ import {
   jobBox,
   readyFirst,
 } from "./agent-sandbox.ts";
+import { KEPT_DESIGN, designGame } from "./designer.ts";
 import { checkLimits } from "./limits.ts";
 import type { After, Limit, RunCounts } from "./limits.ts";
 import { metered, piModels } from "./pi-models.ts";
@@ -159,7 +160,7 @@ if (!makeGame) {
   throw new Error("make-game's SKILL.md has no frontmatter");
 }
 const SKILLS = fromManifest({
-  fingerprint: "v15",
+  fingerprint: "v16",
   id: "hopon-maker",
   skills: [
     {
@@ -219,7 +220,7 @@ const refusal = (limit: Limit, after: After, published?: number) => {
 
 const PROVIDER = "anthropic";
 // Tools that change the workspace, after which it no longer holds the Revision it was restored to.
-const WRITES = new Set(["bash", "edit", "write"]);
+const WRITES = new Set(["bash", "design_game", "edit", "write"]);
 
 export class Maker extends Agent<Env> {
   // Overridden by the Maker test's fake sandbox (test/maker/worker.ts).
@@ -372,6 +373,8 @@ export class Maker extends Agent<Env> {
     }
     const state = { builds: 0, from, run, startedAt: Date.now(), steps: 0 };
     await writeAsked(jobBox(this.box), this.askedSinceNew(state));
+    // An earlier run's design, which starter.js would put back into this run's new game: emptied, which it reads as none.
+    await jobBox(this.box).write(KEPT_DESIGN, "");
     this.runState = state;
     clearTimeout(this.abortTimer);
     this.abortTimer = setTimeout(
@@ -510,11 +513,19 @@ export class Maker extends Agent<Env> {
     () => this.harness.pi()
   );
 
+  designer = designGame(
+    this.env,
+    () => this.name,
+    () => this.allowed(),
+    () => this.askedSinceNew(),
+    (signal) => jobBox(this.box, signal)
+  );
+
   maker = defineExtension({
     hooks: [this.limits, metered(this.env, () => this.name)],
     name: "maker",
     sections: [{ key: "preamble", render: () => PROMPT, tag: false }],
-    tools: [this.playtest, this.build, this.advisor],
+    tools: [this.playtest, this.build, this.advisor, this.designer],
   });
 
   harness = new PiHarness({

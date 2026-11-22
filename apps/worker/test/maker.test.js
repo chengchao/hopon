@@ -287,6 +287,26 @@ const migrate = async () => {
   const [code] = await once(migrating, "exit");
   assert.equal(code, 0);
 };
+// The week ends: this week's bucket becomes an old week's (`old`, a 2026-W0x no other call has used), so the next
+// model call starts a full Allowance. The server must be down.
+const endWeek = async (old) => {
+  const moved = wrangler(
+    [
+      "d1",
+      "execute",
+      "DB",
+      "--local",
+      "--persist-to",
+      state,
+      "--command",
+      `UPDATE generation_limits SET bucket = 'user_maker:${old}' WHERE bucket LIKE 'user_maker:%' AND bucket NOT LIKE 'user_maker:2026-W0%'`,
+    ],
+    { stdio: "ignore" }
+  );
+  const [code] = await once(moved, "exit");
+  assert.equal(code, 0);
+};
+
 const serve = async (t) => {
   await start();
   t.after(kill);
@@ -979,7 +999,7 @@ test(
     // A failed advisor, and one that answers nothing, each tell the agent to go on, and it does.
     for (const [script, said] of [
       ["advisorfails", /The advisor couldn't answer: .*the advisor is down/u],
-      ["advisorsilent", /The advisor gave no advice: it stopped on length\./u],
+      ["advisorsilent", /The advisor gave no answer: it stopped on length\./u],
     ]) {
       // oxlint-disable-next-line no-await-in-loop -- one turn after another
       assert.equal(await socket.turn(`build ${script}`), "turn_done");
@@ -1065,6 +1085,60 @@ const raw = async (route, headers) => {
   return { body: await buffer(response), headers: response.headers };
 };
 
+test(
+  "design_game: the designer gets only the Creator's words, and its answer is design.md in the workspace and the tool's result",
+  { timeout: 120_000 },
+  async (t) => {
+    // The earlier tests spent most of this week's Allowance.
+    await endWeek("2026-W09");
+    await serve(t);
+    const { id: draft } = await json("/api/drafts", { text: "build designer" });
+    const socket = await connect(draft);
+    await socket.until("the designed turn's end", over);
+    // The agent's last call read design.md from the workspace.
+    assert.match(await lastReply(draft), /# Sea Trader/u);
+    const entries = await transcript(draft);
+    assert.ok(
+      entries.some(
+        ({ text }) =>
+          text.includes("The design is saved as `design.md`.") &&
+          text.includes("- It sails.")
+      ),
+      "the design is the tool's result"
+    );
+    const [request, ...more] = await fakeJson(draft, "advisor");
+    assert.equal(more.length, 0);
+    assert.ok(!("tools" in request), "the designer's request has no tools");
+    const system = JSON.stringify(request.system);
+    assert.match(system, /You are the designer/u);
+    assert.match(system, /\*\*Experience:\*\*/u, "make-game's parts");
+    assert.match(system, /\*\*Done when:\*\*/u);
+    assert.doesNotMatch(system, /\{\{PARTS\}\}|## A change/u);
+    const sent = JSON.stringify(request.messages);
+    assert.match(sent, /<message>\\nbuild designer\\n<\/message>/u);
+    assert.doesNotMatch(
+      sent,
+      /calls design_game/u,
+      "none of the agent's calls"
+    );
+
+    // A failed designer tells the agent to design the game itself, and it goes on.
+    assert.equal(await socket.turn("build designerfails"), "turn_done");
+    const tools = await toolsCalled(draft);
+    assert.deepEqual(tools.slice(-2), ["design_game", "write"]);
+    const after = await transcript(draft);
+    assert.ok(
+      after.some(
+        ({ text }) =>
+          /The designer couldn't answer: .*the designer is down/u.test(text) &&
+          text.includes("Design the game yourself")
+      ),
+      "the agent is told to design it itself"
+    );
+    socket.close();
+  }
+);
+
 test("vendor under workerd: each /vendor/ file reaches a client that takes gzip gzipped once, as its frozen code", async (t) => {
   await serve(t);
   for (const { route, sha256 } of FROZEN) {
@@ -1095,24 +1169,10 @@ test("allowance: each model call is charged to its Creator's week; a run's work 
     const { left: tokens } = await json("/api/allowance");
     return tokens;
   };
-  // A new week: this one's bucket becomes an old week's, and the Allowance is full again.
+  // A new week: the Allowance is full again.
   const newWeek = async (old) => {
     kill();
-    const moved = wrangler(
-      [
-        "d1",
-        "execute",
-        "DB",
-        "--local",
-        "--persist-to",
-        state,
-        "--command",
-        `UPDATE generation_limits SET bucket = 'user_maker:${old}' WHERE bucket LIKE 'user_maker:%' AND bucket NOT LIKE 'user_maker:2026-W0%'`,
-      ],
-      { stdio: "ignore" }
-    );
-    const [code] = await once(moved, "exit");
-    assert.equal(code, 0);
+    await endWeek(old);
     await start();
     assert.equal(await left(), 200_000);
   };

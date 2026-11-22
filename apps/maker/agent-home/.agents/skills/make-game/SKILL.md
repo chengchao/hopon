@@ -15,7 +15,7 @@ This file is the map. The detail of each step is in a reference: open it with `r
 
 | Reference | What it holds | Open it |
 | --- | --- | --- |
-| `references/design.md` | The parts of `design.md` and how to change one | Step 1 |
+| `references/design.md` | The parts of `design.md`, a designed game, and how to change a design | Step 1 |
 | `references/phaser.md`, `references/r3f.md`, `references/react.md` | One engine: its files, API, traps and looks | Step 2, the one engine's only |
 | `references/phaser-panels.md` | React panels of words and buttons over a Phaser scene | Step 2, after the Phaser guide, only for a game with such panels |
 | `references/phaser-panels-example.md` | A whole game with panels | Only when the panels guide leaves a question |
@@ -30,7 +30,7 @@ This file is the map. The detail of each step is in a reference: open it with `r
 
 The workspace holds one game: the files of the game the Creator has now, or nothing before the first one.
 
-- **A new game, a different game, or "Start over":** first empty the workspace and seed the new game's skeleton with this command, then call `build` with kind `"new"`. It deletes every file and folder of the old game, its modules, images and notes too, and keeps only `.hopon/`, where verify.js reads what the Creator said. Anything left behind would ship in the new game's source.
+- **A new game, a different game, or "Start over":** first empty the workspace and seed the new game's skeleton with this command, then call `build` with kind `"new"`. It deletes every file and folder of the old game, its modules, images and notes too, and keeps only `.hopon/`, where verify.js reads what the Creator said. A `design.md` that `design_game` wrote for this game comes back with the skeleton. Anything left behind would ship in the new game's source.
 
   ```bash
   find /workspace -mindepth 1 -maxdepth 1 ! -name .hopon -exec rm -rf {} + && node /opt/hopon/starter.js
@@ -52,7 +52,7 @@ The guides and the skills are not in the workspace, so bash can't see them. Don'
 
 ## Workflow
 
-1. **Design.** Open `references/design.md`. When the Creator names a game or a kind of game ("like Zelda", "a roguelike", "a farming game") or asks for a big game, first call `ask_advisor` with "Design brief." and write `design.md` from the brief it gives. For any other game, and for a change, write `design.md` yourself.
+1. **Design.** Open `references/design.md`. For a new game, when the Creator names a game or a kind of game ("like Zelda", "a roguelike", "a farming game") or asks for a big game, call `design_game`: a designer writes `design.md`, and you build from it. For any other new game, write `design.md` yourself. For a change, edit `design.md` yourself.
 2. **Engine.** Pick the engine and open its guide.
 3. **Tests.** Open `references/tests.md` and write `tests.json` from the design's Done-when criteria.
 4. **Code.** Open `references/sound-effects.md`, then write the whole game with the write tool: every file the guide names but the skeleton the starter wrote. Give every player action, point, hit, win and loss a sound. Split the code into modules when it grows past a few hundred lines. When the design's Language isn't English, set `hopon.title`, `hopon.hint` and every word of `hopon.text` (`win`, `over`, `score`, `best`, `again`) at the top of `src/main.tsx`, for example `hopon.text = { again: "Toca para jugar otra vez", best: "Récord", over: "Fin del juego", score: "Puntos", win: "¡Ganaste!" };`. For a change, change the existing files with the `edit` tool, and don't rewrite what works.
@@ -68,7 +68,7 @@ The guides and the skills are not in the workspace, so bash can't see them. Don'
 
 `ask_advisor`'s description names the moments to ask. What it leaves out:
 
-- **The design brief comes before `design.md`.** The advisor designs the game, and you write its brief into the design's parts. Ask with nothing else: "Design brief."
+- **The advisor doesn't design.** A game that needs a designer gets one from `design_game` (step 1).
 - **The done check goes before `build`, not after.** A `build` that succeeds publishes the game, so advice taken after it would cost a second `build`. When the check finds nothing, call `build`. When `build` then fails, fix what it lists and build again without a second done check.
 - **A hard design choice** is one where you can't tell which way is right, such as whether to keep the level data apart from the physics. **A large structural change** is a request such as multiplayer, saves or levels: ask how to restructure first, or whether it fits a hopon game at all.
 - **A small, clear change** needs no advice before you make it, only the done check.

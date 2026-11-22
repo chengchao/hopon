@@ -6,9 +6,9 @@ Open this at step 1, for a new game and for any change.
 
 There is no word limit, and a big game needs a long design. Make every part specific enough that two people building from it would make the same game: "fish get faster over time" leaves the builder guessing, and "a fish crosses the screen in 4 seconds, and half a second less for every 5 caught, down to 2" does not. Give the numbers a player would notice: counts, prices, lives, timers, how long a thing takes.
 
-## From a design brief
+## A designed game
 
-When the advisor wrote a design brief (Workflow step 1), `design.md` is that brief, put into the parts below. Keep everything in it: its places, its lists, its numbers, its look. Fill a part the brief left out. Change the brief only where it asks for something a hopon game can't do.
+When `design_game` wrote `design.md` (Workflow step 1), that file is the design, and it is already in the workspace. Don't write it again and don't reword it. Build every part of it: its places, its lists, its numbers, its look. Change a line of it, with the `edit` tool, only where it asks for something a hopon game can't do.
 
 ## The parts
 
@@ -25,6 +25,7 @@ Write these parts, each as a heading or a line that starts with its name:
 
   The game keeps every pillar as something the player does and sees on screen. To make the game fit, make a pillar smaller: 5 towns where the named game has 50, one kind of enemy where it has twenty. Never drop a pillar, and never turn one into a menu or a line of text. A sailing game where nobody steers a ship, or a role-playing game that is only its shop, is not the game the Creator asked for. Take how the named game plays, and give this one its own name, characters, places and art. When a pillar is something a hopon game can't do, such as saving, write which pillar, and what stands in for it.
 
+- **Experience:** only with Pillars. How the game plays for the player, in 4 to 6 lines: what they see and do in the first 30 seconds and what the game gives back, what they do again and again and how the game answers each time, where they must give up one thing for another, what is new at one minute and at three, and why they'd play again.
 - **Goal:** what the player does, and how the game is won or lost. Nothing is saved between plays, so a long game gets a goal that one sitting of about 5 minutes can reach: count the moves, trips or days it takes from the game's own numbers, and shrink the game until they fit.
 - **Screens:** every screen the player sees during play: what is on it, and what takes the player to the next one. A place in Pillars is a screen of its own, drawn as that place. Its words and buttons may sit in a panel over the drawing, never in place of it.
 - **Rules:** what moves, spawns, scores and hurts, with numbers. A game on a grid gives the grid: its columns and rows, what each kind of tile is, and how the player moves on it, with its map written out whole as rows of characters with a legend. A game with places, levels, goods, enemies or items lists them, each with its numbers: nothing is left for the code to invent.

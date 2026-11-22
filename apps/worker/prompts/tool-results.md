@@ -74,6 +74,14 @@ Published: the Creator now has Revision {{N}}.{{SKIPPED}} If you're done, reply 
 
 The advisor {{WHY}}. Go on without its advice: finish the work, and call `build` when the game is ready.
 
+## no-design
+
+The designer {{WHY}}. Design the game yourself: write `design.md` as `references/design.md` says, with its Pillars and Experience.
+
+## designed
+
+The design is saved as `design.md`. Build this game, every part of it, and don't write `design.md` again.
+
 ## example-early
 
 Not yet: `references/phaser-panels-example.md` is a whole game, and a long one. Write the panels from `references/phaser-panels.md`, and playtest them. Open the example only when that playtest fails and the guide doesn't say why.
