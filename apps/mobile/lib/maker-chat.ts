@@ -23,7 +23,7 @@ interface Block {
 interface Message {
   role: string;
   content: string | Block[];
-  // A user message's, in ms.
+  // When the message was made, in ms.
   timestamp?: number;
   // A toolResult's.
   toolCallId?: string;
@@ -114,7 +114,8 @@ export type Action =
 
 export interface Row {
   key: string;
-  who: "creator" | "maker" | "app" | "status" | "card";
+  // "step" is a finished stretch of the Maker's work, and "status" the one it is on.
+  who: "creator" | "maker" | "app" | "status" | "step" | "card";
   text: string;
   queued?: boolean;
   // The message Try again re-sends.
@@ -301,17 +302,27 @@ const clock = (ms: number) => {
 
 // What the Maker is doing while a turn runs, so the Creator sees it isn't stuck: the call it is on or still writing,
 // by the first row whose pattern its tool name and command (or file path) match; thinking between calls.
-const ACTIVITIES: [RegExp, string][] = [
-  [/^build /u, t.make.activity.building],
-  [/^playtest |tests\.json|vitest|\btsc\b/u, t.make.activity.testing],
-  [/music\.py|\.mid\b|\.sf2\b/u, t.make.activity.composing],
+type Activity = Exclude<keyof typeof t.make.activity, "thinking">;
+const ACTIVITIES: [RegExp, Activity][] = [
+  [/^build /u, "building"],
+  [/^design_game /u, "designing"],
+  [/^ask_advisor /u, "checking"],
+  [/^playtest |tests\.json|vitest|\btsc\b/u, "testing"],
+  [/music\.py|\.mid\b|\.sf2\b/u, "composing"],
   [
     /design\.md|^(?:activate_skill|read_skill_resource|read|ls|grep|find) /u,
-    t.make.activity.planning,
+    "planning",
   ],
-  [/starter\.js/u, t.make.activity.settingUp],
-  [/^(?:bash|write|edit) /u, t.make.activity.writing],
+  [/starter\.js/u, "settingUp"],
+  [/^(?:bash|write|edit) /u, "writing"],
 ];
+
+const activityOfCall = (call: Block): Activity => {
+  const subject = `${call.name} ${call.arguments?.command ?? call.arguments?.path ?? ""}`;
+  return (
+    ACTIVITIES.find(([pattern]) => pattern.test(subject))?.[1] ?? "working"
+  );
+};
 
 const callsOf = (message: Message | undefined) =>
   Array.isArray(message?.content)
@@ -337,16 +348,10 @@ const currentCall = (chat: Chat) => {
   return calls.findLast((call) => !done.has(call.id));
 };
 
-const activityOf = (chat: Chat) => {
+// The activity of the call the Maker is on, or undefined while it thinks.
+const liveActivity = (chat: Chat) => {
   const call = currentCall(chat);
-  if (!call) {
-    return t.make.activity.thinking;
-  }
-  const subject = `${call.name} ${call.arguments?.command ?? call.arguments?.path ?? ""}`;
-  return (
-    ACTIVITIES.find(([pattern]) => pattern.test(subject))?.[1] ??
-    t.make.activity.working
-  );
+  return call && activityOfCall(call);
 };
 
 // The turn's timer runs from the Creator's latest message the Maker took, a steer included. A message carries its
@@ -383,9 +388,109 @@ const revisionOf = (entry: Entry) => {
     : undefined;
 };
 
+// A finished stretch of the Maker's work: consecutive calls of one activity, from the end of the work before them to
+// the last one's result.
+interface Step {
+  activity: Exclude<Activity, "building">;
+  row: Row;
+  from?: number;
+}
+
+const stepText = (step: Step, to: number | undefined) =>
+  step.from === undefined || to === undefined
+    ? t.make.step[step.activity]
+    : `${t.make.step[step.activity]} · ${clock(to - step.from)}`;
+
+// Every finished call stays in the chat as a step, so the Creator can see what the Maker did: each step's row, by
+// the entry of its first result. The step the Maker is still on (`live`, with nothing the chat shows after it) has no
+// row: the status row says so, with the turn's timer.
+// What each call did, by its id.
+const activities = (entries: Entry[]) =>
+  new Map(
+    entries.flatMap((entry) =>
+      entry.kind === "pi.assistant"
+        ? callsOf(entry.model?.[0]).map(
+            (call) => [call.id ?? "", activityOfCall(call)] as const
+          )
+        : []
+    )
+  );
+
+const stepsOf = (entries: Entry[], live: Activity | undefined) => {
+  const rows = new Map<number, Row>();
+  const did = activities(entries);
+  let step: Step | undefined;
+  // When the work before the next step ended: the Creator's message, then each call's result.
+  let mark: number | undefined;
+  for (const entry of entries) {
+    const message = entry.model?.[0];
+    const activity = did.get(message?.toolCallId ?? "") ?? "working";
+    if (entry.kind !== "pi.tool-result") {
+      // A message the chat shows ends the step, and the Creator's starts the turn's clock.
+      if (entry.kind === "pi.user" || textOf(message)) {
+        step = undefined;
+      }
+      mark = entry.kind === "pi.user" ? message?.timestamp : mark;
+    } else if (activity === "building") {
+      // A build's Revision is its card, and one that wrote none was refused or failed, which the Maker's reply or
+      // its next steps say.
+      step = undefined;
+      mark = message?.timestamp;
+    } else {
+      if (step?.activity !== activity) {
+        step = {
+          activity,
+          from: mark,
+          row: { key: `step-${entry.id}`, text: "", who: "step" },
+        };
+        rows.set(entry.id, step.row);
+      }
+      mark = message?.timestamp;
+      step.row.text = stepText(step, mark);
+    }
+  }
+  if (step && step.activity === live) {
+    rows.delete(Number(step.row.key.slice("step-".length)));
+  }
+  return rows;
+};
+
+// The row for the work in flight: what the Maker is on, and how long the turn has taken.
+const statusRow = (
+  chat: Chat,
+  live: Activity | undefined,
+  now: number
+): Row => {
+  const since = startedAt(chat.entries);
+  const activity = t.make.activity[live ?? "thinking"];
+  return {
+    key: "status",
+    text:
+      since === undefined ? activity : `${activity} · ${clock(now - since)}`,
+    who: "status",
+  };
+};
+
+// How the turn ended, when it didn't end with the Maker's reply.
+const endedRow = (chat: Chat, rows: Row[]): Row | undefined => {
+  if (chat.ended === "stopped") {
+    return { key: "ended", text: t.make.stopped, who: "app" };
+  }
+  return chat.ended
+    ? {
+        key: "ended",
+        retry: rows.findLast((row) => row.who === "creator")?.text,
+        text: chat.ended === "resting" ? t.make.resting : t.make.failed,
+        who: "app",
+      }
+    : undefined;
+};
+
 export const chatView = (chat: Chat, now: number) => {
   const rows: Row[] = [];
   let latest: { row: Row; callId?: string } | undefined;
+  const live = chat.running ? liveActivity(chat) : undefined;
+  const steps = stepsOf(chat.entries, live);
   for (const entry of chat.entries) {
     const revision = revisionOf(entry);
     if (revision) {
@@ -394,6 +499,10 @@ export const chatView = (chat: Chat, now: number) => {
         row: { key: `${entry.id}`, text: t.make.built, who: "card" },
       };
       rows.push(latest.row);
+    }
+    const step = steps.get(entry.id);
+    if (step) {
+      rows.push(step);
     }
     const who = WHO[entry.kind];
     const text = textOf(entry.model?.[0]);
@@ -412,32 +521,14 @@ export const chatView = (chat: Chat, now: number) => {
     rows.push({ key: "partial", text: streaming, who: "maker" });
   }
   if (chat.running && !streaming) {
-    const since = startedAt(chat.entries);
-    rows.push({
-      key: "status",
-      text:
-        since === undefined
-          ? activityOf(chat)
-          : `${activityOf(chat)} · ${clock(now - since)}`,
-      who: "status",
-    });
+    rows.push(statusRow(chat, live, now));
   }
   for (const { key, text } of chat.pending) {
     rows.push({ key: `pending-${key}`, queued: true, text, who: "creator" });
   }
-  if (chat.ended === "stopped") {
-    rows.push({
-      key: "ended",
-      text: t.make.stopped,
-      who: "app",
-    });
-  } else if (chat.ended) {
-    rows.push({
-      key: "ended",
-      retry: rows.findLast((row) => row.who === "creator")?.text,
-      text: chat.ended === "resting" ? t.make.resting : t.make.failed,
-      who: "app",
-    });
+  const ended = endedRow(chat, rows);
+  if (ended) {
+    rows.push(ended);
   }
   return { game, rows, running: chat.running };
 };

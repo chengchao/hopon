@@ -73,6 +73,7 @@ test("a snapshot alone draws the transcript, with the Maker's words and no tool 
   assert.deepEqual(lines(v), [
     "creator: A cat on the moon",
     "maker: On it!",
+    "step: Worked",
     "maker: Here it is.",
   ]);
   assert.equal(v.running, false);
@@ -348,6 +349,11 @@ const result = (id, callId) => ({
   kind: "pi.tool-result",
   model: [{ content: [], role: "toolResult", toolCallId: callId }],
 });
+const resultAt = (id, callId, timestamp) => ({
+  id,
+  kind: "pi.tool-result",
+  model: [{ content: [], role: "toolResult", timestamp, toolCallId: callId }],
+});
 const statusOf = (chat, now) =>
   chatView(chat, now).rows.find((row) => row.who === "status")?.text;
 const chatOf = (...actions) => {
@@ -417,7 +423,9 @@ test("while a turn runs, a status row says what the Maker is doing and how long 
       "Planning the game",
     ],
     ["bash", { command: "ls" }, "Writing the game"],
-    ["ask_advisor", { question: "?" }, "Working"],
+    ["design_game", {}, "Designing the game"],
+    ["ask_advisor", { question: "?" }, "Checking the game"],
+    ["search", { query: "?" }, "Working"],
     ["build", { title: "Seven Ports" }, "Building"],
   ];
   for (const [index, [name, args, label]] of steps.entries()) {
@@ -618,4 +626,68 @@ test("a game card names the Draft and opens Publish even when the Draft list sti
   const chat = view(snapshot({ entries: [user(1, "Hi")] }));
   assert.equal(shownDraft(untitled, chat.game), untitled);
   assert.equal(publishable(shownDraft(untitled, chat.game), chat), false);
+});
+
+// The chat's rows after the Creator's message.
+const steps = (chat, now) =>
+  chatView(chat, now)
+    .rows.filter((row) => row.who !== "creator")
+    .map((row) => `${row.who}: ${row.text}`);
+
+test("each finished stretch of the Maker's work stays in the chat as a step with how long it took", () => {
+  const entries = [
+    asked(1, "A sailing game", 0),
+    call(2, "c1", "design_game", {}),
+    resultAt(3, "c1", 272_000),
+    // Two calls of one activity are one step, timed from the end of the step before to the later result.
+    call(4, "c2", "write", { path: "src/play.ts" }),
+    resultAt(5, "c2", 300_000),
+    call(6, "c3", "write", { path: "src/art.ts" }),
+    resultAt(7, "c3", 402_000),
+    call(8, "c4", "playtest", { inputs: [] }),
+    resultAt(9, "c4", 420_000),
+    call(10, "c5", "write", { path: "src/play.ts" }),
+  ];
+  // The Maker is writing again: the steps before it stay, and the status row is the one it is on.
+  assert.deepEqual(steps(chatOf(snapshot({ entries, run: {} })), 430_000), [
+    "step: Designed the game · 4:32",
+    "step: Wrote the game · 2:10",
+    "step: Tested · 0:18",
+    "status: Writing the game · 7:10",
+  ]);
+  // Its last step isn't over while it is still on it: the status row says so.
+  const testing = [...entries.slice(0, 7), call(8, "c4", "playtest", {})];
+  assert.deepEqual(
+    steps(chatOf(snapshot({ entries: testing, run: {} })), 410_000),
+    [
+      "step: Designed the game · 4:32",
+      "step: Wrote the game · 2:10",
+      "status: Testing · 6:50",
+    ]
+  );
+  const writing = [...entries.slice(0, 5), call(6, "c3", "write", {})];
+  assert.deepEqual(
+    steps(chatOf(snapshot({ entries: writing, run: {} })), 310_000),
+    ["step: Designed the game · 4:32", "status: Writing the game · 5:10"]
+  );
+  // After the turn, every step is still there, above the game's card and the Maker's reply. A result without a time
+  // is a step without one.
+  const done = [
+    ...entries.slice(0, 9),
+    call(10, "c5", "ask_advisor", { question: "Done check." }),
+    result(11, "c5"),
+    buildCall(12, "c6", "Seven Ports"),
+    buildResult(13, "c6", "Built Seven Ports."),
+    maker(14, "Seven Ports is ready."),
+  ];
+  assert.deepEqual(steps(chatOf(snapshot({ entries: done })), 900_000), [
+    "step: Designed the game · 4:32",
+    "step: Wrote the game · 2:10",
+    "step: Tested · 0:18",
+    "step: Checked the game",
+    // buildCall's message has words too.
+    "maker: On it!",
+    "card: Seven Ports · tap to play",
+    "maker: Seven Ports is ready.",
+  ]);
 });

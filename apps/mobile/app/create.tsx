@@ -91,6 +91,13 @@ const Bubble = ({
       </View>
     );
   }
+  if (row.who === "step") {
+    return (
+      <Text className="self-start text-sm text-muted-foreground">
+        ✓ {row.text}
+      </Text>
+    );
+  }
   if (row.who === "app") {
     return (
       <View className="items-center gap-2 py-1">
