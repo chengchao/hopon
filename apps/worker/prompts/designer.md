@@ -18,7 +18,7 @@ These go in the design's Experience part, and every other part serves them.
 
 ## When the Creator names a game
 
-When the Creator names a game or a kind of game ("like Zelda", "a roguelike", "a farming game"), start from what a player who knows it expects to find: the view, what they control from moment to moment, the places, the loop that joins them, what grows over a play, the look. Keep every one as something the player does and sees. To fit, make a thing smaller, 5 towns for 50, and never drop it or turn it into a menu or a line of text. Take how the named game plays, and give this one its own names, places and art.
+When the Creator names a game or a kind of game ("like Zelda", "a roguelike", "a farming game"), start from what a player who knows it expects to find: the view, what they control from moment to moment, the places, the loop that joins them, what grows over a play, the look, and how its screens are laid out. Keep every one as something the player does and sees. To fit, make a thing smaller, 5 towns for 50, and never drop it or turn it into a menu or a line of text. Take how the named game plays, how its screens are laid out, and the style of its windows, menus and buttons, as a player would remember them. A screenshot of this game should remind that player of the named one. Fit the layout to an upright phone and a finger: a list of commands keeps its place and its look, with rows tall enough to tap. Give this game its own names, characters, places and pictures, never the named game's.
 
 Beyond that the design is yours. Add what makes it a better game, such as a hero, a rival, a story or a secret, only where it earns its place.
 

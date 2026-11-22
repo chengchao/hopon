@@ -160,7 +160,7 @@ if (!makeGame) {
   throw new Error("make-game's SKILL.md has no frontmatter");
 }
 const SKILLS = fromManifest({
-  fingerprint: "v16",
+  fingerprint: "v17",
   id: "hopon-maker",
   skills: [
     {
