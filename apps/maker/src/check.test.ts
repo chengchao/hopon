@@ -937,7 +937,13 @@ const guideExample = (engine: string) => {
     ].map((match) => [match.groups?.file, `${match.groups?.code}\n`])
   ) as Record<string, string>;
 };
-for (const engine of ["phaser", "phaser-panels-example", "r3f", "react"]) {
+for (const engine of [
+  "phaser-example",
+  "phaser-scenes",
+  "phaser-panels-example",
+  "r3f",
+  "react",
+]) {
   test(
     `the ${engine} guide's example builds on the starter's skeleton, passes its tests and plays green`,
     { skip, timeout: 300_000 },

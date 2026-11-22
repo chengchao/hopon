@@ -20,9 +20,10 @@ export interface Box {
   write: (file: string, data: string | Uint8Array) => Promise<void>;
 }
 
-// A message's limits (ADR 0009): money and steps, not time. Steps were #111's 12, the owner's 20 on 2026-11-03, and 30
-// from P6a, once the 5-minute deadline that bound first went: a step late in a run reads ~56K cached tokens, ~$0.015.
-export const MAX_STEPS = 30;
+// A message's limits (ADR 0009): money and steps, not time. Steps were #111's 12, the owner's 20 on 2026-11-03, 30 from
+// P6a, once the 5-minute deadline that bound first went, and the owner's 45 on 2026-11-22: a designed game with a scene
+// for each screen spent 30 before its music (12 calls to write its files, 14 to debug it).
+export const MAX_STEPS = 45;
 // `build` calls per message (ADR 0006): a failed check comes back as errors to fix, this many times in all.
 export const MAX_BUILDS = 4;
 // A safety ceiling against a broken loop, not a budget: no normal run comes near it. Past it the agent may still

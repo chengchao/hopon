@@ -84,4 +84,4 @@ The design is saved as `design.md`. Build this game, every part of it, and don't
 
 ## example-early
 
-Not yet: `references/phaser-panels-example.md` is a whole game, and a long one. Write the panels from `references/phaser-panels.md`, and playtest them. Open the example only when that playtest fails and the guide doesn't say why.
+Not yet: `{{PATH}}` is a whole game, and a long one. Write your game from the guide, and playtest it. Open the example only when that playtest fails and the guide doesn't say why.
