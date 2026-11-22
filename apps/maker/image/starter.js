@@ -4,7 +4,9 @@
 // workspace for a new game, and after deleting an old game's files to port it.
 // `node /opt/hopon/starter.js panels` adds `src/panels.tsx`, the bridge between a Phaser scene and React panels over it,
 // to a new game, or to a Vite game that has none, so a Phaser game can gain panels in a change. It never writes over one.
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+// A new game also gets back the design.md that `design_game` wrote in this run (the Worker's .hopon/design.md, empty
+// when there is none), which the new-game command deleted with the old game.
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 const FILES = {
   "index.html": `<!doctype html>
@@ -146,3 +148,10 @@ for (const [file, text] of Object.entries(seeded)) {
   writeFileSync(file, text);
 }
 console.log(`Seeded ${Object.keys(seeded).join(", ")}.`);
+const design = existsSync(".hopon/design.md")
+  ? readFileSync(".hopon/design.md", "utf-8")
+  : "";
+if (design && !existsSync("design.md")) {
+  writeFileSync("design.md", design);
+  console.log("Kept design.md, the design from design_game.");
+}

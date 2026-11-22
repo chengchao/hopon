@@ -56,6 +56,8 @@ const TOOL_RESULTS = [
   "skipped",
   "published",
   "no-advice",
+  "no-design",
+  "designed",
   "example-early",
 ] as const;
 export type ToolResult = (typeof TOOL_RESULTS)[number];

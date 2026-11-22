@@ -6,6 +6,7 @@
 //   reads 1,000 input tokens, 1,000 hopon tokens at Haiku 5.5's $0.10 a million, or n after "spend <n>"; "no credits"
 //   gets the gateway's 402. A call with no tools is the advisor's (src/advisor.ts): it gets fixed advice, a 400 for the
 //   question "advisor fails", or an empty answer cut at max_tokens for "advisor silent", and isn't counted in `calls`.
+//   One whose system prompt is the designer's (src/designer.ts) gets a fixed design, or a 400 for "designerfails".
 // - The sandbox: files in the Maker's own storage (so they outlive a restart, as a running box does), every command
 //   logged and answered by fakeExec: the playtest green unless game.ts says BROKEN, the check's tests red on that,
 //   building dist/ (as `vite build` would in a workspace with a vite.config.ts); music.mjs rendering a fixed track; tar packing the workspace's source into source.tgz as JSON (its
@@ -121,6 +122,13 @@ const SCRIPTS: Record<string, readonly Step[]> = {
     play,
     build("new"),
   ],
+  // Has the designer design the game, then reads the design.md it wrote.
+  designer: [
+    { input: { imitates: "Moon Cat" }, tool: "design_game" },
+    { input: { path: "design.md" }, tool: "read" },
+  ],
+  // Asks the designer, which fails, then writes the game.
+  designerfails: [{ input: {}, tool: "design_game" }, write()],
   // Builds 5 times: the build limit's case.
   five: [
     write(),
@@ -312,10 +320,30 @@ const advisorRequests = new Map<string, unknown[]>();
 
 const TOKENS = 1000;
 
-// The advisor's call: the only one with no tools.
-const advise = (draftId: string, body: { messages: Message[] }) => {
+// What the designer answers: a whole design.md.
+const SEA_DESIGN =
+  "# Sea Trader\n\n**Music:** a shanty\n\n**Done when:**\n- It sails.";
+
+// The advisor's call, or the designer's (src/designer.ts): the only ones with no tools.
+const advise = (
+  draftId: string,
+  body: { messages: Message[]; system?: unknown }
+) => {
   advisorRequests.set(draftId, [...(advisorRequests.get(draftId) ?? []), body]);
   const question = texts(body.messages.at(-1)?.content).join("");
+  if (JSON.stringify(body.system ?? "").includes("You are the designer")) {
+    return question.includes("designerfails")
+      ? Response.json(
+          {
+            error: {
+              message: "the designer is down",
+              type: "invalid_request_error",
+            },
+          },
+          { status: 400 }
+        )
+      : say(SEA_DESIGN, TOKENS);
+  }
   if (question.includes("advisor silent")) {
     return reply([], "max_tokens", TOKENS);
   }

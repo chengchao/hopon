@@ -832,6 +832,43 @@ test(
 );
 
 test(
+  "Start over keeps the design that design_game wrote, and no old game's design",
+  { skip, timeout: 300_000 },
+  async () => {
+    const command = /Start over.*\n+ *```bash\n *(?<command>.+)\n *```/u.exec(
+      MAKE_GAME
+    )?.groups?.command;
+    assert.ok(command, "make-game gives Start over's command");
+    await restore(
+      box,
+      files({
+        ".hopon/design.md": "# Voyage",
+        "design.md": "# Balloons",
+        "game.ts": GAME,
+      })
+    );
+    const ran = await bash(command);
+    assert.equal(ran.exitCode, 0, ran.stderr.toString());
+    assert.match(ran.stdout.toString(), /Kept design\.md/u);
+    const kept = await bash("cat design.md");
+    assert.equal(kept.stdout.toString(), "# Voyage");
+
+    // The Worker empties its copy at each run's start: a game with no designer gets no design.
+    await restore(
+      box,
+      files({
+        ".hopon/design.md": "",
+        "design.md": "# Balloons",
+        "game.ts": GAME,
+      })
+    );
+    await bash(command);
+    const none = await bash("test -e design.md");
+    assert.equal(none.exitCode, 1, "no design.md");
+  }
+);
+
+test(
   "the starter seeds only a workspace with no game, and never writes over one",
   { skip, timeout: 300_000 },
   async () => {
