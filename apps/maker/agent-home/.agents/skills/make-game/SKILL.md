@@ -15,7 +15,8 @@ This file is the map. The detail of each step is in a reference: open it with `r
 
 | Reference | What it holds | Open it |
 | --- | --- | --- |
-| `references/design.md` | The parts of `design.md`, a designed game, and how to change a design | Step 1 |
+| `references/design.md` | The parts of `design.md`, a designed game, and how to change a design | For every game and every change |
+| `references/imitation.md` | What to keep of a game the Creator names | Only when the Creator names an existing game to imitate or remake |
 | `references/phaser.md`, `references/r3f.md`, `references/react.md` | One engine: its files, API, traps and looks | Step 2, the one engine's only |
 | `references/phaser-panels.md` | React panels of words and buttons over a Phaser scene | Step 2, after the Phaser guide, only for a game with such panels |
 | `references/phaser-panels-example.md` | A whole game with panels | Only when the panels guide leaves a question |
@@ -41,7 +42,7 @@ The workspace holds one game: the files of the game the Creator has now, or noth
 
 A game is a Vite project: `index.html`, `vite.config.ts`, one `tsconfig.json`, and its code in `src/`, entered at `src/main.tsx`. `node /opt/hopon/starter.js` writes the first three, the same for every engine and every game, and a `src/main.tsx` stub. Keep the three as they are: the game's title and hint are `hopon.title` and `hopon.hint`, set at the top of `src/main.tsx`, and its look lives in its code. Write `src/main.tsx` over the stub. Sound effects are the scaffold's too (`hopon.play`), so a game writes only its own sounds. Pick the engine by what the game is:
 
-- **Phaser** (`references/phaser.md`) for 2D games with motion or a world to move around in: action, arcade, physics, runners, shooters, catchers, flappers, and games on a map, such as role-playing, adventure, strategy, trading and farming games.
+- **Phaser** (`references/phaser.md`) for 2D games with motion or a world to move around in: action, arcade, physics, runners, shooters, catchers, flappers, and games on a map, such as role-playing, adventure, strategy and farming games.
 - **Phaser with React panels** (`references/phaser.md`, then `references/phaser-panels.md`) when a Phaser game also has panels of words and buttons, such as a shop, an inventory, upgrades or a dialogue. The world is the Phaser scene and the panels are React over it. End its new-game command with `node /opt/hopon/starter.js panels`, which also writes the bridge between them. Never make such a game in React alone, with the world left out. A game with only a score, lives or a timer is plain Phaser.
 - **React Three Fiber** (`references/r3f.md`) for 3D games: racers, flyers, 3D runners and dodgers, and anything the Creator calls 3D.
 - **React** (`references/react.md`) for cards, quizzes, word games, trivia, and puzzles of tiles or buttons.
@@ -52,7 +53,13 @@ The guides and the skills are not in the workspace, so bash can't see them. Don'
 
 ## Workflow
 
-1. **Design.** Open `references/design.md`. For a new game, when the Creator names a game or a kind of game ("like Zelda", "a roguelike", "a farming game") or asks for a big game, call `design_game`: a designer writes `design.md`, and you build from it. For any other new game, write `design.md` yourself. For a change, edit `design.md` yourself.
+1. **Design.** Open `references/design.md`. What a new game is decides who designs it:
+   - **An imitation:** the Creator names an existing game ("like Zelda", "a Tetris clone"). Open `references/imitation.md`, and call `design_game` with that game's name as `imitates`.
+   - **A kind of game or a big game:** the Creator asks for a genre ("a roguelike", "a farming game") or for a big game. Call `design_game` with no name.
+   - **Any other new game:** write `design.md` yourself.
+
+   `design_game` has a designer write `design.md`, and you build from it. For a change, edit `design.md` yourself.
+
 2. **Engine.** Pick the engine and open its guide.
 3. **Tests.** Open `references/tests.md` and write `tests.json` from the design's Done-when criteria.
 4. **Code.** Open `references/sound-effects.md`, then write the whole game with the write tool: every file the guide names but the skeleton the starter wrote. Give every player action, point, hit, win and loss a sound. Split the code into modules when it grows past a few hundred lines. When the design's Language isn't English, set `hopon.title`, `hopon.hint` and every word of `hopon.text` (`win`, `over`, `score`, `best`, `again`) at the top of `src/main.tsx`, for example `hopon.text = { again: "Toca para jugar otra vez", best: "Récord", over: "Fin del juego", score: "Puntos", win: "¡Ganaste!" };`. For a change, change the existing files with the `edit` tool, and don't rewrite what works.

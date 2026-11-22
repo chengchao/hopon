@@ -76,7 +76,7 @@ The advisor {{WHY}}. Go on without its advice: finish the work, and call `build`
 
 ## no-design
 
-The designer {{WHY}}. Design the game yourself: write `design.md` as `references/design.md` says, with its Pillars and Experience.
+The designer {{WHY}}. Design the game yourself: write `design.md` as `references/design.md` says.
 
 ## designed
 

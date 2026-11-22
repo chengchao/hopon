@@ -124,7 +124,7 @@ const SCRIPTS: Record<string, readonly Step[]> = {
   ],
   // Has the designer design the game, then reads the design.md it wrote.
   designer: [
-    { input: {}, tool: "design_game" },
+    { input: { imitates: "Moon Cat" }, tool: "design_game" },
     { input: { path: "design.md" }, tool: "read" },
   ],
   // Asks the designer, which fails, then writes the game.

@@ -1121,6 +1121,9 @@ test(
       /calls design_game/u,
       "none of the agent's calls"
     );
+    // An imitation's designer gets the game's name and make-game's imitation reference.
+    assert.match(sent, /The game to imitate: Moon Cat/u);
+    assert.match(system, /# An imitation/u);
 
     // A failed designer tells the agent to design the game itself, and it goes on.
     assert.equal(await socket.turn("build designerfails"), "turn_done");
@@ -1135,6 +1138,10 @@ test(
       ),
       "the agent is told to design it itself"
     );
+    // A game that imitates none: no imitation reference.
+    const [, plain] = await fakeJson(draft, "advisor");
+    assert.doesNotMatch(JSON.stringify(plain.system), /# An imitation/u);
+    assert.doesNotMatch(JSON.stringify(plain.messages), /The game to imitate/u);
     socket.close();
   }
 );

@@ -10,33 +10,26 @@ There is no word limit, and a big game needs a long design. Make every part spec
 
 When `design_game` wrote `design.md` (Workflow step 1), that file is the design, and it is already in the workspace. Don't write it again and don't reword it. Build every part of it: its places, its lists, its numbers, its look. Change a line of it, with the `edit` tool, only where it asks for something a hopon game can't do.
 
+## An imitation
+
+When the Creator names an existing game to imitate or remake, open `references/imitation.md` too. It adds a part, Pillars, and says what to keep of the named game.
+
 ## The parts
 
 Write these parts, each as a heading or a line that starts with its name:
 
 - **Asked:** everything the Creator has asked for since their last new game, one line for each thing, in their own words inside quotation marks. Every line here is in the finished game.
-- **Pillars:** only when the Creator names a game or a kind of game ("like Zelda", "a roguelike", "a farming game"), or asks for a big game. What a player who knows that game would expect to find in this one, in 4 to 7 lines:
-  - the view, such as a top-down map of square tiles, a side view, or a board;
-  - what the player does from moment to moment, such as steering a ship from tile to tile, or planting and watering crops;
-  - the places the game moves between, such as the open sea, a harbour town, a shop and a battle;
-  - the loop that joins them, such as buy cheap, travel, sell dear, upgrade;
-  - what grows over a play, such as gold, a crew, a level or a farm;
-  - how it looks, such as 16-bit pixel art;
-  - how its screens are laid out, such as a framed view of the world with a status column beside it, and a keeper's portrait next to a window with a list of commands.
-
-  The game keeps every pillar as something the player does and sees on screen. To make the game fit, make a pillar smaller: 5 towns where the named game has 50, one kind of enemy where it has twenty. Never drop a pillar, and never turn one into a menu or a line of text. A sailing game where nobody steers a ship, or a role-playing game that is only its shop, is not the game the Creator asked for. Take how the named game plays and how its screens are laid out, and give this one its own name, characters, places and pictures. When a pillar is something a hopon game can't do, such as saving, write which pillar, and what stands in for it.
-
-- **Experience:** only with Pillars. How the game plays for the player, in 4 to 6 lines: what they see and do in the first 30 seconds and what the game gives back, what they do again and again and how the game answers each time, where they must give up one thing for another, what is new at one minute and at three, and why they'd play again.
-- **Goal:** what the player does, and how the game is won or lost. Nothing is saved between plays, so a long game gets a goal that one sitting of about 5 minutes can reach: count the moves, trips or days it takes from the game's own numbers, and shrink the game until they fit.
-- **Screens:** every screen the player sees during play: what is on it, and what takes the player to the next one. A place in Pillars is a screen of its own, drawn as that place. Its words and buttons may sit in a panel over the drawing, never in place of it.
+- **Experience:** how the game plays for the player, in 2 to 5 lines: what they do in the first seconds and what the game gives back, what they do again and again and how the game answers each time, where they must give up one thing for another, and why they'd play again. Every other part serves this one.
+- **Goal:** what the player does, and how the game is won or lost. Nothing is saved between plays, so a long game gets a goal that one sitting of about 5 minutes can reach: count the moves, levels or days it takes from the game's own numbers, and shrink the game until they fit.
+- **Screens:** every screen the player sees during play: what is on it, and what takes the player to the next one. A place in the game is drawn as that place. Its words and buttons may sit in a panel over the drawing, never in place of it.
 - **Rules:** what moves, spawns, scores and hurts, with numbers. A game on a grid gives the grid: its columns and rows, what each kind of tile is, and how the player moves on it, with its map written out whole as rows of characters with a legend. A game with places, levels, goods, enemies or items lists them, each with its numbers: nothing is left for the code to invent.
 - **Controls:** the taps, holds and swipes with one finger, what each does on each screen, and roughly where on a portrait phone it goes.
 - **Difficulty:** how it starts, and how and when it ramps up.
 - **Fairness:** how this game meets each of these, with its own numbers, each worked out from the Rules and not estimated. The first threat comes after about 2 seconds. Every danger can be seen and avoided. What hurts is a bit smaller than it looks, and what the player aims for a bit bigger. What the player taps is finger-sized.
-- **Look:** the art style in a few words, the setting, the mood, and a palette of 4 to 6 colours. With Pillars, the style, the palette and the look of the windows, menus and buttons are the named game's, as a player would remember them. Then how each screen and each main thing on it is drawn: its shape, its colours and the detail that makes it read as what it is. A bare box, a bare circle or a line of text is not a drawing of a ship, a town or a shopkeeper. Then what happens on a hit, a point and the end.
+- **Look:** the art style in a few words, the setting, the mood, and a palette of 4 to 6 colours. Then how each screen and each main thing on it is drawn: its shape, its colours and the detail that makes it read as what it is. A bare box, a bare circle or a line of text is not a drawing of a hero, a house or a shopkeeper. Then what happens on a hit, a point and the end.
 - **Language:** the language of the on-screen text. When the Creator writes in another language, every word on screen is in that language.
-- **Music:** the genre, mood and tempo that fit the game. Write `Music: none` only when the Creator asked for no music or for silence, and quote their words: `Music: none ("no music please")`. For a new game, or a change that drops a game's music, verify checks that the quote is one of the Creator's messages since their last new game, or at least three words of one, word for word.
-- **Done when:** 2 to 5 success criteria, one per line, each something a short playtest can show ("Tapping the left half moves the basket left.", "The game ends after 3 misses."). When the design has Pillars, the criteria show the pillars first ("Swiping up moves the ship one tile north.", "Tapping a harbour tile opens its town screen.").
+- **Music:** the genre, mood and tempo that fit the game, as one loop of 20 to 40 seconds. Write `Music: none` only when the Creator asked for no music or for silence, and quote their words: `Music: none ("no music please")`. For a new game, or a change that drops a game's music, verify checks that the quote is one of the Creator's messages since their last new game, or at least three words of one, word for word.
+- **Done when:** 2 to 5 success criteria, one per line, each something a short playtest can show ("Tapping the left half moves the basket left.", "The game ends after 3 misses.").
 
 ## A change
 

@@ -41,6 +41,7 @@ import {
 
 import DESIGN from "../../maker/agent-home/.agents/skills/make-game/references/design.md";
 import FINISH from "../../maker/agent-home/.agents/skills/make-game/references/finish.md";
+import IMITATION from "../../maker/agent-home/.agents/skills/make-game/references/imitation.md";
 import MUSIC_SF2 from "../../maker/agent-home/.agents/skills/make-game/references/music-sf2.md";
 import MUSIC_SYNTH from "../../maker/agent-home/.agents/skills/make-game/references/music-synth.md";
 import OLD_GAME from "../../maker/agent-home/.agents/skills/make-game/references/old-game.md";
@@ -139,6 +140,7 @@ const PROMPT = renderPrompt(MAKER, MAKER_VALUES);
 const GUIDES = {
   "references/design.md": DESIGN,
   "references/finish.md": FINISH,
+  "references/imitation.md": IMITATION,
   "references/music-sf2.md": MUSIC_SF2,
   "references/music-synth.md": MUSIC_SYNTH,
   "references/old-game.md": OLD_GAME,
@@ -160,7 +162,7 @@ if (!makeGame) {
   throw new Error("make-game's SKILL.md has no frontmatter");
 }
 const SKILLS = fromManifest({
-  fingerprint: "v17",
+  fingerprint: "v18",
   id: "hopon-maker",
   skills: [
     {
