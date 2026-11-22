@@ -1,14 +1,12 @@
 # The design
 
-Open this at step 1, for a new game and for any change.
-
 `design.md` says what the game is, in English: what the player sees, does, wins and loses. It never says how the game is built, so it has no code, no file names and no px. Where things sit on the screen is in words here ("a bar along the top", "the bottom third"), and becomes px in the tests and the code. You write the tests and the code from it, the advisor checks the game against it, and the next change starts from it, so a decision that isn't in it gets made by accident in the code.
 
 There is no word limit, and a big game needs a long design. Make every part specific enough that two people building from it would make the same game: "fish get faster over time" leaves the builder guessing, and "a fish crosses the screen in 4 seconds, and half a second less for every 5 caught, down to 2" does not. Give the numbers a player would notice: counts, prices, lives, timers, how long a thing takes.
 
 ## A designed game
 
-When `design_game` wrote `design.md` (Workflow step 1), that file is the design, and it is already in the workspace. Don't write it again and don't reword it. Build every part of it: its places, its lists, its numbers, its look. Change a line of it, with the `edit` tool, only where it asks for something a hopon game can't do.
+When `design_game` wrote `design.md`, that file is the design, and it is already in the workspace. Don't write it again and don't reword it. Build every part of it: its places, its lists, its numbers, its look. Change a line of it, with the `edit` tool, only where it asks for something a hopon game can't do.
 
 ## An imitation
 

@@ -614,6 +614,8 @@ test(
     // activate_skill's result lists each guide as a bundled file.
     for (const guide of [
       "phaser",
+      "phaser-scenes",
+      "phaser-example",
       "phaser-panels",
       "phaser-panels-example",
       "r3f",

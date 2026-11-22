@@ -1,6 +1,6 @@
 # Panels over a Phaser game
 
-Read this after `references/phaser.md`, for a Phaser game with a panel of words and buttons: a shop, an inventory, an upgrade screen, a dialogue. A game with only a score, lives or a timer draws them in the scene and needs none of this. `references/phaser-panels-example.md` is a whole game built this way.
+Read this after `references/phaser.md`, for a Phaser game with a panel of words and buttons: a shop, an inventory, an upgrade screen, a dialogue. A game with only a score, lives or a timer draws them in the scene and needs none of this. `references/phaser-panels-example.md` is a whole game built this way, for when a playtest fails and this guide doesn't say why.
 
 - **`src/panels.tsx` is the bridge.** `node /opt/hopon/starter.js panels` writes it: in the new-game command, or alone to add panels to a Phaser game that has none. Read it, and keep it as it is.
 - **`src/main.tsx` makes the Phaser game** as the Phaser guide shows, then calls `showPanels(<Panels />)` once, with the game's own component.

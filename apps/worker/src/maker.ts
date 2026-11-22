@@ -40,13 +40,14 @@ import {
 } from "effect";
 
 import DESIGN from "../../maker/agent-home/.agents/skills/make-game/references/design.md";
-import FINISH from "../../maker/agent-home/.agents/skills/make-game/references/finish.md";
 import IMITATION from "../../maker/agent-home/.agents/skills/make-game/references/imitation.md";
 import MUSIC_SF2 from "../../maker/agent-home/.agents/skills/make-game/references/music-sf2.md";
 import MUSIC_SYNTH from "../../maker/agent-home/.agents/skills/make-game/references/music-synth.md";
 import OLD_GAME from "../../maker/agent-home/.agents/skills/make-game/references/old-game.md";
+import PHASER_EXAMPLE from "../../maker/agent-home/.agents/skills/make-game/references/phaser-example.md";
 import PHASER_PANELS_EXAMPLE from "../../maker/agent-home/.agents/skills/make-game/references/phaser-panels-example.md";
 import PHASER_PANELS from "../../maker/agent-home/.agents/skills/make-game/references/phaser-panels.md";
+import PHASER_SCENES from "../../maker/agent-home/.agents/skills/make-game/references/phaser-scenes.md";
 import PHASER from "../../maker/agent-home/.agents/skills/make-game/references/phaser.md";
 import R3F from "../../maker/agent-home/.agents/skills/make-game/references/r3f.md";
 import REACT from "../../maker/agent-home/.agents/skills/make-game/references/react.md";
@@ -139,13 +140,14 @@ const PROMPT = renderPrompt(MAKER, MAKER_VALUES);
 // which the agent reads with read_skill_resource, so every game starts from make-game's own rules.
 const GUIDES = {
   "references/design.md": DESIGN,
-  "references/finish.md": FINISH,
   "references/imitation.md": IMITATION,
   "references/music-sf2.md": MUSIC_SF2,
   "references/music-synth.md": MUSIC_SYNTH,
   "references/old-game.md": OLD_GAME,
+  "references/phaser-example.md": PHASER_EXAMPLE,
   "references/phaser-panels-example.md": PHASER_PANELS_EXAMPLE,
   "references/phaser-panels.md": PHASER_PANELS,
+  "references/phaser-scenes.md": PHASER_SCENES,
   "references/phaser.md": PHASER,
   "references/r3f.md": R3F,
   "references/react.md": REACT,
@@ -154,15 +156,16 @@ const GUIDES = {
 };
 // pi's tools that load the skill and read its references.
 const SKILL_READS = new Set(["activate_skill", "read_skill_resource"]);
-// A whole game of 773 lines, which every later model call would read again: refused until the run has played its own.
-const PANELS_EXAMPLE = "references/phaser-panels-example.md";
+// A whole game each, hundreds of lines that every later model call would read again: refused until the run has played
+// its own game.
+const EXAMPLE = /^references\/[\w-]+-example\.md$/u;
 const PLAYS = new Set(["build", "playtest"]);
 const makeGame = parseSkillMarkdown(MAKE_GAME);
 if (!makeGame) {
   throw new Error("make-game's SKILL.md has no frontmatter");
 }
 const SKILLS = fromManifest({
-  fingerprint: "v18",
+  fingerprint: "v19",
   id: "hopon-maker",
   skills: [
     {
@@ -474,10 +477,14 @@ export class Maker extends Agent<Env> {
       }
       if (
         toolCall.name === "read_skill_resource" &&
-        toolCall.arguments.path === PANELS_EXAMPLE &&
+        EXAMPLE.test(String(toolCall.arguments.path)) &&
         !state.played
       ) {
-        return { block: toolResult("example-early") };
+        return {
+          block: toolResult("example-early", {
+            PATH: String(toolCall.arguments.path),
+          }),
+        };
       }
       const building = toolCall.name === "build";
       const { next, refused: over } = checkLimits(

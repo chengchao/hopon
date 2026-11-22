@@ -1,7 +1,5 @@
 # Tests and the playtest
 
-Open this at step 3, with the design written and the engine's guide open.
-
 ## tests.json
 
 Before you write code for a new game or a change, write `tests.json`: automated checks of what the Creator asked for (for a change, only the change), as `{"expose": [...], "tests": [...]}`. `build` runs them and refuses the game until every one passes. Run them yourself with `node /opt/hopon/playtest.js tests`.

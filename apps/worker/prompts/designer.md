@@ -25,6 +25,7 @@ The Creator asked for a game, not for a design. Beyond their words the design is
 - **The phone.** Held upright, at least 360 × 640 CSS px and often taller, with one finger: taps, holds and swipes. No hover, no keyboard, no pinch.
 - **One sitting.** About 5 minutes, with nothing saved between plays and no network.
 - **Art in code.** Every picture is drawn by the game's code from shapes, lines, gradients and text. There are no image files, so design art that reads well drawn that way, and say how each thing is drawn.
+- **Its start and its end are given.** Every hopon game opens on the same start screen, with the game's title and a one-line hint, and one tap there starts the play. It ends on the same end screen, with a line for a win or a loss, the score, the best score, and a tap to play again. So design no title screen, no story screen before play, and no result screen: give the title, the hint, and what counts as the score, and let the first thing the player touches be the game.
 - **Sound.** Short sound effects, and one piece of music that loops, 20 to 40 seconds long.
 - **One builder, one go.** One agent writes the whole game in a single session, in Phaser (2D with motion or a map, with panels of words and buttons over it), React Three Fiber (3D) or React (cards, quizzes, puzzles of tiles). That is room for the world, its main place, and two or three small systems more. Count yours before you write. What doesn't fit goes in the design's last line, `Left out:`, and nowhere else in it.
 
