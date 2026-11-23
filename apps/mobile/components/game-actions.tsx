@@ -14,7 +14,9 @@ import { Text } from "@/components/ui/text";
 import { t } from "@/lib/i18n";
 import { COLORS } from "@/lib/theme";
 
-const Pill = ({
+const ICON = { color: COLORS.paper, size: 22, strokeWidth: 2.25 };
+
+const Action = ({
   label,
   selected,
   count,
@@ -31,21 +33,21 @@ const Pill = ({
     accessibilityRole="button"
     accessibilityLabel={label}
     accessibilityState={selected === undefined ? undefined : { selected }}
-    hitSlop={{ bottom: 6, top: 6 }}
+    hitSlop={10}
     onPress={onPress}
-    className="h-8 min-w-8 flex-row items-center justify-center gap-1 rounded-full border-[1.5px] border-primary-foreground/70 px-2 active:bg-primary-foreground/10"
+    className="h-10 flex-row items-center gap-1.5 active:opacity-60"
   >
     {children}
     {count !== undefined && (
-      <Text className="font-strong text-[13px] leading-4 text-primary-foreground">
+      <Text className="font-strong text-[15px] leading-5 text-foreground">
         {count}
       </Text>
     )}
   </Pressable>
 );
 
-// Like, comment, save, mute and "more" sit on the ticket, never over the game, so they can't steal the game's touches.
-export const TicketActions = ({
+// Like, comment, save, mute and "more" sit under the game, never over it, so they can't steal the game's touches.
+export const GameActions = ({
   game,
   onLike,
   onComments,
@@ -68,50 +70,45 @@ export const TicketActions = ({
   const isSaved = game.saved;
   const commentCount = game.comments;
   return (
-    <View className="flex-row items-center gap-1.5">
-      <Pill
+    <View className="flex-row items-center gap-5">
+      <Action
         label={isLiked ? t.feed.unlike : t.feed.like}
         selected={isLiked}
         onPress={onLike}
         count={game.likes}
       >
         <Heart
-          size={18}
-          strokeWidth={2.25}
-          color={isLiked ? COLORS.bulb : COLORS.ink}
+          {...ICON}
+          color={isLiked ? COLORS.bulb : COLORS.paper}
           fill={isLiked ? COLORS.bulb : "none"}
         />
-      </Pill>
-      <Pill
+      </Action>
+      <Action
         label={t.feed.commentsCount(commentCount)}
         onPress={onComments}
         count={commentCount}
       >
-        <MessageCircle size={18} strokeWidth={2.25} color={COLORS.ink} />
-      </Pill>
-      <Pill
+        <MessageCircle {...ICON} />
+      </Action>
+      <Action
         label={isSaved ? t.feed.removeSaved : t.feed.save}
         selected={isSaved}
         onPress={onSave}
       >
         <Bookmark
-          size={18}
-          strokeWidth={2.25}
-          color={COLORS.ink}
-          fill={isSaved ? COLORS.ink : "none"}
+          {...ICON}
+          color={isSaved ? COLORS.ticket : COLORS.paper}
+          fill={isSaved ? COLORS.ticket : "none"}
         />
-      </Pill>
-      <Pill label={muted ? t.feed.unmute : t.feed.mute} onPress={onMute}>
-        {muted ? (
-          <VolumeX size={18} strokeWidth={2.25} color={COLORS.ink} />
-        ) : (
-          <Volume2 size={18} strokeWidth={2.25} color={COLORS.ink} />
-        )}
-      </Pill>
+      </Action>
+      <View className="flex-1" />
+      <Action label={muted ? t.feed.unmute : t.feed.mute} onPress={onMute}>
+        {muted ? <VolumeX {...ICON} /> : <Volume2 {...ICON} />}
+      </Action>
       {onMore && (
-        <Pill label={t.feed.more} onPress={onMore}>
-          <MoreHorizontal size={18} strokeWidth={2.25} color={COLORS.ink} />
-        </Pill>
+        <Action label={t.feed.more} onPress={onMore}>
+          <MoreHorizontal {...ICON} />
+        </Action>
       )}
     </View>
   );

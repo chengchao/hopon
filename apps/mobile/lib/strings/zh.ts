@@ -227,7 +227,7 @@ export const zh: Strings = {
     title: "规则",
   },
   saved: {
-    empty: "点游戏卡片上的书签，就能收藏到这里。",
+    empty: "点游戏下方的书签，就能收藏到这里。",
     openHint: "从这里打开你的收藏",
     signedOut: "登录后查看你收藏的游戏",
     title: "收藏",
@@ -251,7 +251,6 @@ export const zh: Strings = {
   },
   tabs: {
     discover: "发现",
-    make: "制作",
     makeGame: "做个游戏",
     me: "我",
     saved: "收藏",

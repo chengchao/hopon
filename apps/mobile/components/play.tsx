@@ -117,10 +117,10 @@ export const Play = ({
           <Text>{t.common.publish}</Text>
         </Button>
       </View>
-      <View className="flex-1 justify-center px-3">
+      <View className="flex-1 justify-center px-1.5">
         {/* Feed size when Discover has measured it, so the game plays as the feed will show it. */}
         <View
-          className="overflow-hidden rounded-2xl bg-card"
+          className="overflow-hidden rounded-3xl bg-card"
           style={height ? { height, maxHeight: "100%" } : { flex: 1 }}
         >
           {playing ? (

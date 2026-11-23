@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 // Screens the sheet sends the person to: sign-in, or the handle screen (to pick one, or replace a refused one).
 type Destination = "/sign-in" | "/handle" | typeof HANDLE_REJECTED;
 
-// Covers the ticket and the lower part of the game; the game stays visible above so you keep your place.
+// Covers the info area and the lower part of the game; the game stays visible above so you keep your place.
 export const CommentsSheet = ({
   game,
   onClose,

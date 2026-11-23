@@ -13,11 +13,10 @@ import {
 } from "react-native";
 
 import { CommentsSheet } from "@/components/comments-sheet";
+import { GameActions } from "@/components/game-actions";
 import { GameView } from "@/components/game-view";
 import { confirmBlock, ReportSheet, targetOf } from "@/components/report-sheet";
 import type { ReportTarget } from "@/components/report-sheet";
-import { Byline, Ticket } from "@/components/ticket";
-import { TicketActions } from "@/components/ticket-actions";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api, gameUrl } from "@/lib/api";
@@ -195,7 +194,7 @@ export const Feed = ({
       target: targetOf("game", game),
     });
   };
-  // The "…" pill's menu.
+  // The "…" button's menu.
   const more = (game: FeedGame) => {
     if (!isSignedIn) {
       return router.push("/sign-in");
@@ -268,9 +267,9 @@ export const Feed = ({
             windowSize={3}
             extraData={`${active} ${muted}`}
             renderItem={({ item, index }) => (
-              <View style={{ height }} className="px-3 pb-3 pt-2">
+              <View style={{ height }} className="px-1.5 pb-1 pt-2">
                 <View
-                  className="flex-1 overflow-hidden rounded-t-2xl bg-card"
+                  className="flex-1 overflow-hidden rounded-3xl bg-card"
                   onLayout={(e) => {
                     if (measure) {
                       measuredGameHeight = e.nativeEvent.layout.height;
@@ -288,13 +287,13 @@ export const Feed = ({
                     />
                   )}
                 </View>
-                <Ticket
+                <View
                   {...pan.panHandlers}
                   accessible
                   accessibilityRole="adjustable"
                   accessibilityLabel={`${item.title}. ${item.description}`}
                   accessibilityHint={t.feed.swipeHint}
-                  // The ticket is one VoiceOver element, so its buttons are offered as custom actions too.
+                  // The info area is one VoiceOver element, so its buttons are offered as custom actions too.
                   accessibilityActions={[
                     { name: "increment" },
                     { name: "decrement" },
@@ -339,22 +338,41 @@ export const Feed = ({
                       block(item);
                     }
                   }}
-                  compact
-                  byline={<Byline author={item.author} />}
-                  title={item.title}
-                  description={item.description}
-                  actions={
-                    <TicketActions
-                      game={item}
-                      onLike={() => like(item)}
-                      onComments={() => setCommentsFor(item)}
-                      onSave={() => save(item)}
-                      muted={muted}
-                      onMute={() => setMuted((on) => !on)}
-                      onMore={item.mine ? undefined : () => more(item)}
-                    />
-                  }
-                />
+                  className="gap-1 px-2.5 pt-3"
+                >
+                  <View className="flex-row items-center gap-3">
+                    <View className="h-9 w-9 items-center justify-center rounded-full bg-primary">
+                      <Text className="font-strong text-base text-primary-foreground">
+                        {(item.author ?? "?").slice(0, 1).toUpperCase()}
+                      </Text>
+                    </View>
+                    <View className="flex-1">
+                      <Text
+                        numberOfLines={1}
+                        className="font-display text-[26px] leading-7 text-primary"
+                      >
+                        {item.title}
+                      </Text>
+                      <Text
+                        numberOfLines={1}
+                        className="text-sm leading-[18px] text-muted-foreground"
+                      >
+                        {item.author ? `@${item.author}` : t.ticket.anonymous}
+                        {" · "}
+                        {item.description}
+                      </Text>
+                    </View>
+                  </View>
+                  <GameActions
+                    game={item}
+                    onLike={() => like(item)}
+                    onComments={() => setCommentsFor(item)}
+                    onSave={() => save(item)}
+                    muted={muted}
+                    onMute={() => setMuted((on) => !on)}
+                    onMore={item.mine ? undefined : () => more(item)}
+                  />
+                </View>
               </View>
             )}
           />
