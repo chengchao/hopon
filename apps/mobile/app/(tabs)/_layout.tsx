@@ -18,69 +18,52 @@ const TABS: { name: string; label: string; Icon: LucideIcon }[] = [
   { Icon: User, label: t.tabs.me, name: "me" },
 ];
 
-// Make sits in the middle like TikTok's +, but opens the Create sheet instead of switching tabs.
+// Make sits beside the tabs, not among them: it opens the Create sheet instead of switching tabs.
 const TabBar = ({ state, navigation }: BottomTabBarProps) => {
   const insets = useSafeAreaInsets();
   const current = state.routes[state.index]?.name;
-  const tab = ({ name, label, Icon }: (typeof TABS)[number]) => {
-    const focused = current === name;
-    return (
-      <Pressable
-        key={name}
-        accessibilityRole="tab"
-        accessibilityLabel={label}
-        accessibilityState={{ selected: focused }}
-        onPress={() => navigation.navigate(name)}
-        className="flex-1 items-center gap-1 pt-1"
-      >
-        <View className="h-7 justify-center">
-          <Icon
-            size={24}
-            strokeWidth={focused ? 2.5 : 2}
-            color={focused ? COLORS.ticket : MIST}
-          />
-        </View>
-        <Text
-          className={cn(
-            "text-xs",
-            focused ? "font-strong text-primary" : "text-muted-foreground"
-          )}
-        >
-          {label}
-        </Text>
-      </Pressable>
-    );
-  };
   return (
     <View
-      className="flex-row items-start bg-background px-2 pt-1"
+      className="flex-row items-center gap-3 bg-background px-4 pt-2"
       style={{ paddingBottom: Math.max(insets.bottom, 8) }}
     >
-      {tab(TABS[0])}
+      <View className="h-14 flex-1 flex-row items-center rounded-full border border-border bg-card">
+        {TABS.map(({ name, label, Icon }) => {
+          const focused = current === name;
+          return (
+            <Pressable
+              key={name}
+              accessibilityRole="tab"
+              accessibilityLabel={label}
+              accessibilityState={{ selected: focused }}
+              onPress={() => navigation.navigate(name)}
+              className="h-full flex-1 items-center justify-center gap-0.5"
+            >
+              <Icon
+                size={22}
+                strokeWidth={focused ? 2.5 : 2}
+                color={focused ? COLORS.ticket : MIST}
+              />
+              <Text
+                className={cn(
+                  "text-[11px] leading-[14px]",
+                  focused ? "font-strong text-primary" : "text-muted-foreground"
+                )}
+              >
+                {label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={t.tabs.makeGame}
         onPress={() => router.push("/create")}
-        className="flex-1 items-center gap-1 pt-1"
+        className="h-14 w-14 items-center justify-center rounded-full bg-primary active:opacity-80"
       >
-        {({ pressed }) => (
-          <>
-            <View
-              className={cn(
-                "h-7 w-11 items-center justify-center rounded-lg bg-primary",
-                pressed && "opacity-80"
-              )}
-            >
-              <Plus size={20} strokeWidth={3} color={COLORS.ink} />
-            </View>
-            <Text className="font-strong text-xs text-primary">
-              {t.tabs.make}
-            </Text>
-          </>
-        )}
+        <Plus size={26} strokeWidth={3} color={COLORS.ink} />
       </Pressable>
-      {tab(TABS[1])}
-      {tab(TABS[2])}
     </View>
   );
 };

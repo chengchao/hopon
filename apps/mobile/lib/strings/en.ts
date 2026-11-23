@@ -239,7 +239,7 @@ export const en = {
     title: "The Rules",
   },
   saved: {
-    empty: "Tap the bookmark on a game's ticket to keep it here.",
+    empty: "Tap the bookmark under a game to keep it here.",
     openHint: "Opens your saved games from here",
     signedOut: "Sign in to see your saved games",
     title: "Saved",
@@ -263,7 +263,6 @@ export const en = {
   },
   tabs: {
     discover: "Discover",
-    make: "Make",
     makeGame: "Make a game",
     me: "Me",
     saved: "Saved",

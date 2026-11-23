@@ -125,9 +125,6 @@ const Saved = () => {
             className="active:opacity-80"
           >
             <Ticket
-              className="rounded-2xl"
-              torn={false}
-              compact
               byline={<Byline author={item.author} />}
               title={item.title}
               description={item.description}
