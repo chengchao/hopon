@@ -49,6 +49,8 @@ export interface DraftSummary {
   id: string;
   title: string | null;
   description: string | null;
+  /** A link to a screenshot of the game, good for at least an hour; null when the Draft has no game or its Revision has no cover. */
+  cover: string | null;
   /** When the Maker took the message its current turn answers; null while it waits for the Creator. */
   turnStartedAt: string | null;
   updatedAt: string;

@@ -369,6 +369,7 @@ const Create = () => {
         // The new chat may have been left for another meanwhile; the Drafts tab has this one.
         if (openId.current === at) {
           select({
+            cover: null,
             description: null,
             id: created.id,
             title: null,

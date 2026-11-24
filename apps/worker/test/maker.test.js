@@ -413,6 +413,29 @@ test(
     assert.deepEqual(await revisionFile(draft, "music.opus"), [1, 200, OPUS]);
     // The agent playtested before it built, so the Revision keeps that playtest's screenshot as its cover.
     assert.deepEqual(await coverFile(draft), [1, 200, PNG_HEX]);
+    // The list links to it, with no token: the app's Image sends none.
+    const { cover } = await listed(draft, false);
+    assert.match(
+      cover,
+      new RegExp(`/drafts/${draft}/1/[^/]+/cover\\.png$`, "u")
+    );
+    const image = await fetch(cover);
+    assert.equal(image.headers.get("content-type"), "image/png");
+    assert.equal(
+      Buffer.from(await image.arrayBuffer()).toString("hex"),
+      PNG_HEX
+    );
+    // The link is the same one on every read for an hour, so a list polled every few seconds never loads the image
+    // again, and it always has an hour left. Three reads, since two can fall either side of the hour.
+    const again = await listed(draft, false);
+    const third = await listed(draft, false);
+    assert.ok(
+      cover === again.cover || again.cover === third.cover,
+      JSON.stringify([cover, again.cover, third.cover])
+    );
+    const left =
+      Number(third.cover.split("/").at(-2).split(".")[0]) * 1000 - Date.now();
+    assert.ok(left >= 3_600_000 - 1000 && left <= 7_200_000, `${left} ms left`);
     // The page fetches its music from an opaque origin; text is gzipped by the runtime (workerd), from the Worker's
     // Content-Encoding, and fetch decodes it, so the text above held.
     const page = await previewUrl(draft);
@@ -986,6 +1009,8 @@ test(
     // Neither build followed a playtest, and each check swept the workspace: the Revision publishes with no cover.
     const [coverless, cover] = await coverFile(draft);
     assert.deepEqual([coverless, cover], [5, 404]);
+    const twice = await listed(draft, false);
+    assert.equal(twice.cover, null);
 
     // A Revision from before source.tgz, its source files beside its built ones: the next run restores them, and a
     // change keeps its design and music in the source.tgz Revision it publishes.

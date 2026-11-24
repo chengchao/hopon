@@ -23,6 +23,7 @@ import {
 import type { Box, Source, Tests } from "../../maker/src/job.ts";
 import { drafts, now } from "./schema.ts";
 import {
+  COVER,
   currentRevision,
   draftFiles,
   removeFiles,
@@ -40,8 +41,6 @@ const TESTS = "tests.json";
 const ASKED = ".hopon/asked.json";
 // A Revision's last file written: one without it is a write an eviction cut short, which currentRevision skips.
 const INDEX = "index.html";
-// A Revision's cover, what the Drafts tab shows for the Draft: a screenshot from the agent's last playtest.
-const COVER = "cover.png";
 const PNG = [137, 80, 78, 71, 13, 10, 26, 10];
 // A 360×640 screenshot is well under this; the workspace is the agent's, so the file could be anything.
 const MAX_COVER_BYTES = 1_000_000;

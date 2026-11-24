@@ -10,6 +10,9 @@ import { drafts, generationLimits } from "./schema.ts";
 export const draftFiles = (id: string) => `drafts/${id}/`;
 export const revisionFiles = (id: string, n: number) => `drafts/${id}/${n}/`;
 export const gameFiles = (id: number) => `games/${id}/`;
+// A Revision's cover, what the Drafts tab shows for the Draft: a screenshot from the agent's last playtest, when
+// there was one. The Draft's `cover_revision` says which Revision has it.
+export const COVER = "cover.png";
 
 // Every R2 object under `prefix`: a Draft's or a Revision's files, or a Game's. A Draft holds a Revision or two and a
 // Game one, well under a list's 1000 keys.

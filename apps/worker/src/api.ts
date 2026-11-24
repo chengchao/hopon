@@ -66,6 +66,7 @@ import {
 } from "./schema.ts";
 import {
   allowanceLeft,
+  COVER,
   currentRevision,
   draftFiles,
   gameFiles,
@@ -581,6 +582,35 @@ const liveTurn = (startedAt: string | null, at: number, env: HoponEnv) => {
     : null;
 };
 
+// A Draft's preview link (#118). The WebView sends no token with a page's subresources, so the link carries its own
+// proof in the path: `sig` = HMAC-SHA256(PREVIEW_SECRET, `draftId.exp`). Revocation is free: the next Revision deletes
+// `<n>/` and Delete deletes `drafts/<id>/`, so an old link finds nothing.
+const PREVIEW_LIFETIME = 60 * 60;
+const previewKey = (env: HoponEnv) =>
+  crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(env.PREVIEW_SECRET),
+    { hash: "SHA-256", name: "HMAC" },
+    false,
+    ["sign", "verify"]
+  );
+const previewData = (id: string, exp: string) =>
+  new TextEncoder().encode(`${id}.${exp}`);
+// The `<exp>.<sig>` of a link to the Draft's files, good until `exp`, in seconds.
+const previewToken = async (env: HoponEnv, id: string, exp: number) => {
+  const sig = await crypto.subtle.sign(
+    "HMAC",
+    await previewKey(env),
+    previewData(id, `${exp}`)
+  );
+  return `${exp}.${encodeBase64Url(sig).replace(/[=]$/u, "")}`;
+};
+// A cover's link expires at the end of the next whole hour, so it has one to two hours left and stays the same link
+// for an hour. The Drafts tab lists every few seconds while a turn runs, and a link that changed each time would
+// load the image again each time.
+const coverExpiry = (at: number) =>
+  (Math.floor(at / 1000 / PREVIEW_LIFETIME) + 2) * PREVIEW_LIFETIME;
+
 app.get("/api/drafts", (c) =>
   run(
     c,
@@ -589,6 +619,7 @@ app.get("/api/drafts", (c) =>
       const rows = yield* query((db) =>
         db
           .select({
+            coverRevision: drafts.coverRevision,
             description: drafts.description,
             id: drafts.id,
             title: drafts.title,
@@ -600,12 +631,23 @@ app.get("/api/drafts", (c) =>
           .orderBy(desc(drafts.updatedAt))
       );
       const at = Date.now();
-      return c.json({
-        drafts: rows.map((row) => ({
-          ...row,
-          turnStartedAt: liveTurn(row.turnStartedAt, at, c.env),
-        })),
-      } satisfies { drafts: DraftSummary[] });
+      const exp = coverExpiry(at);
+      const listed = yield* Effect.promise(() =>
+        Promise.all(
+          rows.map(async ({ coverRevision, ...row }) => ({
+            ...row,
+            cover:
+              coverRevision === null
+                ? null
+                : new URL(
+                    `/drafts/${row.id}/${coverRevision}/${await previewToken(c.env, row.id, exp)}/${COVER}`,
+                    c.req.url
+                  ).href,
+            turnStartedAt: liveTurn(row.turnStartedAt, at, c.env),
+          }))
+        )
+      );
+      return c.json({ drafts: listed } satisfies { drafts: DraftSummary[] });
     })
   )
 );
@@ -783,21 +825,6 @@ app.post(`/api/drafts/${DRAFT}/ws-ticket`, (c) =>
   )
 );
 
-// A Draft's preview link (#118). The WebView sends no token with a page's subresources, so the link carries its own
-// proof in the path: `sig` = HMAC-SHA256(PREVIEW_SECRET, `draftId.exp`). Revocation is free: the next Revision deletes
-// `<n>/` and Delete deletes `drafts/<id>/`, so an old link finds nothing.
-const PREVIEW_LIFETIME = 60 * 60;
-const previewKey = (env: HoponEnv) =>
-  crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(env.PREVIEW_SECRET),
-    { hash: "SHA-256", name: "HMAC" },
-    false,
-    ["sign", "verify"]
-  );
-const previewData = (id: string, exp: string) =>
-  new TextEncoder().encode(`${id}.${exp}`);
-
 // For the app: a link to the current Revision's index.html, good for an hour.
 app.get(`/api/drafts/${DRAFT}/preview`, (c) =>
   run(
@@ -809,19 +836,15 @@ app.get(`/api/drafts/${DRAFT}/preview`, (c) =>
       if (!n) {
         return yield* fail(404, "This Draft has no game yet.");
       }
-      const exp = `${Math.floor(Date.now() / 1000) + PREVIEW_LIFETIME}`;
-      const sig = yield* Effect.promise(async () =>
-        encodeBase64Url(
-          await crypto.subtle.sign(
-            "HMAC",
-            await previewKey(c.env),
-            previewData(id, exp)
-          )
-        ).replace(/[=]$/u, "")
+      const token = yield* Effect.promise(() =>
+        previewToken(
+          c.env,
+          id,
+          Math.floor(Date.now() / 1000) + PREVIEW_LIFETIME
+        )
       );
       return c.json({
-        url: new URL(`/drafts/${id}/${n}/${exp}.${sig}/index.html`, c.req.url)
-          .href,
+        url: new URL(`/drafts/${id}/${n}/${token}/index.html`, c.req.url).href,
       });
     })
   )
