@@ -784,13 +784,14 @@ export class Maker extends Agent<Env> {
           const { text: message } = yield* Effect.promise(() =>
             request.json<{ text: string }>()
           );
-          const id = yield* pi.send(message);
-          // After pi queues it, so a message counted here is in pi's inbox or a run (the limits hook's `seen`).
-          this.asked = [...this.asked, message];
-          // Before the run starts, so the list never shows a just-sent first message as a Draft nobody is making.
+          // Before pi has the message, so this write can't land after the end of the run it starts and leave the list
+          // saying a finished turn is on. If pi then refuses the message, the next wake or the list's lease clears it.
           yield* Effect.promise(() =>
             this.markTurn({ dated: true, working: true })
           );
+          const id = yield* pi.send(message);
+          // After pi queues it, so a message counted here is in pi's inbox or a run (the limits hook's `seen`).
+          this.asked = [...this.asked, message];
           return Response.json({ id }, { status: 202 });
         }
         if (action === "stop") {
