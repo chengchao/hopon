@@ -44,6 +44,8 @@ const json = async (pending) => {
   const response = await pending;
   return response.json();
 };
+// The Caption a Creator publishes with.
+const CAPTION = "Beat my score 星";
 // A plain-DOM game as the Maker leaves it: its index.html, title and description.
 const made = {
   description: "点击星星得分",
@@ -253,6 +255,7 @@ const setup = async (t) => {
   } = {}) => {
     const id = await draft({ user, ...options });
     const published = await call(`/api/drafts/${id}/publish`, {
+      body: { caption: CAPTION },
       method: "POST",
       user,
       username,
@@ -287,7 +290,7 @@ const filesIn = async (env, prefix) => {
 };
 
 test("publish: every file the current Revision's page loads becomes the Game's, the row keeps the Draft's id, and the Draft is Deleted", async (t) => {
-  const { call, draft, env, forwarded } = await setup(t);
+  const { call, count, draft, env, forwarded } = await setup(t);
   const { games } = await json(call("/api/games"));
   assert.deepEqual(
     games.map((g) => g.title),
@@ -314,7 +317,11 @@ test("publish: every file the current Revision's page loads becomes the Game's, 
     },
   });
   const publish = (options) =>
-    call(`/api/drafts/${id}/publish`, { method: "POST", ...options });
+    call(`/api/drafts/${id}/publish`, {
+      body: { caption: CAPTION },
+      method: "POST",
+      ...options,
+    });
   assert.equal(await status(publish({ user: "" })), 401);
   const theirs = await publish({ user: "user_other" });
   assert.equal(theirs.status, 404);
@@ -324,6 +331,14 @@ test("publish: every file the current Revision's page loads becomes the Game's, 
   assert.deepEqual(await nameless.json(), {
     error: "Pick your name before publishing.",
   });
+  // The Caption is required, though it may be empty: nothing stands in for one that isn't sent.
+  const captionless = await publish({ body: {} });
+  assert.equal(captionless.status, 400);
+  assert.deepEqual(await captionless.json(), {
+    error: "Write a caption of one line, up to 180 characters.",
+  });
+  assert.equal(await status(publish({ body: undefined })), 415);
+  assert.equal(await count("games"), ORIGINALS);
   forwarded.length = 0;
   const published = await publish();
   assert.equal(published.status, 201);
@@ -343,10 +358,8 @@ test("publish: every file the current Revision's page loads becomes the Game's, 
     { ...row, created_at: undefined },
     {
       author: "maya_makes",
-      caption: made.description,
+      caption: CAPTION,
       created_at: undefined,
-      // The Caption's old column, until the migration that drops it.
-      description: made.description,
       draft_id: id,
       id: gameId,
       owner: "user_owner",
@@ -438,9 +451,8 @@ test("publish: every file the current Revision's page loads becomes the Game's, 
   assert.equal(list.games.length, ORIGINALS + 1);
   assert.equal(list.games[0].id, gameId);
   assert.equal(list.games[0].owner, undefined);
-  // An app build from before `caption` sent none and reads `description`: it gets the Maker's description in both.
-  assert.equal(list.games[0].caption, made.description);
-  assert.equal(list.games[0].description, made.description);
+  assert.equal(list.games[0].caption, CAPTION);
+  assert.equal(Object.hasOwn(list.games[0], "description"), false);
   // The handle from the publisher's token.
   assert.equal(list.games[0].author, "maya_makes");
   assert.deepEqual(
@@ -450,7 +462,10 @@ test("publish: every file the current Revision's page loads becomes the Game's, 
   // A plain-DOM game loads no runtime.
   const plain = await draft();
   const { id: plainId } = await json(
-    call(`/api/drafts/${plain}/publish`, { method: "POST" })
+    call(`/api/drafts/${plain}/publish`, {
+      body: { caption: "" },
+      method: "POST",
+    })
   );
   const { runtime } = await env.DB.prepare(
     "SELECT runtime FROM games WHERE id = ?"
@@ -470,7 +485,10 @@ test("publish: refused before the first Revision or while a turn runs; the Draft
   );
   const id = await draft();
   const publish = (draftId) =>
-    call(`/api/drafts/${draftId}/publish`, { method: "POST" });
+    call(`/api/drafts/${draftId}/publish`, {
+      body: { caption: CAPTION },
+      method: "POST",
+    });
   const none = await publish(empty);
   assert.equal(none.status, 409);
   assert.deepEqual(await none.json(), { error: "This Draft has no game yet." });
@@ -498,7 +516,11 @@ test("publish: a failed Delete leaves the Draft listed, and a retry finishes it 
   const { call, count, draft, env, maker } = await setup(t);
   const id = await draft();
   maker.failDelete = true;
-  const publish = () => call(`/api/drafts/${id}/publish`, { method: "POST" });
+  const publish = () =>
+    call(`/api/drafts/${id}/publish`, {
+      body: { caption: CAPTION },
+      method: "POST",
+    });
   assert.equal(await status(publish()), 500);
   assert.deepEqual(await draftIds(call), [id]);
   maker.failDelete = false;
@@ -788,9 +810,10 @@ test("screening: a flagged title or Caption refuses Publish and leaves the Draft
   const screened = [];
   ai.screen = (input) => {
     screened.push(input.messages[0].content);
-    return flagOnly(`${made.title}\n${made.description}`)(input);
+    return flagOnly(`${made.title}\n${CAPTION}`)(input);
   };
   const response = await call(`/api/drafts/${id}/publish`, {
+    body: { caption: CAPTION },
     method: "POST",
   });
   assert.equal(response.status, 422);
@@ -799,19 +822,11 @@ test("screening: a flagged title or Caption refuses Publish and leaves the Draft
       "This game's title or caption breaks hopon's rules. Change the caption, or ask the Maker to change the title.",
   };
   assert.deepEqual(await response.json(), refused);
+  // The Caption is what's screened, not the Maker's description.
   assert.deepEqual(screened.toSorted(), [
     "maya_makes",
-    `${made.title}\n${made.description}`,
+    `${made.title}\n${CAPTION}`,
   ]);
-  // The Caption the Creator sends is what's screened, not the Maker's description.
-  const mine = `${made.title}\nmy own caption`;
-  ai.screen = flagOnly(mine);
-  const sent = await call(`/api/drafts/${id}/publish`, {
-    body: { caption: "my own caption" },
-    method: "POST",
-  });
-  assert.equal(sent.status, 422);
-  assert.deepEqual(await sent.json(), refused);
   // Still listed with the Maker's title and description.
   const { drafts } = await json(call("/api/drafts"));
   assert.deepEqual(
@@ -837,6 +852,7 @@ test("screening: a flagged Handle refuses publishing and commenting with handle_
   } = await json(call("/api/games"));
   ai.screen = flagOnly("bad_name");
   const publish = await call(`/api/drafts/${id}/publish`, {
+    body: { caption: CAPTION },
     method: "POST",
     username: "bad_name",
   });
@@ -859,12 +875,9 @@ test("screening: when the text and the Handle are both flagged, the response say
   const {
     games: [game],
   } = await json(call("/api/games"));
-  ai.screen = flagOnly(
-    "bad_name",
-    "a slur",
-    `${made.title}\n${made.description}`
-  );
+  ai.screen = flagOnly("bad_name", "a slur", `${made.title}\n${CAPTION}`);
   const publish = await call(`/api/drafts/${id}/publish`, {
+    body: { caption: CAPTION },
     method: "POST",
     username: "bad_name",
   });
@@ -1497,7 +1510,6 @@ test("reports: one open snapshot per person and game, which outlives the game", 
       comment_id: null,
       created_at: undefined,
       creator: "hopon",
-      description: null,
       game_id: game.id,
       handle: "hopon",
       id: undefined,
@@ -1656,7 +1668,6 @@ test("comment reports: someone else's comment, even on your own game; never your
         comment_id: comment.id,
         created_at: undefined,
         creator: "user_fan",
-        description: null,
         game_id: gameId,
         handle: "fan",
         id: undefined,

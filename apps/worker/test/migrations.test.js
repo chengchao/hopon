@@ -204,7 +204,7 @@ test("games are files: published Games' HTML lands in R2 and still plays; unpubl
   );
   // The draft's id 101 isn't given again: the next Game is 102.
   const { id: next } = await DB.prepare(
-    "INSERT INTO games(owner, title, description) VALUES ('user_a', 'Next', '') RETURNING id"
+    "INSERT INTO games(owner, title, caption) VALUES ('user_a', 'Next', '') RETURNING id"
   ).first();
   assert.equal(next, 102);
   for (const table of ["likes", "comments", "saves"]) {
@@ -237,7 +237,10 @@ test("games are files: published Games' HTML lands in R2 and still plays; unpubl
   }
 });
 
-test("captions: every Game's description is its caption, and a Worker from before `caption` still publishes, reports and reads", async (t) => {
+const withoutDescription = (rows) =>
+  rows.map(({ description: _description, ...row }) => row);
+
+test("captions: a Game's description becomes its caption, then the old columns and their triggers go, and every row stays", async (t) => {
   const proxy = await getPlatformProxy({
     configPath: new URL("wrangler.jsonc", import.meta.url).pathname,
     envFiles: [],
@@ -249,14 +252,15 @@ test("captions: every Game's description is its caption, and a Worker from befor
   const files = readdirSync(migrationsDir)
     .filter((f) => f.endsWith(".sql"))
     .toSorted();
-  const at = files.findIndex((f) => f.endsWith("_captions.sql"));
+  const captions = files.findIndex((f) => f.endsWith("_captions.sql"));
+  const drop = files.findIndex((f) => f.endsWith("_drop_game_description.sql"));
   const run = (sql) => DB.batch(sql.map((s) => DB.prepare(s)));
   const all = async (sql) => {
     const { results } = await DB.prepare(sql).all();
     return results;
   };
-  await run(files.slice(0, at).flatMap(statements));
-  // D1 as it was: the originals, a Creator's Game with a like, a comment, a save and a report, and one with no text.
+  await run(files.slice(0, captions).flatMap(statements));
+  // D1 before `caption`: the originals, a Creator's Game with a like, a comment, a save and a report, and one with no text.
   await run([
     `INSERT INTO games(id, owner, title, description, author, draft_id) VALUES (100, 'user_a', 'Made', 'Tap, don''t "blink" 星', 'maya', 'd1')`,
     "INSERT INTO games(id, owner, title, description) VALUES (101, 'user_a', 'Bare', '')",
@@ -266,32 +270,75 @@ test("captions: every Game's description is its caption, and a Worker from befor
     "INSERT INTO reports(creator, game_id, reason, reporter, title, description) VALUES ('user_a', 100, 'spam', 'user_b', 'Made', 'Tap')",
     "INSERT INTO reports(creator, game_id, comment_id, reason, reporter, body) VALUES ('user_b', 100, 1, 'hate', 'user_a', 'nice')",
   ]);
-  const before = await all(
-    "SELECT author, created_at, description, draft_id, id, owner, runtime, title FROM games ORDER BY id"
+  const described = await all(
+    "SELECT author, created_at, description AS caption, draft_id, id, owner, runtime, title FROM games ORDER BY id"
   );
-  const reported = await all("SELECT id, description FROM reports ORDER BY id");
+  const reported = await all(
+    "SELECT id, description AS caption FROM reports ORDER BY id"
+  );
 
-  await run(files.slice(at).flatMap(statements));
+  await run(files.slice(captions, drop).flatMap(statements));
 
+  // D1 with both columns, as #240's Worker wrote it: each insert names `description` beside `caption`.
+  await run([
+    "INSERT INTO games(owner, title, caption, description, author, draft_id) VALUES ('user_a', 'Captioned', 'beat my score 🚀', '', 'maya', 'd2')",
+    "INSERT INTO games(owner, title, caption, description) VALUES ('user_a', 'No Caption', '', '')",
+    "INSERT INTO likes(game_id, user) VALUES (102, 'user_b')",
+    "INSERT INTO comments(game_id, user, author, body) VALUES (102, 'user_b', 'b', 'again')",
+    "INSERT INTO saves(game_id, user) VALUES (102, 'user_b')",
+    "INSERT INTO reports(creator, game_id, reason, reporter, title, caption, description) VALUES ('user_a', 102, 'spam', 'user_c', 'Captioned', 'beat my score 🚀', NULL)",
+  ]);
+  const games = "SELECT * FROM games ORDER BY id";
+  const reports = "SELECT * FROM reports ORDER BY id";
+  const before = {
+    games: withoutDescription(await all(games)),
+    reports: withoutDescription(await all(reports)),
+  };
+  assert.deepEqual(
+    before.games.map(({ caption, id }) => ({ caption, id })),
+    [
+      ...described.map(({ caption, id }) => ({ caption, id })),
+      { caption: "beat my score 🚀", id: 102 },
+      { caption: "", id: 103 },
+    ]
+  );
+  const others = {};
+  for (const table of ["likes", "comments", "saves"]) {
+    // oxlint-disable-next-line no-await-in-loop -- three tables
+    others[table] = await all(`SELECT * FROM ${table} ORDER BY rowid`);
+    assert.equal(others[table].length, 2, table);
+  }
+
+  await run(files.slice(drop).flatMap(statements));
+
+  assert.deepEqual(await all(games), before.games);
+  assert.deepEqual(await all(reports), before.reports);
   assert.deepEqual(
     await all(
-      "SELECT author, created_at, description, draft_id, id, owner, runtime, title FROM games ORDER BY id"
+      "SELECT author, created_at, caption, draft_id, id, owner, runtime, title FROM games WHERE id <= 101 ORDER BY id"
     ),
-    before
+    described
   );
   assert.deepEqual(
-    await all("SELECT id, caption AS description FROM games ORDER BY id"),
-    before.map(({ description, id }) => ({ description, id }))
-  );
-  assert.deepEqual(
-    await all("SELECT id, caption AS description FROM reports ORDER BY id"),
+    await all("SELECT id, caption FROM reports WHERE id <= 2 ORDER BY id"),
     reported
   );
   for (const table of ["likes", "comments", "saves"]) {
-    // oxlint-disable-next-line no-await-in-loop -- three counts
-    const rows = await all(`SELECT * FROM ${table}`);
-    assert.equal(rows.length, 1, table);
+    // oxlint-disable-next-line no-await-in-loop -- three tables
+    const rows = await all(`SELECT * FROM ${table} ORDER BY rowid`);
+    assert.deepEqual(rows, others[table], table);
   }
+  assert.deepEqual(
+    await all(
+      "SELECT m.name || '.' || p.name AS c FROM sqlite_master m, pragma_table_info(m.name) p WHERE m.name IN ('games', 'reports') AND p.name = 'description'"
+    ),
+    []
+  );
+  assert.deepEqual(
+    await all("SELECT name FROM sqlite_master WHERE type = 'trigger'"),
+    []
+  );
+  // The Games are still what likes point at, a Draft still publishes once, a Caption still has its limit, and ids go on.
   await assert.rejects(
     DB.prepare("INSERT INTO likes(game_id, user) VALUES (999, 'x')").run(),
     /FOREIGN KEY/u
@@ -308,26 +355,8 @@ test("captions: every Game's description is its caption, and a Worker from befor
       .run(),
     /CHECK/u
   );
-
-  // The Worker from before `caption`, still serving or on another Preview, and this one, each see the other's rows.
-  await run([
-    "INSERT INTO games(owner, title, description) VALUES ('user_a', 'Old Worker', 'by description')",
-    "INSERT INTO games(owner, title, caption) VALUES ('user_a', 'New Worker', 'by caption')",
-    "INSERT INTO games(owner, title, caption) VALUES ('user_a', 'No Caption', '')",
-    "INSERT INTO reports(creator, game_id, reason, reporter, title, description) VALUES ('user_a', 101, 'spam', 'user_c', 'Bare', 'old')",
-  ]);
-  assert.deepEqual(
-    await all(
-      "SELECT id, caption, description FROM games WHERE id > 101 ORDER BY id"
-    ),
-    [
-      { caption: "by description", description: "by description", id: 102 },
-      { caption: "by caption", description: "by caption", id: 103 },
-      { caption: "", description: "", id: 104 },
-    ]
-  );
-  assert.deepEqual(
-    await all("SELECT caption FROM reports WHERE reporter = 'user_c'"),
-    [{ caption: "old" }]
-  );
+  const { id: next } = await DB.prepare(
+    "INSERT INTO games(owner, title, caption) VALUES ('user_a', 'Next', 'hi') RETURNING id"
+  ).first();
+  assert.equal(next, 104);
 });

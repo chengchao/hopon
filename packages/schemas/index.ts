@@ -7,8 +7,8 @@ export const COMMENT_MAX = 300;
 // A game's title and description, as the Maker writes them for a Draft.
 export const GAME_TITLE_MAX = 60;
 export const GAME_DESCRIPTION_MAX = 180;
-// A Game's Caption. Never shorter than the Maker's description, which stands in for it when an old app build publishes.
-export const GAME_CAPTION_MAX = GAME_DESCRIPTION_MAX;
+// A Game's Caption, as its Creator writes it on the publish sheet.
+export const GAME_CAPTION_MAX = 180;
 // A Creator's 21st Draft is refused: the API checks it, and the app disables New game.
 export const MAX_DRAFTS = 20;
 
@@ -39,9 +39,8 @@ const gameCaption = z.string().check(
   )
 );
 
-// Publish. Without a `caption`, as from an app build older than the field, the Maker's description stands in for it.
 export const publishGame = z.object({
-  caption: z.optional(gameCaption),
+  caption: gameCaption,
 });
 
 // A request for a Caption. `current` is the one the Creator is looking at, if any, so the next one differs.

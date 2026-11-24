@@ -255,10 +255,6 @@ const screenWithHandle = Effect.fn("screenWithHandle")(function* (
   }
 });
 
-// A feed card as it is served: `description` is the Caption again, where app builds from before `caption` read it.
-// Take it out once MIN_IOS_BUILD is the first build that reads `caption`.
-type ServedGame = FeedGame & { description: FeedGame["caption"] };
-
 // A feed card: the public fields, counts, and whether the viewer (the signed-in user, if any) liked or saved it.
 const feedColumns = (viewer = "") =>
   ({
@@ -266,7 +262,6 @@ const feedColumns = (viewer = "") =>
     caption: games.caption,
     // Qualified by hand: Drizzle leaves columns bare in a one-table select, and a bare "id" here would mean comments.id.
     comments: sql<number>`(SELECT COUNT(*) FROM ${comments} WHERE ${comments}.game_id = ${games}.id)`,
-    description: games.caption,
     id: games.id,
     liked:
       sql`EXISTS(SELECT 1 FROM ${likes} WHERE ${likes}.game_id = ${games}.id AND ${likes}.user = ${viewer})`.mapWith(
@@ -279,7 +274,7 @@ const feedColumns = (viewer = "") =>
         Boolean
       ),
     title: games.title,
-  }) satisfies Record<keyof ServedGame, unknown>;
+  }) satisfies Record<keyof FeedGame, unknown>;
 
 // A Block between accounts `a` and `b`, in either direction. Each is an account id or a column, named by hand (see `comments` above).
 const blockedBetween = (a: SQL | string, b: SQL | string) =>
@@ -1003,8 +998,7 @@ app.post(
         if (!username) {
           return yield* fail(400, "Pick your name before publishing.");
         }
-        const draft = yield* builtDraft(c.env, id);
-        const { n, title } = draft;
+        const { n, title } = yield* builtDraft(c.env, id);
         const status = yield* maker(c.env, id, "busy");
         const { busy } = yield* Effect.promise(() =>
           status.json<{ busy: boolean }>()
@@ -1015,9 +1009,8 @@ app.post(
             "Wait for the Maker to finish, then publish."
           );
         }
-        // The Creator's Caption from the publish sheet, which may be empty. An app build from before it sends none,
-        // and showed the Maker's description instead.
-        const caption = c.req.valid("json").caption ?? draft.description;
+        // The Creator's Caption from the publish sheet, which may be empty.
+        const { caption } = c.req.valid("json");
         // Refused, it stays a Draft.
         yield* screenWithHandle(
           c.env,

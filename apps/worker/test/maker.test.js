@@ -520,7 +520,9 @@ test(
     assert.ok(working.turnStartedAt > idle.updatedAt, JSON.stringify(working));
     assert.equal(working.updatedAt, working.turnStartedAt);
     // Publish waits for the turn to end (#145).
-    const publishing = await call(`/api/drafts/${draft}/publish`, {});
+    const publishing = await call(`/api/drafts/${draft}/publish`, {
+      caption: "",
+    });
     assert.equal(publishing.status, 409);
     await call(`/api/drafts/${draft}/stop`, {});
     assert.equal(await stopped, "turn_failed");
@@ -621,9 +623,11 @@ test(
       assert.match(command, /^\/usr\/bin\/timeout --kill-after=5 \d+ \/usr\//u);
     }
 
-    // Between turns, Publish turns the last Revision into a Game with the Maker's title and description, and the Draft
-    // goes, with its box.
-    const publish = await call(`/api/drafts/${draft}/publish`, {});
+    // Between turns, Publish turns the last Revision into a Game with the Maker's title and the Creator's Caption, and
+    // the Draft goes, with its box.
+    const publish = await call(`/api/drafts/${draft}/publish`, {
+      caption: "Beat my score.",
+    });
     assert.equal(publish.status, 201);
     const { id: gameId } = await publish.json();
     const { games } = await json("/api/games");
@@ -631,10 +635,8 @@ test(
       { ...games[0], comments: undefined, likes: undefined },
       {
         author: "maker",
-        caption: "Tap to jump from moon to moon.",
+        caption: "Beat my score.",
         comments: undefined,
-        // The Caption again, for app builds from before `caption`.
-        description: "Tap to jump from moon to moon.",
         id: gameId,
         liked: false,
         likes: undefined,
@@ -1394,7 +1396,7 @@ const post = async (route, body, sub = "user_maker") =>
   });
 
 test(
-  "publish: the Game's Caption is the one the Creator sends, empty included, or the Maker's description when none is sent; the caption model writes one, cut to one line",
+  "publish: the Game's Caption is the one the Creator sends, empty included, and one must be sent; the caption model writes one, cut to one line",
   { timeout: 180_000 },
   async (t) => {
     await serve(t);
@@ -1402,7 +1404,6 @@ test(
     kill();
     await endWeek("2026-W03");
     await start();
-    const MAKERS = "Tap to jump from moon to moon.";
     const built = async () => {
       const { id } = await json("/api/drafts", { text: "build new" });
       const socket = await connect(id);
@@ -1451,12 +1452,14 @@ test(
     });
     assert.equal(longCurrent.status, 400);
 
-    // A Caption over the limit or of two lines is refused, and the Draft stays one.
-    for (const unfit of [long, "beat my score\nif you can"]) {
+    // A Caption over the limit or of two lines, or none at all, is refused, and the Draft stays one.
+    for (const unfit of [
+      { caption: long },
+      { caption: "beat my score\nif you can" },
+      {},
+    ]) {
       // oxlint-disable-next-line no-await-in-loop -- one request at a time, as a Creator sends them.
-      const response = await post(`/api/drafts/${draft}/publish`, {
-        caption: unfit,
-      });
+      const response = await post(`/api/drafts/${draft}/publish`, unfit);
       assert.equal(response.status, 400);
     }
     const { drafts } = await json("/api/drafts");
@@ -1467,8 +1470,6 @@ test(
       "beat my score 🚀"
     );
     assert.equal(await publishedAs(await built(), { caption: "" }), "");
-    // An app build from before the field sends no body.
-    assert.equal(await publishedAs(await built()), MAKERS);
 
     // A Draft the Maker hasn't built has no game to write a Caption for.
     const { id: chat } = await json("/api/drafts", { text: "hello" });
