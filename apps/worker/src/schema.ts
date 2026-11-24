@@ -178,6 +178,8 @@ export const now = sql`(strftime('%Y-%m-%dT%H:%M:%fZ'))`;
 export const drafts = sqliteTable(
   "drafts",
   {
+    // The Revision that has a cover.png, null when the current one has none.
+    coverRevision: integer("cover_revision"),
     createdAt: text("created_at").notNull().default(now),
     description: text("description"),
     id: text("id").primaryKey(),

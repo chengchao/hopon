@@ -102,9 +102,13 @@ export const boxPlaytest = async (box: Box, arg: string) => {
   }
 };
 
+// What a playtest leaves in the workspace: the game half a second after the tap that starts it, and as the playtest
+// ended, which is its over screen when the game ended first.
+export const SCREENSHOTS = ["playtest-start.png", "playtest-end.png"] as const;
+
 export const screenshots = async (box: Box) =>
   await Promise.all(
-    ["playtest-start.png", "playtest-end.png"].map(async (file) => ({
+    SCREENSHOTS.map(async (file) => ({
       data: Buffer.from(await box.readBytes(`${WORKSPACE}/${file}`)).toString(
         "base64"
       ),

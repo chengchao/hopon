@@ -1,0 +1,1 @@
+ALTER TABLE `drafts` ADD `cover_revision` integer;

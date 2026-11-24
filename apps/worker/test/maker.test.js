@@ -273,6 +273,19 @@ const noRevision = async (draft) => {
   const preview = await call(`/api/drafts/${draft}/preview`);
   assert.equal(preview.status, 404);
 };
+// The current Revision's cover.png through the app's preview link: [n, status, its bytes in hex].
+const coverFile = async (draft) => {
+  const url = await previewUrl(draft);
+  const cover = await fetch(url.replace(/index\.html$/u, "cover.png"));
+  return [
+    Number(new URL(url).pathname.split("/")[3]),
+    cover.status,
+    Buffer.from(await cover.arrayBuffer()).toString("hex"),
+  ];
+};
+// The fake box's screenshot.
+const PNG_HEX = "89504e470d0a1a0a";
+
 const published = (n) =>
   `said: Published: the Creator now has Revision ${n}. If you're done, reply to the Creator with what the game is and how to play it. Say nothing about how you made it: not the advisor, tests, playtests or checks, and nothing you skipped.`;
 // Whether the box's log has `build`'s verify run for a build of `kind`.
@@ -398,6 +411,8 @@ test(
     assert.equal(indexAt, 1);
     assert.match(index, /data-music="music\.opus"/u);
     assert.deepEqual(await revisionFile(draft, "music.opus"), [1, 200, OPUS]);
+    // The agent playtested before it built, so the Revision keeps that playtest's screenshot as its cover.
+    assert.deepEqual(await coverFile(draft), [1, 200, PNG_HEX]);
     // The page fetches its music from an opaque origin; text is gzipped by the runtime (workerd), from the Worker's
     // Content-Encoding, and fetch decodes it, so the text above held.
     const page = await previewUrl(draft);
@@ -968,6 +983,9 @@ test(
     // A second new game in one run still has the message that asked for it.
     assert.equal(await socket.turn("build twice"), "turn_done");
     assert.match(await lastReply(draft), /\["build twice"\]/u);
+    // Neither build followed a playtest, and each check swept the workspace: the Revision publishes with no cover.
+    const [coverless, cover] = await coverFile(draft);
+    assert.deepEqual([coverless, cover], [5, 404]);
 
     // A Revision from before source.tgz, its source files beside its built ones: the next run restores them, and a
     // change keeps its design and music in the source.tgz Revision it publishes.
