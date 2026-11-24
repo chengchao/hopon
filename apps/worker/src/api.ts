@@ -570,6 +570,17 @@ app.get("/api/saves/count", (c) =>
   )
 );
 
+// No run outlives its abort timer and the one last build after it. A turn mark older than that is a run whose end
+// never reached D1, from a Maker that hasn't woken since (it puts the mark right when it does): the list reads it as
+// no turn.
+const TURN_SLACK_S = 300;
+const liveTurn = (startedAt: string | null, at: number, env: HoponEnv) => {
+  const lease = (Number(env.MAKER_BUILD_ABORT_S) + TURN_SLACK_S) * 1000;
+  return startedAt !== null && at - Date.parse(startedAt) < lease
+    ? startedAt
+    : null;
+};
+
 app.get("/api/drafts", (c) =>
   run(
     c,
@@ -581,13 +592,20 @@ app.get("/api/drafts", (c) =>
             description: drafts.description,
             id: drafts.id,
             title: drafts.title,
+            turnStartedAt: drafts.turnStartedAt,
             updatedAt: drafts.updatedAt,
           })
           .from(drafts)
           .where(eq(drafts.owner, owner))
           .orderBy(desc(drafts.updatedAt))
       );
-      return c.json({ drafts: rows } satisfies { drafts: DraftSummary[] });
+      const at = Date.now();
+      return c.json({
+        drafts: rows.map((row) => ({
+          ...row,
+          turnStartedAt: liveTurn(row.turnStartedAt, at, c.env),
+        })),
+      } satisfies { drafts: DraftSummary[] });
     })
   )
 );

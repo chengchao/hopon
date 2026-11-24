@@ -287,10 +287,9 @@ const migrate = async () => {
   const [code] = await once(migrating, "exit");
   assert.equal(code, 0);
 };
-// The week ends: this week's bucket becomes an old week's (`old`, a 2026-W0x no other call has used), so the next
-// model call starts a full Allowance. The server must be down.
-const endWeek = async (old) => {
-  const moved = wrangler(
+// A statement on the local D1. The server must be down.
+const d1 = async (command) => {
+  const ran = wrangler(
     [
       "d1",
       "execute",
@@ -299,12 +298,37 @@ const endWeek = async (old) => {
       "--persist-to",
       state,
       "--command",
-      `UPDATE generation_limits SET bucket = 'user_maker:${old}' WHERE bucket LIKE 'user_maker:%' AND bucket NOT LIKE 'user_maker:2026-W0%'`,
+      command,
     ],
     { stdio: "ignore" }
   );
-  const [code] = await once(moved, "exit");
+  const [code] = await once(ran, "exit");
   assert.equal(code, 0);
+};
+// The week ends: this week's bucket becomes an old week's (`old`, a 2026-W0x no other call has used), so the next
+// model call starts a full Allowance.
+const endWeek = (old) =>
+  d1(
+    `UPDATE generation_limits SET bucket = 'user_maker:${old}' WHERE bucket LIKE 'user_maker:%' AND bucket NOT LIKE 'user_maker:2026-W0%'`
+  );
+// The Draft as the list shows it, once its turn mark says `working`: the Maker writes the mark beside the frames a
+// socket waits for, not before them.
+const listed = async (draft, working) => {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    // oxlint-disable-next-line no-await-in-loop -- polling
+    const { drafts } = await json("/api/drafts");
+    const found = drafts.find(({ id }) => id === draft);
+    if ((found.turnStartedAt !== null) === working) {
+      return found;
+    }
+    assert.ok(
+      Date.now() < deadline,
+      `timed out waiting for the list to say working: ${working}; it says ${JSON.stringify(found)}`
+    );
+    // oxlint-disable-next-line no-await-in-loop -- polling
+    await sleep(50);
+  }
 };
 
 const serve = async (t) => {
@@ -343,6 +367,8 @@ test(
     assert.deepEqual(await boxLog(draft), []);
     assert.equal(await modelCalls(draft), 1);
     await noRevision(draft);
+    // The turn is over, and the list says so.
+    await listed(draft, false);
 
     // Before its first tool runs, the box holds everything the Creator has said in this chat.
     assert.equal(await socket.turn("build asked"), "turn_done");
@@ -443,25 +469,38 @@ test(
     // A run that never ends: the abort timer ends the turn turn_failed, and the running command is stopped.
     assert.equal(await socket.turn("build hang"), "turn_failed");
     assert.equal(await revisionOf(draft), 4);
+    // A failed turn is over too.
+    const idle = await listed(draft, false);
 
     // Stop mid-run: turn_failed, and the game hasn't changed.
     let step = socket.after("the playtest", played);
     const stopped = socket.turn("build wait");
     await step();
+    // While the turn runs the list says the Maker is working, since it took the message, which also moved the Draft's
+    // date.
+    const working = await listed(draft, true);
+    assert.ok(working.turnStartedAt > idle.updatedAt, JSON.stringify(working));
+    assert.equal(working.updatedAt, working.turnStartedAt);
     // Publish waits for the turn to end (#145).
     const publishing = await call(`/api/drafts/${draft}/publish`, {});
     assert.equal(publishing.status, 409);
     await call(`/api/drafts/${draft}/stop`, {});
     assert.equal(await stopped, "turn_failed");
     assert.equal(await revisionOf(draft), 4);
+    await listed(draft, false);
 
     // A steer sent mid-run reaches the agent after the tool round it joins.
     step = socket.after("the playtest", played);
     const building = socket.turn("build wait");
     await step();
+    const before = await listed(draft, true);
     const queued = socket.after("the queued steer", steered);
     await send(draft, "make it orange");
     await queued();
+    // The steer joins the turn: its clock runs on, and the Draft's date moves.
+    const steeredAt = await listed(draft, true);
+    assert.equal(steeredAt.turnStartedAt, before.turnStartedAt);
+    assert.ok(steeredAt.updatedAt > before.updatedAt);
     await fake(draft, "release");
     assert.equal(await building, "turn_done");
     const entries = await transcript(draft);
@@ -640,6 +679,38 @@ test(
       await lastReply(draft),
       /said: .*Skill resource not found: make-game\/references\/littlejs\.md/u
     );
+    socket.close();
+  }
+);
+
+test(
+  "the turn mark: the list drops one older than any run can be, and a Maker that wakes with no run clears the one it left",
+  { timeout: 120_000 },
+  async (t) => {
+    await serve(t);
+    const { id: draft } = await json("/api/drafts", { text: "hello" });
+    let socket = await connect(draft);
+    await socket.until("the hello's end", over);
+    socket.close();
+    await listed(draft, false);
+
+    // A run whose end never reached D1, long ago: the list reads no turn, without waking the Maker.
+    kill();
+    await d1(
+      `UPDATE drafts SET turn_started_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour') WHERE id = '${draft}'`
+    );
+    await start();
+    await listed(draft, false);
+
+    // The same just now: the list believes the mark until the Maker wakes and finds no run.
+    kill();
+    await d1(
+      `UPDATE drafts SET turn_started_at = strftime('%Y-%m-%dT%H:%M:%fZ') WHERE id = '${draft}'`
+    );
+    await start();
+    await listed(draft, true);
+    socket = await connect(draft);
+    await listed(draft, false);
     socket.close();
   }
 );

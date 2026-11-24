@@ -391,6 +391,7 @@ const Create = () => {
             description: null,
             id: created.id,
             title: null,
+            turnStartedAt: null,
             updatedAt: "",
           });
         }

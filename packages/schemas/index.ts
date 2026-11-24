@@ -49,6 +49,8 @@ export interface DraftSummary {
   id: string;
   title: string | null;
   description: string | null;
+  /** When the Maker took the message its current turn answers; null while it waits for the Creator. */
+  turnStartedAt: string | null;
   updatedAt: string;
 }
 

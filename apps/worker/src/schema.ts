@@ -172,7 +172,8 @@ export const blocks = sqliteTable(
 // A Draft: one Maker chat and its game, private to `owner` until published (#117). The row is a list cache: the chat
 // lives only in the Maker's SQLite. `id` is the Maker's name, 64 hex characters. `title` is null until the first
 // Revision, and so is `description`, the Maker's line for the feed. The Maker sets `updated_at` at the end of each
-// turn; milliseconds, so the list's order has no ties.
+// turn and when it takes a message; milliseconds, so the list's order has no ties. `turn_started_at` is the Maker's
+// too (markTurn): when it took the message its turn answers, null while it waits for the Creator.
 export const now = sql`(strftime('%Y-%m-%dT%H:%M:%fZ'))`;
 export const drafts = sqliteTable(
   "drafts",
@@ -182,6 +183,7 @@ export const drafts = sqliteTable(
     id: text("id").primaryKey(),
     owner: text("owner").notNull(),
     title: text("title"),
+    turnStartedAt: text("turn_started_at"),
     updatedAt: text("updated_at").notNull().default(now),
   },
   (table) => [
