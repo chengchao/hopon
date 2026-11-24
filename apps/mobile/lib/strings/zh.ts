@@ -202,9 +202,14 @@ export const zh: Strings = {
     restart: "重新开始",
   },
   publish: {
-    body: "发布后聊天就结束了，游戏会出现在“发现”里。想改标题，请告诉制作助手。",
+    another: "换一句",
+    body: "发布后聊天就结束了，游戏会出现在“发现”里。文案发布后不能再改。想改标题，请告诉制作助手。",
+    caption: "文案",
+    captionPlaceholder: "写一句文案，也可以留空",
     publishing: "发布中…",
     title: (title: string) => `发布《${title}》？`,
+    writeForMe: "帮我写",
+    writing: "正在写…",
   },
   report: {
     alsoBlock: (handle: string | null | undefined) => `同时屏蔽 @${handle}`,

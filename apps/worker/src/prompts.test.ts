@@ -9,6 +9,11 @@ const MAKER = readFileSync(
   "utf-8"
 );
 
+const CAPTION = readFileSync(
+  new URL("../prompts/caption.md", import.meta.url),
+  "utf-8"
+);
+
 const TOOL_RESULTS = readFileSync(
   new URL("../prompts/tool-results.md", import.meta.url),
   "utf-8"
@@ -18,6 +23,12 @@ test("maker.md renders with every placeholder filled", () => {
   const rendered = renderPrompt(MAKER, MAKER_VALUES);
   assert.doesNotMatch(rendered, /\{\{|\}\}/u);
   assert.ok(rendered.includes(`${MAKER_VALUES.MAX_STEPS} tool calls`));
+});
+
+test("caption.md renders with the Caption's limit", () => {
+  const rendered = renderPrompt(CAPTION, { CAPTION_MAX: 180 });
+  assert.doesNotMatch(rendered, /\{\{|\}\}/u);
+  assert.ok(rendered.includes("never more than 180"));
 });
 
 // ADR 0009: the harness gives the agent facts and what to do, and the agent writes the reply in the Creator's

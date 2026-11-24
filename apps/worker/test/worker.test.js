@@ -164,13 +164,14 @@ const setup = async (t) => {
       user = owner,
       username = "maya_makes",
       token,
-      contentType = "application/json",
+      // As the app sends it: only a request with a body says what the body is.
+      contentType = body === undefined ? null : "application/json",
     } = {}
   ) =>
     worker.fetch(
       new Request(`https://hopon.test${path}`, {
         headers: {
-          "Content-Type": contentType,
+          ...(contentType ? { "Content-Type": contentType } : {}),
           ...(user || token
             ? {
                 Authorization: `Bearer ${token ?? (await sign(user, { username }))}`,
@@ -776,7 +777,7 @@ const HANDLE_REJECTED = {
   error: "Your name breaks hopon's rules. Pick a different one.",
 };
 
-test("screening: a flagged title or description refuses Publish and leaves the Draft as it is", async (t) => {
+test("screening: a flagged title or Caption refuses Publish and leaves the Draft as it is", async (t) => {
   const { ai, call, count, draft, env, forwarded } = await setup(t);
   const id = await draft();
   const screened = [];
@@ -788,15 +789,25 @@ test("screening: a flagged title or description refuses Publish and leaves the D
     method: "POST",
   });
   assert.equal(response.status, 422);
-  assert.deepEqual(await response.json(), {
+  const refused = {
     error:
-      "This game's title or description breaks hopon's rules. Ask the Maker to change it.",
-  });
+      "This game's title or caption breaks hopon's rules. Change the caption, or ask the Maker to change the title.",
+  };
+  assert.deepEqual(await response.json(), refused);
   assert.deepEqual(screened.toSorted(), [
     "maya_makes",
     `${made.title}\n${made.description}`,
   ]);
-  // Still listed with the title and description Publish's confirm sheet shows.
+  // The Caption the Creator sends is what's screened, not the Maker's description.
+  const mine = `${made.title}\nmy own caption`;
+  ai.screen = flagOnly(mine);
+  const sent = await call(`/api/drafts/${id}/publish`, {
+    body: { caption: "my own caption" },
+    method: "POST",
+  });
+  assert.equal(sent.status, 422);
+  assert.deepEqual(await sent.json(), refused);
+  // Still listed with the Maker's title and description.
   const { drafts } = await json(call("/api/drafts"));
   assert.deepEqual(
     drafts.map(({ description, title }) => ({ description, title })),

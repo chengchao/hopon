@@ -73,6 +73,8 @@ import {
   jobBox,
   readyFirst,
 } from "./agent-sandbox.ts";
+import { writeCaption } from "./caption.ts";
+import type { Game } from "./caption.ts";
 import { KEPT_DESIGN, designGame } from "./designer.ts";
 import { checkLimits } from "./limits.ts";
 import type { After, Limit, RunCounts } from "./limits.ts";
@@ -779,6 +781,20 @@ export class Maker extends Agent<Env> {
     const action = new URL(request.url).pathname.slice(1);
     return this.runtime.runPromise(
       Effect.gen({ self: this }, function* () {
+        // A Caption for the publish sheet (caption.ts): one model call of its own, outside the conversation. A call
+        // that fails is no Caption, which the Worker reports.
+        if (action === "caption") {
+          const game = yield* Effect.promise(() => request.json<Game>());
+          const caption = yield* Effect.promise(async () => {
+            try {
+              return (await writeCaption(this.env, this.name, game)) ?? null;
+            } catch (error) {
+              console.error(`Draft ${this.name}: no caption`, error);
+              return null;
+            }
+          });
+          return Response.json({ caption });
+        }
         const pi = yield* Pi;
         if (action === "message") {
           const { text: message } = yield* Effect.promise(() =>

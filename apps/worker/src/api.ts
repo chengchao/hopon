@@ -2,10 +2,13 @@ import { verifyToken } from "@clerk/backend";
 import { zValidator } from "@hono/zod-validator";
 import {
   ALLOWANCE_USED,
+  GAME_DESCRIPTION_MAX,
   MAX_DRAFTS,
+  newCaption,
   newComment,
   newMessage,
   newReport,
+  publishGame,
   REPORT_REASONS,
 } from "@hopon/schemas";
 import type {
@@ -13,6 +16,7 @@ import type {
   AppVersion,
   BlockedAccounts,
   Comment,
+  Caption,
   CommentPage,
   DraftSummary,
   FeedGame,
@@ -162,11 +166,12 @@ const cursor = (raw: string | undefined) =>
 // Llama Guard categories hopon's Rules allow: S6 specialized advice, S8 intellectual property, S13 elections.
 const ALLOWED_CATEGORIES = new Set(["S6", "S8", "S13"]);
 
-// What a refusal says, by what was screened. A game's title and description are the Maker's, so the Creator asks it.
+// What a refusal says, by what was screened. A game's Caption is the Creator's to change on the publish sheet; its
+// title is the Maker's, so the Creator asks it.
 const REFUSED = {
   comment:
     "This looks like it breaks hopon's rules. Please change it and try again.",
-  game: "This game's title or description breaks hopon's rules. Ask the Maker to change it.",
+  game: "This game's title or caption breaks hopon's rules. Change the caption, or ask the Maker to change the title.",
   handle: "Your name breaks hopon's rules. Pick a different one.",
   message:
     "This looks like it breaks hopon's rules. Please change it and try again.",
@@ -922,92 +927,146 @@ app.get(`/drafts/${DRAFT}/:n{[0-9]{1,9}}/:token/${FILE}`, async (c) => {
 // finds the row by its Draft and finishes the job.
 const RUNTIME = /\/runtime\/(?<version>v\d+)\.js/u;
 const SOURCE_ONLY = new Set(["design.md", "source.tgz", "tests.json"]);
-app.post(`/api/drafts/${DRAFT}/publish`, (c) =>
-  run(
-    c,
-    Effect.gen(function* () {
-      const id = c.req.param("id");
-      const owner = yield* ownDraft(id);
-      const { username } = yield* Viewer;
-      // Published games always show who made them, so a handle is required (the client asks for one first).
-      if (!username) {
-        return yield* fail(400, "Pick your name before publishing.");
-      }
-      const draft = yield* query((db) =>
-        db
-          .select({ description: drafts.description, title: drafts.title })
-          .from(drafts)
-          .where(eq(drafts.id, id))
-          .get()
-      );
-      const n = yield* Effect.promise(() => currentRevision(c.env.FILES, id));
-      if (!n || !draft?.title) {
-        return yield* fail(409, "This Draft has no game yet.");
-      }
-      const status = yield* maker(c.env, id, "busy");
-      const { busy } = yield* Effect.promise(() =>
-        status.json<{ busy: boolean }>()
-      );
-      if (busy) {
-        return yield* fail(409, "Wait for the Maker to finish, then publish.");
-      }
-      const { title } = draft;
-      const description = draft.description ?? "";
-      // Refused, it stays a Draft.
-      yield* screenWithHandle(
-        c.env,
-        owner,
-        username,
-        "game",
-        `${title}\n${description}`
-      );
-      const revision = revisionFiles(id, n);
-      const index = yield* Effect.promise(async () => {
-        const object = await c.env.FILES.get(`${revision}index.html`);
-        return (await object?.text()) ?? "";
-      });
-      const game = yield* query((db) =>
-        db
-          .insert(games)
-          .values({
-            author: username,
-            description,
-            draftId: id,
-            owner,
-            runtime: RUNTIME.exec(index)?.groups?.version ?? null,
-            title,
-          })
-          .onConflictDoUpdate({ set: { draftId: id }, target: games.draftId })
-          .returning({ id: games.id })
-          .get()
-      );
-      // Every file the page loads as it is, binary or not: the Game plays as its Creator last played it. The source and
-      // the agent's notes stay with the Draft and go with it.
-      yield* Effect.promise(async () => {
-        const { objects } = await c.env.FILES.list({ prefix: revision });
-        await Promise.all(
-          objects
-            .filter(({ key }) => !SOURCE_ONLY.has(key.slice(revision.length)))
-            .map(async ({ key }) => {
-              const object = await c.env.FILES.get(key);
-              if (!object) {
-                throw new Error(`${key} is missing`);
-              }
-              await c.env.FILES.put(
-                `${gameFiles(game.id)}${key.slice(revision.length)}`,
-                await object.arrayBuffer()
-              );
-            })
+// The Draft's game as Publish needs it: the Maker's title and description of it, and the current Revision n. A Draft the
+// Maker hasn't built yet has none.
+const builtDraft = Effect.fn("builtDraft")(function* (
+  env: HoponEnv,
+  id: string
+) {
+  const draft = yield* query((db) =>
+    db
+      .select({ description: drafts.description, title: drafts.title })
+      .from(drafts)
+      .where(eq(drafts.id, id))
+      .get()
+  );
+  const n = yield* Effect.promise(() => currentRevision(env.FILES, id));
+  if (!n || !draft?.title) {
+    return yield* fail(409, "This Draft has no game yet.");
+  }
+  return { description: draft.description ?? "", n, title: draft.title };
+});
+
+const CAPTION_TOO_LONG = `Write a caption of one line, up to ${GAME_DESCRIPTION_MAX} characters.`;
+
+// A Caption for the publish sheet, which the Draft's Maker has a model write (src/caption.ts): the model path needs
+// pi's packages, which this file stays clear of. It costs hopon tokens, so it stops at zero as a message does.
+// The Caption isn't screened here: Publish screens whatever the Creator ends up sending.
+app.post(
+  `/api/drafts/${DRAFT}/caption`,
+  jsonBody(newCaption, CAPTION_TOO_LONG),
+  (c) =>
+    run(
+      c,
+      Effect.gen(function* () {
+        const id = c.req.param("id");
+        const owner = yield* ownDraft(id);
+        const { description, title } = yield* builtDraft(c.env, id);
+        yield* refuseAtZero(c.env, owner);
+        const { current = "" } = c.req.valid("json");
+        const response = yield* maker(c.env, id, "caption", {
+          current,
+          description,
+          title,
+        });
+        const { caption } = yield* Effect.promise(() =>
+          response.json<{ caption: string | null }>()
         );
-      }).pipe(
-        Effect.onError(() =>
-          query((db) => db.delete(games).where(eq(games.id, game.id)))
-        )
-      );
-      yield* deleteDraft(c.env, id);
-      return c.json({ id: game.id }, 201);
-    })
-  )
+        if (caption === null) {
+          return yield* fail(
+            503,
+            "We couldn't write a caption just now. Please try again."
+          );
+        }
+        return c.json({ caption } satisfies Caption);
+      })
+    )
+);
+
+app.post(
+  `/api/drafts/${DRAFT}/publish`,
+  jsonBody(publishGame, CAPTION_TOO_LONG),
+  (c) =>
+    run(
+      c,
+      Effect.gen(function* () {
+        const id = c.req.param("id");
+        const owner = yield* ownDraft(id);
+        const { username } = yield* Viewer;
+        // Published games always show who made them, so a handle is required (the client asks for one first).
+        if (!username) {
+          return yield* fail(400, "Pick your name before publishing.");
+        }
+        const draft = yield* builtDraft(c.env, id);
+        const { n, title } = draft;
+        const status = yield* maker(c.env, id, "busy");
+        const { busy } = yield* Effect.promise(() =>
+          status.json<{ busy: boolean }>()
+        );
+        if (busy) {
+          return yield* fail(
+            409,
+            "Wait for the Maker to finish, then publish."
+          );
+        }
+        // The Creator's Caption from the publish sheet, which may be empty. An app build from before it sends none,
+        // and showed the Maker's description instead.
+        const caption = c.req.valid("json").caption ?? draft.description;
+        // Refused, it stays a Draft.
+        yield* screenWithHandle(
+          c.env,
+          owner,
+          username,
+          "game",
+          `${title}\n${caption}`
+        );
+        const revision = revisionFiles(id, n);
+        const index = yield* Effect.promise(async () => {
+          const object = await c.env.FILES.get(`${revision}index.html`);
+          return (await object?.text()) ?? "";
+        });
+        const game = yield* query((db) =>
+          db
+            .insert(games)
+            .values({
+              author: username,
+              description: caption,
+              draftId: id,
+              owner,
+              runtime: RUNTIME.exec(index)?.groups?.version ?? null,
+              title,
+            })
+            .onConflictDoUpdate({ set: { draftId: id }, target: games.draftId })
+            .returning({ id: games.id })
+            .get()
+        );
+        // Every file the page loads as it is, binary or not: the Game plays as its Creator last played it. The source and
+        // the agent's notes stay with the Draft and go with it.
+        yield* Effect.promise(async () => {
+          const { objects } = await c.env.FILES.list({ prefix: revision });
+          await Promise.all(
+            objects
+              .filter(({ key }) => !SOURCE_ONLY.has(key.slice(revision.length)))
+              .map(async ({ key }) => {
+                const object = await c.env.FILES.get(key);
+                if (!object) {
+                  throw new Error(`${key} is missing`);
+                }
+                await c.env.FILES.put(
+                  `${gameFiles(game.id)}${key.slice(revision.length)}`,
+                  await object.arrayBuffer()
+                );
+              })
+          );
+        }).pipe(
+          Effect.onError(() =>
+            query((db) => db.delete(games).where(eq(games.id, game.id)))
+          )
+        );
+        yield* deleteDraft(c.env, id);
+        return c.json({ id: game.id }, 201);
+      })
+    )
 );
 
 // A published Game's file, public: the feed loads `/games/<id>/index.html`.

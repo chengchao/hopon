@@ -346,22 +346,15 @@ export const Feed = ({
                         {(item.author ?? "?").slice(0, 1).toUpperCase()}
                       </Text>
                     </View>
-                    <View className="flex-1">
-                      <Text
-                        numberOfLines={1}
-                        className="font-display text-[26px] leading-[34px] text-primary"
-                      >
-                        {item.title}
-                      </Text>
-                      <Text
-                        numberOfLines={1}
-                        className="text-sm leading-[18px] text-muted-foreground"
-                      >
+                    <Text
+                      numberOfLines={1}
+                      className="flex-1 text-sm leading-[20px] text-muted-foreground"
+                    >
+                      <Text className="font-strong text-sm leading-[20px] text-foreground">
                         {item.author ? `@${item.author}` : t.ticket.anonymous}
-                        {" · "}
-                        {item.description}
                       </Text>
-                    </View>
+                      {!!item.description && `  ${item.description}`}
+                    </Text>
                   </View>
                   <GameActions
                     game={item}

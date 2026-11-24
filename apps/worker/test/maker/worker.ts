@@ -7,6 +7,7 @@
 //   gets the gateway's 402. A call with no tools is the advisor's (src/advisor.ts): it gets fixed advice, a 400 for the
 //   question "advisor fails", or an empty answer cut at max_tokens for "advisor silent", and isn't counted in `calls`.
 //   One whose system prompt is the designer's (src/designer.ts) gets a fixed design, or a 400 for "designerfails".
+//   A call tagged "caption" (src/caption.ts) gets CAPTION, an answer longer than a Caption may be, in quotes, on two lines.
 // - The sandbox: files in the Maker's own storage (so they outlive a restart, as a running box does), every command
 //   logged and answered by fakeExec: the playtest green unless game.ts says BROKEN, the check's tests red on that,
 //   building dist/ (as `vite build` would in a workspace with a vite.config.ts); music.mjs rendering a fixed track; tar packing the workspace's source into source.tgz as JSON (its
@@ -366,10 +367,16 @@ const advise = (
   return say("advice: keep the levels in their own file.", TOKENS);
 };
 
+// What the caption model answers: more than a Caption may hold, to be cut to one line of the limit.
+const CAPTION = `"${"I bet you can't last 30 seconds. ".repeat(8)}"\nA second line.`;
+
 const model = async (request: Request) => {
   const { agent, draftId } = JSON.parse(
     request.headers.get("cf-aig-metadata") ?? "{}"
   ) as { agent: string; draftId: string };
+  if (agent === "caption") {
+    return say(CAPTION, TOKENS);
+  }
   if (agent !== "maker") {
     mistagged.set(draftId, (mistagged.get(draftId) ?? 0) + 1);
   }
