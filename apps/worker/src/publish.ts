@@ -1,8 +1,9 @@
 // The Maker's `build` tool (ADR 0006): it publishes the game in the workspace to the Creator. It runs verify.js, then
 // the harness check (job.ts's checkBuild: the source packed, the music, the build, the agent's own tests.json), then
-// writes Revision n+1 to R2, source.tgz and the built files, and the Draft's title and description to D1. A failed
-// check is the tool's error result, which the agent fixes before it calls `build` again. The tool keeps the old main agent's name because the app's chat reads it: a
-// `build` result is the game card, and a running `build` is the status line.
+// writes Revision n+1 to R2, source.tgz, the built files and a cover when the agent playtested, and the Draft's title
+// and description to D1. A failed check is the tool's error result, which the agent fixes before it calls `build`
+// again. The tool keeps the old main agent's name because the app's chat reads it: a `build` result is the game card,
+// and a running `build` is the status line.
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-durable";
 import { GAME_DESCRIPTION_MAX, GAME_TITLE_MAX } from "@hopon/schemas";
@@ -14,6 +15,7 @@ import {
   checkBuild,
   MUSIC_FILE,
   SCORE_FILES,
+  SCREENSHOTS,
   SOURCE_TAR,
   TestsSchema,
   WORKSPACE,
@@ -21,6 +23,7 @@ import {
 import type { Box, Source, Tests } from "../../maker/src/job.ts";
 import { drafts, now } from "./schema.ts";
 import {
+  COVER,
   currentRevision,
   draftFiles,
   removeFiles,
@@ -38,6 +41,9 @@ const TESTS = "tests.json";
 const ASKED = ".hopon/asked.json";
 // A Revision's last file written: one without it is a write an eviction cut short, which currentRevision skips.
 const INDEX = "index.html";
+const PNG = [137, 80, 78, 71, 13, 10, 26, 10];
+// A 360×640 screenshot is well under this; the workspace is the agent's, so the file could be anything.
+const MAX_COVER_BYTES = 1_000_000;
 const NODE = "/usr/local/bin/node";
 const VERIFY = "/opt/hopon/verify.js";
 
@@ -91,6 +97,26 @@ const readText = async (box: Box, file: string) => {
   } catch {
     return null;
   }
+};
+
+// The playtest's screenshot of the game in play, else of how it ended; null when the agent ran no playtest since the
+// last check swept the workspace, which is normal. It can trail the source by the agent's edits since that playtest.
+const readCover = async (box: Box) => {
+  for (const file of SCREENSHOTS) {
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- the second is read only when the first is missing
+      const shot = await box.readBytes(`${WORKSPACE}/${file}`);
+      if (
+        shot.length <= MAX_COVER_BYTES &&
+        PNG.every((byte, at) => shot[at] === byte)
+      ) {
+        return shot;
+      }
+    } catch {
+      // No such screenshot.
+    }
+  }
+  return null;
 };
 
 // tests.json, or why it can't be run.
@@ -181,6 +207,8 @@ export const publishTool = (
       if (tests.error) {
         throw refuse(tests.error);
       }
+      // The check sweeps the workspace, screenshots included.
+      const shot = await readCover(workspace);
       const verdict = await checkBuild(workspace, {
         music: spec.music,
         tests: tests.tests,
@@ -205,7 +233,11 @@ export const publishTool = (
       }
       // <n+1>/ is the whole Revision: nothing carries over from <n>/. index.html goes last, so an eviction mid-write
       // leaves a Revision currentRevision skips, and the next build starts <n+1>/ over.
-      const { files } = verdict;
+      // A game's own cover.png stays the game's, and the Revision has no cover.
+      const cover = COVER in verdict.files ? null : shot;
+      const files = cover
+        ? { ...verdict.files, [COVER]: cover }
+        : verdict.files;
       const next = revisionFiles(draftId, n + 1);
       const put = (name: string) =>
         env.FILES.put(`${next}${name}`, files[name]);
@@ -220,6 +252,7 @@ export const publishTool = (
         await drizzle(env.DB)
           .update(drafts)
           .set({
+            coverRevision: cover ? n + 1 : null,
             description: spec.description,
             title: spec.title,
             updatedAt: now,

@@ -27,7 +27,7 @@ import { Agent } from "agents";
 import type { Connection } from "agents";
 import { PiHarness, skills } from "agents/harness/pi";
 import { fromManifest, parseSkillMarkdown } from "agents/skills";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import {
   Cause,
@@ -579,7 +579,7 @@ export class Maker extends Agent<Env> {
   runtime = ManagedRuntime.make(piLayer(this.harness));
   // pi's event streams live in memory, one per socket, so a wake re-attaches every held socket (onStart).
   streams = new Map<string, AgentEventStream>();
-  // The object's own stream, which runs the ticker during each run and dates the D1 row at its end.
+  // The object's own stream, which runs the ticker during each run and keeps the D1 row's turn mark (markTurn).
   watcher: AgentEventStream | undefined;
   ticker: ReturnType<typeof setInterval> | undefined;
 
@@ -662,27 +662,49 @@ export class Maker extends Agent<Env> {
       return;
     }
     this.watcher = await this.runtime.runPromise(Pi.use((pi) => pi.events));
-    const db = drizzle(this.env.DB);
+    const { inbox, run } = this.watcher.snapshot;
     // A run Lifecycle resumed after an eviction started before this stream did.
-    if (this.watcher.snapshot.run) {
+    if (run) {
       this.tick();
     }
+    // The object may have died between a run's end and its write, or with a message taken that no run answered.
+    // Before the stream starts, so the row's writes stay in order.
+    await this.markTurn({ dated: false, working: !!run || inbox.length > 0 });
     this.watcher.start(async (events) => {
       for (const event of events) {
         if (event.type === "run_start") {
           this.tick();
+          // oxlint-disable-next-line no-await-in-loop -- one run starts per batch at most.
+          await this.markTurn({ dated: false, working: true });
         } else if (event.type === "run_end") {
           clearInterval(this.ticker);
           this.ticker = undefined;
           clearTimeout(this.abortTimer);
           // oxlint-disable-next-line no-await-in-loop -- one run ends per batch at most.
-          await db
-            .update(drafts)
-            .set({ updatedAt: now })
-            .where(eq(drafts.id, this.name));
+          await this.markTurn({ dated: true, working: false });
         }
       }
     });
+  }
+
+  // The Draft's row says whether a turn is on (`turn_started_at`), which only this object writes: set when it takes a
+  // message or a run starts, without restarting a clock already running, and cleared at the run's end, failed and
+  // stopped runs included (pi ends those the same way). `dated` moves `updated_at` too. The row is a list cache, so a
+  // failed write is logged, not thrown: the next wake, or the list's lease (api.ts), puts the mark right.
+  async markTurn({ dated, working }: { dated: boolean; working: boolean }) {
+    try {
+      await drizzle(this.env.DB)
+        .update(drafts)
+        .set({
+          turnStartedAt: working
+            ? sql`COALESCE(${drafts.turnStartedAt}, ${now})`
+            : null,
+          ...(dated && { updatedAt: now }),
+        })
+        .where(eq(drafts.id, this.name));
+    } catch (error) {
+      console.error(`Maker ${this.name}: the turn mark wasn't written`, error);
+    }
   }
 
   // From a run's start to its end (watch), every socket hears something at least every 15 s, and dead ones are closed.
@@ -761,6 +783,11 @@ export class Maker extends Agent<Env> {
         if (action === "message") {
           const { text: message } = yield* Effect.promise(() =>
             request.json<{ text: string }>()
+          );
+          // Before pi has the message, so this write can't land after the end of the run it starts and leave the list
+          // saying a finished turn is on. If pi then refuses the message, the next wake or the list's lease clears it.
+          yield* Effect.promise(() =>
+            this.markTurn({ dated: true, working: true })
           );
           const id = yield* pi.send(message);
           // After pi queues it, so a message counted here is in pi's inbox or a run (the limits hook's `seen`).

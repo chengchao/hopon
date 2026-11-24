@@ -85,6 +85,20 @@
       "when": 1792794968722,
       "tag": "20261023223608_games_are_files",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1795481370119,
+      "tag": "20261124004930_draft_turns",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1795487993232,
+      "tag": "20261124023953_draft_covers",
+      "breakpoints": true
     }
   ]
 }

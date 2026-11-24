@@ -1,6 +1,6 @@
 import { useAuth } from "@clerk/expo";
 import type { GamePage, SavedGame } from "@hopon/schemas";
-import { router, useFocusEffect } from "expo-router";
+import { Redirect, router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FlatList, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -74,43 +74,22 @@ const Saved = () => {
     }, [isSignedIn, load])
   );
 
-  const header = (
-    <Text
-      accessibilityRole="header"
-      className="px-2 pb-1 pt-4 font-display text-[44px] leading-[48px]"
-    >
-      {t.saved.title}
-    </Text>
-  );
   if (!isLoaded) {
     return <View className="flex-1 bg-background" />;
   }
+  // Saved opens from Me, which shows it only signed in; a sign-out while it is open leaves it.
   if (!isSignedIn) {
-    return (
-      <View
-        className="flex-1 gap-4 bg-background px-3"
-        style={{ paddingTop: insets.top }}
-      >
-        {header}
-        <Text className="px-2 text-base leading-[22px] text-muted-foreground">
-          {t.saved.signedOut}
-        </Text>
-        <Button
-          className="mx-2 h-12 self-start rounded-full px-6"
-          onPress={() => router.push("/sign-in")}
-        >
-          <Text>{t.common.signIn}</Text>
-        </Button>
-      </View>
-    );
+    return <Redirect href="/me" />;
   }
   return (
-    <View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
+    <View
+      className="flex-1 bg-background"
+      style={{ paddingBottom: insets.bottom }}
+    >
       <FlatList
         data={games}
         keyExtractor={(game) => String(game.id)}
-        contentContainerClassName="gap-4 px-3 pb-6"
-        ListHeaderComponent={header}
+        contentContainerClassName="gap-4 px-3 pb-6 pt-3"
         onEndReached={() => {
           if (next && !error) {
             load(next);

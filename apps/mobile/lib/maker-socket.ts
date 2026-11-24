@@ -1,12 +1,21 @@
-// The Make tab's WebSocket to a Draft's Maker (#126, #147). Each connect fetches a one-time ticket, then opens the
-// socket, whose first frame is a snapshot of the whole chat. Messages and Stop are POSTs, so they work while this is
-// down; the socket only brings the Maker's side.
+// The app's WebSocket to a Draft's Maker (#126, #147), for the chat and the Draft's page. Each connect fetches a
+// one-time ticket, then opens the socket, whose first frame is a snapshot of the whole chat. Messages and Stop are
+// POSTs, so they work while this is down; the socket only brings the Maker's side.
 import { addEventListener as onNetInfo } from "@react-native-community/netinfo";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { AppState } from "react-native";
 
 import { api, API_URL } from "@/lib/api";
+import { chatView, makerChat, NEW_CHAT } from "@/lib/maker-chat";
 import type { Frame } from "@/lib/maker-chat";
+import { useNow } from "@/lib/use-now";
 
 // The Maker closes a socket that hasn't pinged for 60 s while a turn runs, and answers each ping with "pong".
 const PING_MS = 20_000;
@@ -20,10 +29,12 @@ const UNREACHABLE_MS = 30_000;
 const TURN_BACKOFF_MS = 5000;
 const IDLE_BACKOFF_MS = 30_000;
 const FIRST_BACKOFF_MS = 500;
+// A running turn's timer shows seconds.
+const TIMER_MS = 1000;
 
 export type Link = "connecting" | "open" | "reconnecting" | "unreachable";
 
-export const useMakerSocket = ({
+const useMakerSocket = ({
   draft,
   getToken,
   running,
@@ -189,9 +200,50 @@ export const useMakerSocket = ({
       netInfo();
       clear("unreachable");
       drop();
+      // The next Draft's link starts over, so "open" always means open on that Draft's snapshot.
+      setLink("connecting");
     };
   }, [draft]);
 
   const retry = useCallback(() => reconnect.current?.(), []);
   return { link, retry };
+};
+
+// A Draft's Maker, live: its chat, the view of it (its timer ticking while a turn runs), and how many turns have ended
+// done since this mounted, each of which may have landed a Revision. `live` is whether the view is the Maker's own:
+// the socket is open on a snapshot. `onFrame` hears each frame after the chat has. No draft: no socket.
+export const useMaker = ({
+  draft,
+  getToken,
+  onFrame,
+}: {
+  draft: string | undefined;
+  getToken: () => Promise<string | null>;
+  onFrame?: (frame: Frame) => void;
+}) => {
+  const [chat, dispatch] = useReducer(makerChat, NEW_CHAT);
+  const [turns, setTurns] = useState(0);
+  const now = useNow(chat.running ? TIMER_MS : undefined);
+  const view = useMemo(() => chatView(chat, now), [chat, now]);
+  const { link, retry } = useMakerSocket({
+    draft,
+    getToken,
+    onFrame: (frame) => {
+      dispatch({ frame, type: "frame" });
+      if (frame.type === "turn_done") {
+        setTurns((n) => n + 1);
+      }
+      onFrame?.(frame);
+    },
+    running: chat.running,
+  });
+  return {
+    chat,
+    dispatch,
+    link,
+    live: draft !== undefined && link === "open",
+    retry,
+    turns,
+    view,
+  };
 };

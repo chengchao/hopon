@@ -52,6 +52,7 @@ export const en = {
       `Too long: ${length}/${max} characters`,
   },
   common: {
+    back: "Back",
     block: "Block",
     blockHandle: (handle: string | null) => `Block @${handle}`,
     cancel: "Cancel",
@@ -68,6 +69,19 @@ export const en = {
     signIn: "Sign in",
     tryAgain: "Try again",
   },
+  draftPage: {
+    chat: "Chat",
+    goToChat: "Go to chat",
+    gone: "This Draft is gone. It was published or deleted.",
+    making: "Making your game",
+    makingHint:
+      "You can leave. The Maker keeps going, and the game will be waiting here in Drafts.",
+    publishWhenDone: "Publish when the Maker finishes",
+    unmade: "No game yet",
+    unmadeHint:
+      "The Maker isn't working on this one. Tell it what you'd like in the chat.",
+    youAsked: "You asked",
+  },
   drafts: {
     ago: {
       days: (n: number) => `${n} d ago`,
@@ -78,9 +92,19 @@ export const en = {
     back: "Back to chat",
     deleteBody: "Its chat goes too.",
     deleteTitle: (title: string) => `Delete '${title}'?`,
-    deleting: "Deleting…",
+    empty: "Games you're making stay here until you publish them to Discover.",
     full: "Delete a Draft to start a new one",
+    fullHint: (n: number) =>
+      `You have ${n} Drafts, the most you can keep. Touch and hold one to delete it.`,
     newGame: "New game",
+    openHint: "Opens the game",
+    signedOut: "Sign in to make games and pick up where you left off.",
+    status: {
+      making: (clock: string) => `Making · ${clock}`,
+      ready: (ago: string) => `Ready to play · ${ago}`,
+      unmade: (ago: string) => `No game yet · ${ago}`,
+      updating: (clock: string) => `Updating · ${clock}`,
+    },
     title: "Drafts",
   },
   feed: {
@@ -125,7 +149,6 @@ export const en = {
     built: "Built a new version",
     cantReach: "Can't reach the Maker",
     close: "Close",
-    drafts: "Drafts",
     examples: [
       {
         label: "Moon cat",
@@ -184,6 +207,7 @@ export const en = {
     rules: "Rules",
     rulesHint: "Opens the Terms of Use",
     saved: "Saved",
+    savedHint: "Opens your saved games",
     signOut: "Sign out",
     signedOut: "Sign in to make games and keep the ones you like.",
     title: "Me",
@@ -241,7 +265,6 @@ export const en = {
   saved: {
     empty: "Tap the bookmark under a game to keep it here.",
     openHint: "Opens your saved games from here",
-    signedOut: "Sign in to see your saved games",
     title: "Saved",
   },
   signIn: {
@@ -263,9 +286,9 @@ export const en = {
   },
   tabs: {
     discover: "Discover",
+    drafts: "Drafts",
     makeGame: "Make a game",
     me: "Me",
-    saved: "Saved",
   },
   ticket: {
     anonymous: "A hopon player",

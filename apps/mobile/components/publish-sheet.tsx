@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api, HANDLE_REJECTED, handleRejected } from "@/lib/api";
-import { draftTitle } from "@/lib/draft-list";
+import { draftTitle } from "@/lib/drafts";
 import { t } from "@/lib/i18n";
 
 // Publish's confirm sheet (#119, #150): the Maker's title and description, which the Creator changes by asking the

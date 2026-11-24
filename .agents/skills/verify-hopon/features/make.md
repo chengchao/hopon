@@ -16,21 +16,23 @@ Make is where a Creator chats with the Maker to build a game. The first message 
 
 - The Make tab: `apps/mobile/app/create.tsx` → `GET /api/drafts` and `GET /api/allowance`; the first message → `POST /api/drafts` with `{"text":"…"}`; later ones → `POST /api/drafts/<id>/messages`; Stop → `POST /api/drafts/<id>/stop`.
 - The chat stream: `apps/mobile/lib/maker-socket.ts` → `POST /api/drafts/<id>/ws-ticket`, then `GET /api/drafts/<id>/ws`.
-- Play: `apps/mobile/components/play.tsx` → `GET /api/drafts/<id>/preview`. Publish: `apps/mobile/components/publish-sheet.tsx` → `POST /api/drafts/<id>/publish`.
-- Me's Drafts list: `apps/mobile/components/draft-list.tsx` → `GET /api/drafts`, `DELETE /api/drafts/<id>`.
+- Play: `apps/mobile/components/draft-game.tsx` (under `play.tsx` in the chat, and on a Draft's page) → `GET /api/drafts/<id>/preview`. Publish: `apps/mobile/components/publish-sheet.tsx` → `POST /api/drafts/<id>/publish`.
+- The Drafts tab: `apps/mobile/app/(tabs)/drafts.tsx`, through `apps/mobile/lib/use-drafts.ts` → `GET /api/drafts`, and `DELETE /api/drafts/<id>` when a card's long press is confirmed. Each card is the Draft's `cover`, an image the app loads from the list's link with no token.
+- A Draft's page, from its card: `apps/mobile/app/draft/[id].tsx` → the same list, the chat stream, and Play's preview once the Draft has a game. Its buttons open the chat on that Draft (`/create?draft=<id>`) and Publish.
 
 ## Driving it with call.sh
 
 Preconditions:
 
 - Baseline run, doctor healthy.
-- For preview and publish, `$S/seed-revision.sh` gives the Draft Revision 1 and a title (see Gotchas).
+- For preview, the cover and publish, `$S/seed-revision.sh` gives the Draft Revision 1, a title and, given a PNG, a cover (see Gotchas).
 
 - **Start.** Alice sends her first idea. Run `$S/call.sh "$RUN" draft POST /api/drafts --as user_alice:alice --json '{"text":"A game with a cat"}'`. 201, `{"id":"<64 hex>","message":"<uuid>"}`. Keep the id: `id=$(… | node -pe 'JSON.parse(require("fs").readFileSync(0)).id')`.
-- **List.** Run `$S/call.sh "$RUN" drafts GET /api/drafts --as user_alice:alice`. One Draft with that id, `title:null, description:null`. `--as user_bob:bob` gets `{"drafts":[]}`.
+- **List.** Run `$S/call.sh "$RUN" drafts GET /api/drafts --as user_alice:alice`. One Draft with that id, `title:null, description:null`. Its `turnStartedAt` is a time while the Maker's turn is on and `null` once it has ended; the Drafts tab shows the first as a spinner on a blank card. `cover` is `null`: the Draft has no game. `--as user_bob:bob` gets `{"drafts":[]}`.
 - **Allowance.** Run `$S/call.sh "$RUN" allowance GET /api/allowance --as user_alice:alice`. `{"left":40000000,"resetsAt":"<next Monday 00:00Z>","weekly":40000000}`, where `weekly` is `MAKER_WEEKLY_TOKENS` in `wrangler.jsonc`. Offline, nothing spends it.
 - **No game yet.** Run `$S/call.sh "$RUN" preview-none GET /api/drafts/$id/preview --as user_alice:alice`. 404 "This Draft has no game yet." Publish (`POST /api/drafts/$id/publish`) is a 409 with the same message.
-- **Seed the Revision.** Run `$S/seed-revision.sh "$RUN" "$id" "Cat Run"`. It prints `Draft <id> has Revision 1 and title 'Cat Run'`, and it's safe to rerun.
+- **Seed the Revision.** Run `$S/seed-revision.sh "$RUN" "$id" "Cat Run"`. It prints `Draft <id> has Revision 1 and title 'Cat Run'`, and it's safe to rerun. `GET /api/drafts` still has `cover:null`, and the Drafts tab shows such a Draft as its title on a blank card.
+- **Cover.** Make a portrait PNG (`sips -z 640 360 apps/mobile/assets/icon.png --out "$RUN/cover.png"`) and run `$S/seed-revision.sh "$RUN" "$id" "Cat Run" "$RUN/cover.png"`. `GET /api/drafts` now has `cover:"$ORIGIN/drafts/<id>/1/<exp>.<sig>/cover.png"`, with `exp` on a whole hour, one to two hours ahead, and the same link on a second read. Fetch its path signed out: 200, `Content-Type: image/png`. A bad signature or a past `exp` is the same 403 as the preview's.
 - **Preview.** Run `$S/call.sh "$RUN" preview GET /api/drafts/$id/preview --as user_alice:alice`. `{"url":"$ORIGIN/drafts/<id>/1/<exp>.<sig>/index.html"}`, with `exp` an hour ahead. Fetch the URL's path signed out (`$S/call.sh "$RUN" preview-page GET "<path>"`). 200, the page's HTML.
 - **Bad link.** Change the signature's first character, or set `exp` to a past time such as `1000000000`, and fetch it again. 403 "This link has expired." for both.
 - **Publish needs a Handle.** Run `$S/call.sh "$RUN" publish-nohandle POST /api/drafts/$id/publish --as user_alice`. 400 "Pick your name before publishing."
@@ -41,7 +43,7 @@ Preconditions:
 ## Gotchas
 
 - The Maker's replies and builds are out of reach. The Maker's model calls need `CLOUDFLARE_API_KEY`, which this run forces empty, and builds need its Docker box (`pnpm -F worker dev:maker`). `POST /api/drafts` still returns 201, because the Maker takes the message, but no reply ever streams. Report the chat as unverified. A real build is `pnpm -F worker smoke:maker` against `dev:maker`, which makes real model calls.
-- Preview and publish need a Revision, which the Maker never makes here. `seed-revision.sh` copies Odd Duck's page to R2 `drafts/<id>/1/index.html` and sets the Draft's title, the two things publish checks. Say in the report that the Revision was seeded. The published game plays Odd Duck, not the idea the Draft was started with.
+- Preview and publish need a Revision, which the Maker never makes here. `seed-revision.sh` copies Odd Duck's page to R2 `drafts/<id>/1/index.html` and sets the Draft's title, the two things publish checks. A real cover is a build's too: the playtest's screenshot, stored as `drafts/<id>/<n>/cover.png` with `drafts.cover_revision` set to `<n>`, which the script does from a PNG you give it. Say in the report that the Revision was seeded. The published game plays Odd Duck, not the idea the Draft was started with.
 - Publish deletes the Draft, so run the Delete steps on a different Draft.
 - A preview link's failure is always a 403 "This link has expired.", whether the signature is wrong or the time has passed. A 404 means the signature was good but the file is missing.
 - Offline, Screening of the message and the publish text is skipped.

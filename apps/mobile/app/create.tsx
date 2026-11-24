@@ -1,16 +1,16 @@
 import { useAuth, useUser } from "@clerk/expo";
 import { ALLOWANCE_USED, newMessage, PROMPT_MAX } from "@hopon/schemas";
 import type { Allowance, DraftSummary } from "@hopon/schemas";
-import { Redirect, router } from "expo-router";
+import { Redirect, router, useLocalSearchParams } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import {
   ArrowUp,
   ChevronDown,
-  List,
   Play as PlayIcon,
   Square,
+  SquarePen,
 } from "lucide-react-native";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -24,7 +24,6 @@ import type { TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AiSheet } from "@/components/ai-sheet";
-import { DraftList } from "@/components/draft-list";
 import { Play } from "@/components/play";
 import { PublishSheet } from "@/components/publish-sheet";
 import { Button } from "@/components/ui/button";
@@ -32,17 +31,11 @@ import { Text } from "@/components/ui/text";
 import { Textarea } from "@/components/ui/textarea";
 import { allowanceLine, low, usedUp } from "@/lib/allowance";
 import { api, ApiError } from "@/lib/api";
-import { draftTitle } from "@/lib/draft-list";
+import { draftTitle, draftToOpen, isFull, liveFacts } from "@/lib/drafts";
 import { t } from "@/lib/i18n";
-import {
-  chatView,
-  makerChat,
-  NEW_CHAT,
-  publishable,
-  shownDraft,
-} from "@/lib/maker-chat";
-import type { Frame, Row } from "@/lib/maker-chat";
-import { useMakerSocket } from "@/lib/maker-socket";
+import { publishable, shownDraft } from "@/lib/maker-chat";
+import type { ChatView, Frame, Row } from "@/lib/maker-chat";
+import { useMaker } from "@/lib/maker-socket";
 import type { Link } from "@/lib/maker-socket";
 import { agreedToAi } from "@/lib/rules";
 import { COLORS } from "@/lib/theme";
@@ -152,15 +145,15 @@ const Bubble = ({
 
 const Header = ({
   draft,
-  onDrafts,
+  onNewGame,
   canPlay,
   onPlay,
   canPublish,
   onPublish,
 }: {
   draft: DraftSummary | null | undefined;
-  // Unset while the chat can't switch yet.
-  onDrafts?: () => void;
+  // Unset while the chat can't start another, and in a new chat.
+  onNewGame?: () => void;
   // Once there is a game.
   canPlay: boolean;
   onPlay: () => void;
@@ -180,11 +173,11 @@ const Header = ({
     <Button
       size="icon"
       variant="ghost"
-      accessibilityLabel={t.make.drafts}
-      disabled={!onDrafts}
-      onPress={onDrafts}
+      accessibilityLabel={t.drafts.newGame}
+      disabled={!onNewGame}
+      onPress={onNewGame}
     >
-      <List color={COLORS.paper} size={22} />
+      <SquarePen color={COLORS.paper} size={22} />
     </Button>
     <Text
       accessibilityRole="header"
@@ -207,11 +200,9 @@ const Header = ({
   </View>
 );
 
-// The Draft, once it has a Revision to play: the Maker titled it, or this chat shows its card.
-const withGame = (draft: DraftSummary | null | undefined, rows: Row[]) =>
-  draft && (draft.title !== null || rows.some((row) => row.play))
-    ? draft
-    : undefined;
+// The Draft, once it has a Revision to play.
+const withGame = (draft: DraftSummary | null | undefined, view: ChatView) =>
+  draft && liveFacts(draft, view).hasGame ? draft : undefined;
 
 // A thin bar under the header while the socket is down; the composer keeps working, since messages are POSTs.
 const LinkBar = ({ link, onRetry }: { link: Link; onRetry: () => void }) => {
@@ -243,21 +234,17 @@ const Create = () => {
   const insets = useSafeAreaInsets();
   const { isLoaded, isSignedIn, getToken } = useAuth();
   const { user } = useUser();
+  // The Draft to open, from its page; + asks for none.
+  const { draft: asked } = useLocalSearchParams<{ draft?: string }>();
   // A message held back until the Creator answers the AI sheet.
   const [asking, setAsking] = useState<string>();
   // undefined until the Draft list answers; null for a new chat, whose Draft is born on its first message.
   const [draft, setDraft] = useState<DraftSummary | null>();
-  const [chat, dispatch] = useReducer(makerChat, NEW_CHAT);
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [allowance, setAllowance] = useState<Allowance>();
-  const [listing, setListing] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  // Turns ended since this chat opened; Play mints a fresh preview URL on each.
-  const [turns, setTurns] = useState(0);
-  // The turn's timer ticks once a second while it runs.
-  const [now, setNow] = useState(Date.now);
   const keys = useRef(0);
   const opened = useRef(false);
   // The open Draft's id (null for a new chat), set with it, so a response after an await can check it's still open.
@@ -268,15 +255,6 @@ const Create = () => {
   };
   const scroll = useRef<ScrollView>(null);
   const composer = useRef<TextInput>(null);
-  const view = useMemo(() => chatView(chat, now), [chat, now]);
-  useEffect(() => {
-    if (!chat.running) {
-      return;
-    }
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [chat.running]);
-
   const fetchDrafts = async () => {
     const list = await api<{ drafts: DraftSummary[] }>("/api/drafts", {
       token: await getToken(),
@@ -308,7 +286,8 @@ const Create = () => {
     }
   };
 
-  // + opens the most recent Draft (#119). Once per screen: Clerk's getToken changes on every render.
+  // + opens the most recent Draft (#119), and a Draft's page its own; one published or Deleted since opens a new chat
+  // that says so. Once per screen: Clerk's getToken changes on every render.
   useEffect(() => {
     if (!isSignedIn || opened.current) {
       return;
@@ -317,8 +296,14 @@ const Create = () => {
     fetchAllowance();
     const open = async () => {
       try {
-        const drafts = await fetchDrafts();
-        select(drafts[0] ?? null);
+        const { draft: opening, gone } = draftToOpen(
+          await fetchDrafts(),
+          asked
+        );
+        select(opening);
+        if (gone) {
+          setError(t.draftPage.gone);
+        }
       } catch (openError) {
         select(null);
         setError((openError as Error).message);
@@ -328,10 +313,6 @@ const Create = () => {
   });
 
   const onFrame = async (frame: Frame) => {
-    dispatch({ frame, type: "frame" });
-    if (frame.type === "turn_done") {
-      setTurns((n) => n + 1);
-    }
     if (frame.type === "turn_done" || frame.type === "turn_failed") {
       fetchAllowance();
     }
@@ -345,11 +326,11 @@ const Create = () => {
       }
     }
   };
-  const { link, retry } = useMakerSocket({
+  // Play mints a fresh preview URL at each of the `turns` ended since this chat opened.
+  const { chat, dispatch, link, retry, turns, view } = useMaker({
     draft: draft?.id,
     getToken,
     onFrame,
-    running: view.running,
   });
 
   if (!isLoaded) {
@@ -385,12 +366,14 @@ const Create = () => {
           "/api/drafts",
           { body: { text: message }, token }
         );
-        // The new chat may have been left for another Draft meanwhile; the Draft list has this one.
+        // The new chat may have been left for another meanwhile; the Drafts tab has this one.
         if (openId.current === at) {
           select({
+            cover: null,
             description: null,
             id: created.id,
             title: null,
+            turnStartedAt: null,
             updatedAt: "",
           });
         }
@@ -410,14 +393,23 @@ const Create = () => {
     }
   };
 
-  // Another Draft, or a new chat (null), from the Draft list; its socket brings its chat.
-  const openDraft = (next: DraftSummary | null) => {
-    if (next?.id === draft?.id) {
+  // The header's New game: a new chat in place of this Draft's, which stays in Drafts. At the most Drafts a Creator
+  // can keep, it says so now, not after they have written the first message.
+  const newGame = async () => {
+    Keyboard.dismiss();
+    const at = openId.current;
+    const full = isFull(await fetchDrafts().catch(() => []));
+    // Unless a second tap got there first.
+    if (openId.current !== at) {
+      return;
+    }
+    if (full) {
+      setError(t.drafts.full);
       return;
     }
     dispatch({ type: "reset" });
     setPlaying(false);
-    select(next);
+    select(null);
     setText("");
     setError("");
   };
@@ -461,7 +453,7 @@ const Create = () => {
   // A new chat with nothing in it yet: the welcome and the example ideas.
   const blank = draft === null && view.rows.length === 0;
   const shown = shownDraft(draft, view.game);
-  const game = withGame(shown, view.rows);
+  const game = withGame(shown, view);
   const play = () => {
     Keyboard.dismiss();
     setPlaying(true);
@@ -476,15 +468,8 @@ const Create = () => {
     <KeyboardAvoidingView behavior="padding" className="flex-1 bg-background">
       <Header
         draft={shown}
-        // Not before the list has answered, nor while a new chat's Draft is being born.
-        onDrafts={
-          ready
-            ? () => {
-                Keyboard.dismiss();
-                setListing(true);
-              }
-            : undefined
-        }
+        // Not before the list has answered, nor in a new chat, which is one already.
+        onNewGame={draft ? newGame : undefined}
         canPlay={game !== undefined}
         onPlay={play}
         canPublish={canPublish}
@@ -590,13 +575,6 @@ const Create = () => {
           onClose={() => setPlaying(false)}
           canPublish={canPublish}
           onPublish={publish}
-        />
-      )}
-      {listing && (
-        <DraftList
-          openId={draft?.id}
-          onOpen={openDraft}
-          onClose={() => setListing(false)}
         />
       )}
       <PublishSheet

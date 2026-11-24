@@ -630,14 +630,15 @@ export class Maker extends RealMaker {
       } else if (command.includes("/opt/hopon/playtest.js")) {
         const game = decode(kv.get<Uint8Array>(key("/workspace/game.ts")));
         buildDist(game);
-        put("/workspace/playtest-start.png", PNG);
-        put("/workspace/playtest-end.png", PNG);
         if (command.includes("/opt/hopon/playtest.js tests ")) {
           const red = game.includes("BROKEN");
           return ok(
             `${JSON.stringify({ failures: red ? ["boom"] : [], ok: !red, testErrors: [], typeErrors: [] })}\n`
           );
         }
+        // Only a playtest takes screenshots, not the check's tests.
+        put("/workspace/playtest-start.png", PNG);
+        put("/workspace/playtest-end.png", PNG);
         return ok(`${game.includes("BROKEN") ? RED : GREEN}\n`);
       } else if (
         command.includes("/opt/hopon/verify.js") &&

@@ -273,6 +273,19 @@ const noRevision = async (draft) => {
   const preview = await call(`/api/drafts/${draft}/preview`);
   assert.equal(preview.status, 404);
 };
+// The current Revision's cover.png through the app's preview link: [n, status, its bytes in hex].
+const coverFile = async (draft) => {
+  const url = await previewUrl(draft);
+  const cover = await fetch(url.replace(/index\.html$/u, "cover.png"));
+  return [
+    Number(new URL(url).pathname.split("/")[3]),
+    cover.status,
+    Buffer.from(await cover.arrayBuffer()).toString("hex"),
+  ];
+};
+// The fake box's screenshot.
+const PNG_HEX = "89504e470d0a1a0a";
+
 const published = (n) =>
   `said: Published: the Creator now has Revision ${n}. If you're done, reply to the Creator with what the game is and how to play it. Say nothing about how you made it: not the advisor, tests, playtests or checks, and nothing you skipped.`;
 // Whether the box's log has `build`'s verify run for a build of `kind`.
@@ -287,10 +300,9 @@ const migrate = async () => {
   const [code] = await once(migrating, "exit");
   assert.equal(code, 0);
 };
-// The week ends: this week's bucket becomes an old week's (`old`, a 2026-W0x no other call has used), so the next
-// model call starts a full Allowance. The server must be down.
-const endWeek = async (old) => {
-  const moved = wrangler(
+// A statement on the local D1. The server must be down.
+const d1 = async (command) => {
+  const ran = wrangler(
     [
       "d1",
       "execute",
@@ -299,12 +311,37 @@ const endWeek = async (old) => {
       "--persist-to",
       state,
       "--command",
-      `UPDATE generation_limits SET bucket = 'user_maker:${old}' WHERE bucket LIKE 'user_maker:%' AND bucket NOT LIKE 'user_maker:2026-W0%'`,
+      command,
     ],
     { stdio: "ignore" }
   );
-  const [code] = await once(moved, "exit");
+  const [code] = await once(ran, "exit");
   assert.equal(code, 0);
+};
+// The week ends: this week's bucket becomes an old week's (`old`, a 2026-W0x no other call has used), so the next
+// model call starts a full Allowance.
+const endWeek = (old) =>
+  d1(
+    `UPDATE generation_limits SET bucket = 'user_maker:${old}' WHERE bucket LIKE 'user_maker:%' AND bucket NOT LIKE 'user_maker:2026-W0%'`
+  );
+// The Draft as the list shows it, once its turn mark says `working`: the Maker writes the mark beside the frames a
+// socket waits for, not before them.
+const listed = async (draft, working) => {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    // oxlint-disable-next-line no-await-in-loop -- polling
+    const { drafts } = await json("/api/drafts");
+    const found = drafts.find(({ id }) => id === draft);
+    if ((found.turnStartedAt !== null) === working) {
+      return found;
+    }
+    assert.ok(
+      Date.now() < deadline,
+      `timed out waiting for the list to say working: ${working}; it says ${JSON.stringify(found)}`
+    );
+    // oxlint-disable-next-line no-await-in-loop -- polling
+    await sleep(50);
+  }
 };
 
 const serve = async (t) => {
@@ -343,6 +380,8 @@ test(
     assert.deepEqual(await boxLog(draft), []);
     assert.equal(await modelCalls(draft), 1);
     await noRevision(draft);
+    // The turn is over, and the list says so.
+    await listed(draft, false);
 
     // Before its first tool runs, the box holds everything the Creator has said in this chat.
     assert.equal(await socket.turn("build asked"), "turn_done");
@@ -372,6 +411,31 @@ test(
     assert.equal(indexAt, 1);
     assert.match(index, /data-music="music\.opus"/u);
     assert.deepEqual(await revisionFile(draft, "music.opus"), [1, 200, OPUS]);
+    // The agent playtested before it built, so the Revision keeps that playtest's screenshot as its cover.
+    assert.deepEqual(await coverFile(draft), [1, 200, PNG_HEX]);
+    // The list links to it, with no token: the app's Image sends none.
+    const { cover } = await listed(draft, false);
+    assert.match(
+      cover,
+      new RegExp(`/drafts/${draft}/1/[^/]+/cover\\.png$`, "u")
+    );
+    const image = await fetch(cover);
+    assert.equal(image.headers.get("content-type"), "image/png");
+    assert.equal(
+      Buffer.from(await image.arrayBuffer()).toString("hex"),
+      PNG_HEX
+    );
+    // The link is the same one on every read for an hour, so a list polled every few seconds never loads the image
+    // again, and it always has an hour left. Three reads, since two can fall either side of the hour.
+    const again = await listed(draft, false);
+    const third = await listed(draft, false);
+    assert.ok(
+      cover === again.cover || again.cover === third.cover,
+      JSON.stringify([cover, again.cover, third.cover])
+    );
+    const left =
+      Number(third.cover.split("/").at(-2).split(".")[0]) * 1000 - Date.now();
+    assert.ok(left >= 3_600_000 - 1000 && left <= 7_200_000, `${left} ms left`);
     // The page fetches its music from an opaque origin; text is gzipped by the runtime (workerd), from the Worker's
     // Content-Encoding, and fetch decodes it, so the text above held.
     const page = await previewUrl(draft);
@@ -443,25 +507,38 @@ test(
     // A run that never ends: the abort timer ends the turn turn_failed, and the running command is stopped.
     assert.equal(await socket.turn("build hang"), "turn_failed");
     assert.equal(await revisionOf(draft), 4);
+    // A failed turn is over too.
+    const idle = await listed(draft, false);
 
     // Stop mid-run: turn_failed, and the game hasn't changed.
     let step = socket.after("the playtest", played);
     const stopped = socket.turn("build wait");
     await step();
+    // While the turn runs the list says the Maker is working, since it took the message, which also moved the Draft's
+    // date.
+    const working = await listed(draft, true);
+    assert.ok(working.turnStartedAt > idle.updatedAt, JSON.stringify(working));
+    assert.equal(working.updatedAt, working.turnStartedAt);
     // Publish waits for the turn to end (#145).
     const publishing = await call(`/api/drafts/${draft}/publish`, {});
     assert.equal(publishing.status, 409);
     await call(`/api/drafts/${draft}/stop`, {});
     assert.equal(await stopped, "turn_failed");
     assert.equal(await revisionOf(draft), 4);
+    await listed(draft, false);
 
     // A steer sent mid-run reaches the agent after the tool round it joins.
     step = socket.after("the playtest", played);
     const building = socket.turn("build wait");
     await step();
+    const before = await listed(draft, true);
     const queued = socket.after("the queued steer", steered);
     await send(draft, "make it orange");
     await queued();
+    // The steer joins the turn: its clock runs on, and the Draft's date moves.
+    const steeredAt = await listed(draft, true);
+    assert.equal(steeredAt.turnStartedAt, before.turnStartedAt);
+    assert.ok(steeredAt.updatedAt > before.updatedAt);
     await fake(draft, "release");
     assert.equal(await building, "turn_done");
     const entries = await transcript(draft);
@@ -640,6 +717,38 @@ test(
       await lastReply(draft),
       /said: .*Skill resource not found: make-game\/references\/littlejs\.md/u
     );
+    socket.close();
+  }
+);
+
+test(
+  "the turn mark: the list drops one older than any run can be, and a Maker that wakes with no run clears the one it left",
+  { timeout: 120_000 },
+  async (t) => {
+    await serve(t);
+    const { id: draft } = await json("/api/drafts", { text: "hello" });
+    let socket = await connect(draft);
+    await socket.until("the hello's end", over);
+    socket.close();
+    await listed(draft, false);
+
+    // A run whose end never reached D1, long ago: the list reads no turn, without waking the Maker.
+    kill();
+    await d1(
+      `UPDATE drafts SET turn_started_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour') WHERE id = '${draft}'`
+    );
+    await start();
+    await listed(draft, false);
+
+    // The same just now: the list believes the mark until the Maker wakes and finds no run.
+    kill();
+    await d1(
+      `UPDATE drafts SET turn_started_at = strftime('%Y-%m-%dT%H:%M:%fZ') WHERE id = '${draft}'`
+    );
+    await start();
+    await listed(draft, true);
+    socket = await connect(draft);
+    await listed(draft, false);
     socket.close();
   }
 );
@@ -897,6 +1006,11 @@ test(
     // A second new game in one run still has the message that asked for it.
     assert.equal(await socket.turn("build twice"), "turn_done");
     assert.match(await lastReply(draft), /\["build twice"\]/u);
+    // Neither build followed a playtest, and each check swept the workspace: the Revision publishes with no cover.
+    const [coverless, cover] = await coverFile(draft);
+    assert.deepEqual([coverless, cover], [5, 404]);
+    const twice = await listed(draft, false);
+    assert.equal(twice.cover, null);
 
     // A Revision from before source.tgz, its source files beside its built ones: the next run restores them, and a
     // change keeps its design and music in the source.tgz Revision it publishes.
