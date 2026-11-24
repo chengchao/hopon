@@ -98,7 +98,7 @@ const Saved = () => {
         renderItem={({ item }) => (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`${item.title}. ${item.description}`}
+            accessibilityLabel={`${item.title}. ${item.caption}`}
             accessibilityHint={t.saved.openHint}
             onPress={() => router.push(`/saved-feed?from=${item.saveId}`)}
             className="active:opacity-80"
@@ -106,7 +106,7 @@ const Saved = () => {
             <Ticket
               byline={<Byline author={item.author} />}
               title={item.title}
-              description={item.description}
+              caption={item.caption}
             />
           </Pressable>
         )}

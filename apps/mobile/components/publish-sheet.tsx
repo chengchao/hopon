@@ -1,5 +1,5 @@
 import { useAuth, useUser } from "@clerk/expo";
-import { GAME_DESCRIPTION_MAX } from "@hopon/schemas";
+import { GAME_CAPTION_MAX } from "@hopon/schemas";
 import type { Caption, DraftSummary } from "@hopon/schemas";
 import { router } from "expo-router";
 import { useRef, useState } from "react";
@@ -172,7 +172,7 @@ export const PublishSheet = ({
               value={caption}
               onChangeText={edit}
               editable={busy === "idle"}
-              maxLength={GAME_DESCRIPTION_MAX}
+              maxLength={GAME_CAPTION_MAX}
               placeholder={
                 busy === "suggesting"
                   ? t.publish.writing

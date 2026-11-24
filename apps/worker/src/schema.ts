@@ -1,4 +1,4 @@
-import { GAME_DESCRIPTION_MAX, GAME_TITLE_MAX } from "@hopon/schemas";
+import { GAME_CAPTION_MAX, GAME_TITLE_MAX } from "@hopon/schemas";
 import { sql } from "drizzle-orm";
 import {
   check,
@@ -18,10 +18,13 @@ export const games = sqliteTable(
   {
     // The creator's @handle when they published (Clerk username).
     author: text("author"),
+    caption: text("caption").notNull().default(""),
     createdAt: text("created_at")
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
-    description: text("description").notNull(),
+    // The Caption's old column, which Workers from before `caption` still read and write. The `games_caption_mirror`
+    // trigger keeps the two the same; both go in the migration that drops this column.
+    description: text("description").notNull().default(""),
     draftId: text("draft_id").unique(),
     id: integer("id").primaryKey({ autoIncrement: true }),
     owner: text("owner").notNull(),
@@ -34,8 +37,8 @@ export const games = sqliteTable(
       sql`length(${table.title}) BETWEEN 1 AND ${sql.raw(`${GAME_TITLE_MAX}`)}`
     ),
     check(
-      "games_description",
-      sql`length(${table.description}) <= ${sql.raw(`${GAME_DESCRIPTION_MAX}`)}`
+      "games_caption",
+      sql`length(${table.caption}) <= ${sql.raw(`${GAME_CAPTION_MAX}`)}`
     ),
   ]
 );
@@ -109,11 +112,12 @@ export const saves = sqliteTable(
 
 // A Report on a published game or a comment, for the Operator: a snapshot of what was reported (no HTML), so it outlives it.
 // No FK to `games` or `comments` for that reason. `creator` and `handle` are the poster's account id and @handle; `reporter` is an account id.
-// A game report has the game's `title` and `description`; a comment report has `comment_id`, its `body`, and its game's `game_id`.
+// A game report has the game's `title` and `caption`; a comment report has `comment_id`, its `body`, and its game's `game_id`.
 export const reports = sqliteTable(
   "reports",
   {
     body: text("body"),
+    caption: text("caption"),
     // When and how a closed report closed; null while open.
     closedAt: text("closed_at"),
     closedHow: text("closed_how", {
@@ -124,6 +128,7 @@ export const reports = sqliteTable(
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
     creator: text("creator").notNull(),
+    // The snapshot's old column, as `games.description` is; the `reports_caption` trigger copies it to `caption`.
     description: text("description"),
     gameId: integer("game_id").notNull(),
     handle: text("handle"),

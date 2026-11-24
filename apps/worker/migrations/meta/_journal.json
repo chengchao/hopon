@@ -99,6 +99,13 @@
       "when": 1795487993232,
       "tag": "20261124023953_draft_covers",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1795488705589,
+      "tag": "20261124025145_captions",
+      "breakpoints": true
     }
   ]
 }

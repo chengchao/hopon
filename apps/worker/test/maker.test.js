@@ -631,7 +631,9 @@ test(
       { ...games[0], comments: undefined, likes: undefined },
       {
         author: "maker",
+        caption: "Tap to jump from moon to moon.",
         comments: undefined,
+        // The Caption again, for app builds from before `caption`.
         description: "Tap to jump from moon to moon.",
         id: gameId,
         liked: false,
@@ -1415,7 +1417,7 @@ test(
       const { games } = await json("/api/games");
       assert.equal(games[0].id, id);
       assert.equal(games[0].title, "Moon Cat");
-      return games[0].description;
+      return games[0].caption;
     };
 
     const draft = await built();

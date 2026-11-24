@@ -4,10 +4,11 @@ import * as z from "zod/mini";
 
 export const PROMPT_MAX = 2000;
 export const COMMENT_MAX = 300;
-// A Game's title and description, as the Maker writes them and the games table keeps them. A Game's Caption shares
-// the description's limit: it is stored in the description's column.
+// A game's title and description, as the Maker writes them for a Draft.
 export const GAME_TITLE_MAX = 60;
 export const GAME_DESCRIPTION_MAX = 180;
+// A Game's Caption. Never shorter than the Maker's description, which stands in for it when an old app build publishes.
+export const GAME_CAPTION_MAX = GAME_DESCRIPTION_MAX;
 // A Creator's 21st Draft is refused: the API checks it, and the app disables New game.
 export const MAX_DRAFTS = 20;
 
@@ -34,8 +35,7 @@ export const newComment = z.object({
 const gameCaption = z.string().check(
   z.trim(),
   z.refine(
-    (text) =>
-      characters(text) <= GAME_DESCRIPTION_MAX && !/[\0\n\r]/u.test(text)
+    (text) => characters(text) <= GAME_CAPTION_MAX && !/[\0\n\r]/u.test(text)
   )
 );
 
@@ -94,11 +94,11 @@ export interface AppVersion {
 /** The code on a message the Maker refuses because the Allowance is used up. */
 export const ALLOWANCE_USED = "allowance_used";
 
-/** A published game's id and title. `description` holds its Caption, which may be empty. */
+/** A published game's id, title and Caption, which may be empty. */
 export interface GameSummary {
   id: number;
   title: string;
-  description: string;
+  caption: string;
 }
 
 /** A Caption written for a Draft's game at its Creator's request, to keep, change or replace on the publish sheet. */
@@ -157,9 +157,9 @@ export interface ReportTarget {
   gameId: number;
   /** The poster's @handle. */
   handle: string | null;
-  /** A game's title and description; null on a comment. */
+  /** A game's title and Caption; null on a comment. */
   title: string | null;
-  description: string | null;
+  caption: string | null;
   /** A comment's body; null on a game. */
   body: string | null;
   reasons: { reason: ReportReason; count: number }[];
