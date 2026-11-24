@@ -110,7 +110,7 @@ export interface DraftPageView extends DraftFacts {
   // What the Maker is on while it works: the chat's activity live, else the card's badge.
   work?: string;
   // This turn's finished steps, live only.
-  steps: string[];
+  steps: { key: string; text: string }[];
   // The Creator's latest message, live only.
   asked?: string;
   canPublish: boolean;
@@ -135,7 +135,9 @@ export const draftPage = (
     draft,
     status: draftStatus(facts),
     steps: facts.working
-      ? turn.filter((row) => row.who === "step").map((row) => row.text)
+      ? turn
+          .filter((row) => row.who === "step")
+          .map(({ key, text }) => ({ key, text }))
       : [],
     work: facts.working
       ? (live?.work ?? statusLine(listed, facts, now))

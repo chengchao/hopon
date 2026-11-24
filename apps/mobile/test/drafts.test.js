@@ -169,7 +169,7 @@ test("a page with its chat shows the turn as the chat does: what was asked, the 
   const page = draftPage(draft(TURN), live({ entries: WRITING, run: {} }), NOW);
   assert.equal(page.status, "making");
   assert.equal(page.asked, "A cat on the moon");
-  assert.deepEqual(page.steps, ["Wrote the game"]);
+  assert.deepEqual(page.steps, [{ key: "step-3", text: "Wrote the game" }]);
   assert.equal(page.work, "Testing · 2:00");
 });
 
@@ -225,7 +225,7 @@ test("a change to a game shows only its own turn's steps, and a queued steer as 
   });
   const page = draftPage(draft(GAME), changing, NOW);
   assert.equal(page.status, "updating");
-  assert.deepEqual(page.steps, ["Wrote the game"]);
+  assert.deepEqual(page.steps, [{ key: "step-11", text: "Wrote the game" }]);
   assert.equal(page.asked, "And orange");
 });
 

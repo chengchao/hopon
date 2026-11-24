@@ -44,6 +44,7 @@ export const zh: Strings = {
     tooLong: (length: number, max: number) => `太长了：${length}/${max} 个字`,
   },
   common: {
+    back: "返回",
     block: "屏蔽",
     blockHandle: (handle: string | null) => `屏蔽 @${handle}`,
     cancel: "取消",
@@ -60,6 +61,17 @@ export const zh: Strings = {
     signIn: "登录",
     tryAgain: "重试",
   },
+  draftPage: {
+    chat: "聊天",
+    goToChat: "去聊天",
+    gone: "这份草稿已经不在了，它已发布或已删除。",
+    making: "正在做你的游戏",
+    makingHint: "可以先去忙别的。制作助手会继续做，做好的游戏就在草稿里等你。",
+    publishWhenDone: "等制作助手做完再发布",
+    unmade: "还没有游戏",
+    unmadeHint: "制作助手现在没有在做这个游戏。去聊天里告诉它你想要什么吧。",
+    youAsked: "你的要求",
+  },
   drafts: {
     ago: {
       days: (n: number) => `${n} 天前`,
@@ -71,8 +83,13 @@ export const zh: Strings = {
     deleteBody: "它的聊天记录也会一起删除。",
     deleteTitle: (title: string) => `删除《${title}》？`,
     deleting: "删除中…",
+    empty: "你正在做的游戏会放在这里，发布后会出现在“发现”里。",
     full: "删掉一份草稿才能新建",
+    fullHint: (n: number) =>
+      `草稿最多 ${n} 份，已经满了。向左滑动一份就能删除。`,
     newGame: "新游戏",
+    openHint: "打开这个游戏",
+    signedOut: "登录后就能做游戏，随时接着做。",
     status: {
       making: (clock: string) => `制作中 · ${clock}`,
       ready: (ago: string) => `可以玩了 · ${ago}`,
@@ -123,7 +140,6 @@ export const zh: Strings = {
     built: "做好了一个新版本",
     cantReach: "连不上制作助手",
     close: "关闭",
-    drafts: "草稿",
     examples: [
       {
         label: "月球猫",
@@ -257,6 +273,7 @@ export const zh: Strings = {
   },
   tabs: {
     discover: "发现",
+    drafts: "草稿",
     makeGame: "做个游戏",
     me: "我",
     saved: "收藏",

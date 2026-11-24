@@ -114,6 +114,7 @@ const RootLayout = () => {
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="create" options={{ presentation: "modal" }} />
+          <Stack.Screen name="draft/[id]" />
           <Stack.Screen name="sign-in" options={{ presentation: "modal" }} />
           <Stack.Screen name="handle" options={{ presentation: "modal" }} />
           <Stack.Screen name="blocked" options={{ presentation: "modal" }} />

@@ -16,8 +16,9 @@ Make is where a Creator chats with the Maker to build a game. The first message 
 
 - The Make tab: `apps/mobile/app/create.tsx` → `GET /api/drafts` and `GET /api/allowance`; the first message → `POST /api/drafts` with `{"text":"…"}`; later ones → `POST /api/drafts/<id>/messages`; Stop → `POST /api/drafts/<id>/stop`.
 - The chat stream: `apps/mobile/lib/maker-socket.ts` → `POST /api/drafts/<id>/ws-ticket`, then `GET /api/drafts/<id>/ws`.
-- Play: `apps/mobile/components/play.tsx` → `GET /api/drafts/<id>/preview`. Publish: `apps/mobile/components/publish-sheet.tsx` → `POST /api/drafts/<id>/publish`.
-- Me's Drafts list: `apps/mobile/components/draft-list.tsx` → `GET /api/drafts`, `DELETE /api/drafts/<id>`.
+- Play: `apps/mobile/components/draft-game.tsx` (under `play.tsx` in the chat, and on a Draft's page) → `GET /api/drafts/<id>/preview`. Publish: `apps/mobile/components/publish-sheet.tsx` → `POST /api/drafts/<id>/publish`.
+- The Drafts tab: `apps/mobile/app/(tabs)/drafts.tsx`, through `apps/mobile/lib/use-drafts.ts` → `GET /api/drafts`, and `DELETE /api/drafts/<id>` when a card is swiped left.
+- A Draft's page, from its card: `apps/mobile/app/draft/[id].tsx` → the same list, the chat stream, and Play's preview once the Draft has a game. Its buttons open the chat on that Draft (`/create?draft=<id>`) and Publish.
 
 ## Driving it with call.sh
 
@@ -27,7 +28,7 @@ Preconditions:
 - For preview and publish, `$S/seed-revision.sh` gives the Draft Revision 1 and a title (see Gotchas).
 
 - **Start.** Alice sends her first idea. Run `$S/call.sh "$RUN" draft POST /api/drafts --as user_alice:alice --json '{"text":"A game with a cat"}'`. 201, `{"id":"<64 hex>","message":"<uuid>"}`. Keep the id: `id=$(… | node -pe 'JSON.parse(require("fs").readFileSync(0)).id')`.
-- **List.** Run `$S/call.sh "$RUN" drafts GET /api/drafts --as user_alice:alice`. One Draft with that id, `title:null, description:null`. `--as user_bob:bob` gets `{"drafts":[]}`.
+- **List.** Run `$S/call.sh "$RUN" drafts GET /api/drafts --as user_alice:alice`. One Draft with that id, `title:null, description:null`. Its `turnStartedAt` is a time while the Maker's turn is on and `null` once it has ended; the Drafts tab shows the first as "Making". `--as user_bob:bob` gets `{"drafts":[]}`.
 - **Allowance.** Run `$S/call.sh "$RUN" allowance GET /api/allowance --as user_alice:alice`. `{"left":40000000,"resetsAt":"<next Monday 00:00Z>","weekly":40000000}`, where `weekly` is `MAKER_WEEKLY_TOKENS` in `wrangler.jsonc`. Offline, nothing spends it.
 - **No game yet.** Run `$S/call.sh "$RUN" preview-none GET /api/drafts/$id/preview --as user_alice:alice`. 404 "This Draft has no game yet." Publish (`POST /api/drafts/$id/publish`) is a 409 with the same message.
 - **Seed the Revision.** Run `$S/seed-revision.sh "$RUN" "$id" "Cat Run"`. It prints `Draft <id> has Revision 1 and title 'Cat Run'`, and it's safe to rerun.
