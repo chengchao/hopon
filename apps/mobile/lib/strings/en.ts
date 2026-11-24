@@ -92,11 +92,10 @@ export const en = {
     back: "Back to chat",
     deleteBody: "Its chat goes too.",
     deleteTitle: (title: string) => `Delete '${title}'?`,
-    deleting: "Deleting…",
     empty: "Games you're making stay here until you publish them to Discover.",
     full: "Delete a Draft to start a new one",
     fullHint: (n: number) =>
-      `You have ${n} Drafts, the most you can keep. Swipe one left to delete it.`,
+      `You have ${n} Drafts, the most you can keep. Touch and hold one to delete it.`,
     newGame: "New game",
     openHint: "Opens the game",
     signedOut: "Sign in to make games and pick up where you left off.",

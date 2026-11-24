@@ -2,37 +2,29 @@ import { useAuth } from "@clerk/expo";
 import { MAX_DRAFTS } from "@hopon/schemas";
 import { router, useIsFocused } from "expo-router";
 import { useState } from "react";
-import {
-  FlatList,
-  RefreshControl,
-  useWindowDimensions,
-  View,
-} from "react-native";
+import { FlatList, RefreshControl, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { DraftCard } from "@/components/draft-card";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
-import { draftCard, isFull, isWorking } from "@/lib/drafts";
+import { draftCard, isFull } from "@/lib/drafts";
 import { t } from "@/lib/i18n";
 import { COLORS } from "@/lib/theme";
 import { useDrafts } from "@/lib/use-drafts";
 import { useNow } from "@/lib/use-now";
 
-// A working card's clock shows seconds; an idle one's "2 h ago" only needs to keep up.
-const CLOCK_MS = 1000;
-const AGO_MS = 30_000;
+// A card shows no time. Its label for a screen reader says one, which only needs to keep up.
+const LABEL_MS = 30_000;
 
-// The Creator's Drafts, newest first: the games they are making, each one tap from its page.
+// The Creator's Drafts, newest first, as a grid of their games' covers: each one tap from its page.
 const Drafts = () => {
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
   const { isLoaded, isSignedIn } = useAuth();
   const focused = useIsFocused();
   const { drafts, error, refresh, remove } = useDrafts();
   const [pulling, setPulling] = useState(false);
-  const everyMs = drafts?.some(isWorking) ? CLOCK_MS : AGO_MS;
-  const now = useNow(focused ? everyMs : undefined);
+  const now = useNow(focused ? LABEL_MS : undefined);
 
   const pull = async () => {
     setPulling(true);
@@ -41,7 +33,7 @@ const Drafts = () => {
   };
 
   const header = (
-    <View className="gap-2 px-5 pb-1 pt-4">
+    <View className="gap-2 px-5 pb-2.5 pt-4">
       <Text
         accessibilityRole="header"
         className="font-display text-[44px] leading-[48px]"
@@ -79,7 +71,7 @@ const Drafts = () => {
   }
 
   const empty = drafts ? (
-    <View className="items-start gap-4 px-5 pt-2">
+    <View className="items-start gap-4 px-5 pt-0.5">
       <Text className="text-base leading-[22px] text-muted-foreground">
         {t.drafts.empty}
       </Text>
@@ -91,7 +83,9 @@ const Drafts = () => {
       </Button>
     </View>
   ) : (
-    <Text className="px-5 pt-2 text-muted-foreground">{t.common.loading}</Text>
+    <Text className="px-5 pt-0.5 text-muted-foreground">
+      {t.common.loading}
+    </Text>
   );
 
   return (
@@ -99,7 +93,9 @@ const Drafts = () => {
       <FlatList
         data={drafts}
         keyExtractor={(draft) => draft.id}
-        contentContainerClassName="gap-4 pb-6"
+        numColumns={2}
+        columnWrapperClassName="px-1.5"
+        contentContainerClassName="pb-6"
         refreshControl={
           <RefreshControl
             refreshing={pulling}
@@ -111,7 +107,6 @@ const Drafts = () => {
         renderItem={({ item }) => (
           <DraftCard
             card={draftCard(item, now)}
-            width={width}
             onOpen={() =>
               router.push({ params: { id: item.id }, pathname: "/draft/[id]" })
             }

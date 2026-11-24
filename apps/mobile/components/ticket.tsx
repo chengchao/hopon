@@ -4,7 +4,7 @@ import { View } from "react-native";
 import { Text } from "@/components/ui/text";
 import { t } from "@/lib/i18n";
 
-// A game's ride ticket, in Saved and for a Draft with a game: one line each for the title and the description.
+// A saved game's ride ticket: one line each for the title and the description.
 export const Ticket = ({
   title,
   description,
@@ -12,7 +12,7 @@ export const Ticket = ({
 }: {
   title: string;
   description: string;
-  /** Who made it, or what a Draft is doing. */
+  /** Who made it. */
   byline: ReactNode;
 }) => (
   <View className="gap-0.5 rounded-2xl bg-primary px-4 pb-3 pt-3.5">

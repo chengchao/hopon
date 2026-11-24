@@ -1,112 +1,76 @@
-// A Draft's card on the Drafts tab: its status, title and description. A Draft with a game is a yellow ticket, as its
-// Game will be in Saved; one without is a dark blank. Tapping it opens the Draft's page; swiping it left asks to
+// A Draft's card in the Drafts tab's grid: the game's cover, portrait like the game, with no words. A spinner says the
+// Maker is working, and a Draft with no game is a blank. Tapping it opens the Draft's page; a long press asks to
 // Delete it.
-import { useRef, useState } from "react";
+import { CircleDashed } from "lucide-react-native";
+import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Pressable,
-  ScrollView,
+  StyleSheet,
   View,
 } from "react-native";
-import Animated, { FadeIn } from "react-native-reanimated";
+import Animated from "react-native-reanimated";
 
-import { Ticket } from "@/components/ticket";
 import { Text } from "@/components/ui/text";
 import type { DraftCardView } from "@/lib/drafts";
 import { t } from "@/lib/i18n";
 import { COLORS } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
-// How far a card slides left to show Delete.
-const DELETE_WIDTH = 96;
+// Fades in once it has loaded, so a build's first cover doesn't pop onto the blank.
+const Cover = ({ uri }: { uri: string }) => {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <Animated.Image
+      accessibilityIgnoresInvertColors
+      source={{ uri }}
+      resizeMode="cover"
+      onLoad={() => setLoaded(true)}
+      style={[
+        StyleSheet.absoluteFill,
+        {
+          opacity: loaded ? 1 : 0,
+          transitionDuration: 200,
+          transitionProperty: "opacity",
+        },
+      ]}
+    />
+  );
+};
 
-const Badge = ({ card }: { card: DraftCardView }) => (
-  <View className="flex-row items-center gap-2">
-    {card.working && (
-      <ActivityIndicator
-        size="small"
-        color={card.hasGame ? COLORS.ink : COLORS.paper}
-      />
-    )}
-    <Text
-      numberOfLines={1}
-      // The turn's clock ticks without the text shifting.
-      style={{ fontVariant: ["tabular-nums"] }}
-      className={cn(
-        "flex-shrink font-strong text-sm",
-        card.hasGame ? "text-primary-foreground" : "text-muted-foreground"
-      )}
-    >
-      {card.badge}
-    </Text>
-  </View>
-);
-
-// A horizontal ScrollView that snaps open is the swipe: no gesture library needed.
 export const DraftCard = ({
   card,
-  width,
   onOpen,
   onDelete,
 }: {
   card: DraftCardView;
-  // The list's, so Delete sits just past its edge.
-  width: number;
   onOpen: () => void;
   // Resolves false when the Delete failed.
   onDelete: () => Promise<boolean>;
 }) => {
-  const swipe = useRef<ScrollView>(null);
-  // The drag's end and the snap's end can both ask.
-  const asking = useRef(false);
   const [deleting, setDeleting] = useState(false);
+  const working = card.status === "making" || card.status === "updating";
 
-  const close = () => {
-    asking.current = false;
-    swipe.current?.scrollTo({ x: 0 });
-  };
-  const confirm = () => {
-    if (asking.current) {
-      return;
-    }
-    asking.current = true;
+  const confirm = () =>
     Alert.alert(t.drafts.deleteTitle(card.title), t.drafts.deleteBody, [
-      { onPress: close, style: "cancel", text: t.common.cancel },
+      { style: "cancel", text: t.common.cancel },
       {
         onPress: async () => {
           setDeleting(true);
-          // A deleted card unmounts; a failed one slides back.
+          // A deleted card unmounts.
           if (!(await onDelete())) {
             setDeleting(false);
-            close();
           }
         },
         style: "destructive",
         text: t.common.delete,
       },
     ]);
-  };
-  const swiped = (x: number) => {
-    if (x >= DELETE_WIDTH - 1) {
-      confirm();
-    }
-  };
 
   return (
-    <ScrollView
-      ref={swipe}
-      horizontal
-      bounces={false}
-      decelerationRate="fast"
-      showsHorizontalScrollIndicator={false}
-      snapToOffsets={[0, DELETE_WIDTH]}
-      scrollEnabled={!deleting}
-      onScrollEndDrag={({ nativeEvent }) => swiped(nativeEvent.contentOffset.x)}
-      onMomentumScrollEnd={({ nativeEvent }) =>
-        swiped(nativeEvent.contentOffset.x)
-      }
-    >
+    // Half the row each, so the last card of an odd count keeps its size.
+    <View className="w-1/2 p-1.5">
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={card.label}
@@ -115,43 +79,31 @@ export const DraftCard = ({
         onAccessibilityAction={confirm}
         disabled={deleting}
         onPress={onOpen}
-        style={{ width }}
-        className={cn("px-3 active:opacity-80", deleting && "opacity-50")}
+        onLongPress={confirm}
+        // 9:16, the playtest's 360×640, so the cover fills the card uncropped.
+        className={cn(
+          "aspect-[9/16] items-center justify-center gap-3 overflow-hidden rounded-3xl bg-card p-3 active:opacity-80",
+          card.status === "unmade" && "border border-dashed border-border",
+          deleting && "opacity-50"
+        )}
       >
-        {/* Keyed by its look, so the blank fades into the ticket when the first game lands. */}
-        <Animated.View key={card.hasGame ? "game" : "blank"} entering={FadeIn}>
-          {card.hasGame ? (
-            <Ticket
-              byline={<Badge card={card} />}
-              title={card.title}
-              description={card.line ?? ""}
-            />
-          ) : (
-            <View className="gap-0.5 rounded-2xl border border-dashed border-border bg-card px-4 pb-3 pt-3.5">
-              <View className="min-h-8 justify-center">
-                <Badge card={card} />
-              </View>
-              <Text
-                numberOfLines={1}
-                className="font-display text-[32px] leading-[42px]"
-              >
-                {card.title}
-              </Text>
-            </View>
-          )}
-        </Animated.View>
+        {card.cover ? <Cover uri={card.cover} /> : null}
+        {card.cover && working ? (
+          <View style={StyleSheet.absoluteFill} className="bg-black/50" />
+        ) : null}
+        {working && <ActivityIndicator color={COLORS.paper} />}
+        {card.status === "unmade" && (
+          <CircleDashed color={COLORS.mist} size={28} />
+        )}
+        {card.caption ? (
+          <Text
+            numberOfLines={3}
+            className="text-center font-display text-2xl leading-8"
+          >
+            {card.caption}
+          </Text>
+        ) : null}
       </Pressable>
-      <Pressable
-        accessible={false}
-        disabled={deleting}
-        onPress={confirm}
-        style={{ width: DELETE_WIDTH }}
-        className="items-center justify-center rounded-l-2xl bg-destructive"
-      >
-        <Text className="font-strong text-sm">
-          {deleting ? t.drafts.deleting : t.common.delete}
-        </Text>
-      </Pressable>
-    </ScrollView>
+    </View>
   );
 };

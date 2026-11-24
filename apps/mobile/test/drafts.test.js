@@ -52,43 +52,59 @@ test("the list's facts: a titled Draft has a game, and a turn mark means the Mak
   // A Worker from before the turn mark sends no field.
   const { turnStartedAt: _, ...old } = draft(GAME);
   assert.deepEqual(listedFacts(old), { hasGame: true, working: false });
-  assert.equal(draftCard(old, NOW).badge, "Ready to play · 2 h ago");
+  assert.equal(draftCard(old, NOW).status, "ready");
 });
 
-test("a card says the Draft's status with the turn's clock while the Maker works, else how long ago it changed", () => {
-  assert.deepEqual(draftCard(draft(TURN), NOW), {
-    badge: "Making · 3:12",
-    hasGame: false,
-    id: "d1",
-    label: "New game. Making, 3:12",
-    line: undefined,
-    status: "making",
-    title: "New game",
-    working: true,
-  });
-  assert.deepEqual(draftCard(draft(), NOW), {
-    badge: "No game yet · 2 h ago",
-    hasGame: false,
-    id: "d1",
-    label: "New game. No game yet, 2 h ago",
-    line: undefined,
-    status: "unmade",
-    title: "New game",
-    working: false,
-  });
-  assert.deepEqual(draftCard(draft(GAME), NOW), {
-    badge: "Ready to play · 2 h ago",
-    hasGame: true,
-    id: "d1",
-    label: "Moon Cat. Ready to play, 2 h ago. A cat on the moon.",
-    line: "A cat on the moon.",
+test("a card's label says the Draft's status with the turn's clock while the Maker works, else how long ago it changed", () => {
+  assert.equal(draftCard(draft(TURN), NOW).label, "New game. Making, 3:12");
+  assert.equal(draftCard(draft(), NOW).label, "New game. No game yet, 2 h ago");
+  assert.equal(
+    draftCard(draft(GAME), NOW).label,
+    "Moon Cat. Ready to play, 2 h ago. A cat on the moon."
+  );
+  assert.equal(
+    draftCard(draft({ ...GAME, ...TURN }), NOW + 1000).label,
+    "Moon Cat. Updating, 3:13. A cat on the moon."
+  );
+});
+
+const COVER = "https://hopon.test/drafts/d1/3/1.sig/cover.png";
+
+// What a card draws.
+const shown = ({ caption, cover, status }) => ({ caption, cover, status });
+
+test("a card is the game's cover with no words; a game without one shows its title, and a Draft without a game shows neither", () => {
+  assert.deepEqual(shown(draftCard(draft({ ...GAME, cover: COVER }), NOW)), {
+    caption: undefined,
+    cover: COVER,
     status: "ready",
-    title: "Moon Cat",
-    working: false,
   });
-  const updating = draftCard(draft({ ...GAME, ...TURN }), NOW + 1000);
-  assert.equal(updating.status, "updating");
-  assert.equal(updating.badge, "Updating · 3:13");
+  assert.deepEqual(
+    shown(draftCard(draft({ ...GAME, ...TURN, cover: COVER }), NOW)),
+    { caption: undefined, cover: COVER, status: "updating" }
+  );
+  // A game built before covers, or by a build with no playtest.
+  assert.deepEqual(shown(draftCard(draft({ ...GAME, cover: null }), NOW)), {
+    caption: "Moon Cat",
+    cover: undefined,
+    status: "ready",
+  });
+  // A Worker from before covers sends no field.
+  assert.deepEqual(shown(draftCard(draft(GAME), NOW)), {
+    caption: "Moon Cat",
+    cover: undefined,
+    status: "ready",
+  });
+  for (const [over, status] of [
+    [TURN, "making"],
+    [{}, "unmade"],
+  ]) {
+    assert.deepEqual(shown(draftCard(draft({ cover: null, ...over }), NOW)), {
+      caption: undefined,
+      cover: undefined,
+      status,
+    });
+  }
 });
 
 // pi's frames as the Maker sends them (apps/worker/src/maker.ts), and the chat they make.

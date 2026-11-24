@@ -82,11 +82,9 @@ export const zh: Strings = {
     back: "返回聊天",
     deleteBody: "它的聊天记录也会一起删除。",
     deleteTitle: (title: string) => `删除《${title}》？`,
-    deleting: "删除中…",
     empty: "你正在做的游戏会放在这里，发布后会出现在“发现”里。",
     full: "删掉一份草稿才能新建",
-    fullHint: (n: number) =>
-      `草稿最多 ${n} 份，已经满了。向左滑动一份就能删除。`,
+    fullHint: (n: number) => `草稿最多 ${n} 份，已经满了。长按一份就能删除。`,
     newGame: "新游戏",
     openHint: "打开这个游戏",
     signedOut: "登录后就能做游戏，随时接着做。",

@@ -70,32 +70,34 @@ const statusLine = (draft: DraftSummary, facts: DraftFacts, now: number) =>
       : ago(draft.updatedAt, now)
   );
 
-// Everything a Draft's card shows, as text.
-export interface DraftCardView extends DraftFacts {
+// Everything a Draft's card shows: its game's cover and, without words, its status. `label` says both.
+export interface DraftCardView {
   id: string;
   status: DraftStatus;
   title: string;
-  // The Maker's description, once there is a game.
-  line?: string;
-  // "Making · 3:12", "Ready to play · 2 h ago"
-  badge: string;
-  // What a screen reader says for the card.
+  // A screenshot of the game. A Worker from before covers sends none.
+  cover?: string;
+  // The title, on the card of a game with no cover, which is every game built before covers: the one card with words.
+  caption?: string;
+  // What a screen reader says for the card: "Moon Cat. Ready to play, 2 h ago. A cat on the moon."
   label: string;
 }
 
 export const draftCard = (draft: DraftSummary, now: number): DraftCardView => {
   const facts = listedFacts(draft);
   const title = draftTitle(draft);
-  const line = draft.description ?? undefined;
-  const badge = statusLine(draft, facts, now);
+  const cover = draft.cover ?? undefined;
   return {
-    ...facts,
-    badge,
+    caption: facts.hasGame && !cover ? title : undefined,
+    cover,
     id: draft.id,
-    label: [title, badge.replace(" · ", ", "), line]
-      .filter((part) => part !== undefined)
+    label: [
+      title,
+      statusLine(draft, facts, now).replace(" · ", ", "),
+      draft.description,
+    ]
+      .filter((part) => typeof part === "string")
       .join(". "),
-    line,
     status: draftStatus(facts),
     title,
   };
@@ -107,7 +109,7 @@ export interface DraftPageView extends DraftFacts {
   status: DraftStatus;
   // With the latest build's title and description, which the list may not have yet.
   draft: DraftSummary;
-  // What the Maker is on while it works: the chat's activity live, else the card's badge.
+  // What the Maker is on while it works: the chat's activity live, else its status and the turn's clock.
   work?: string;
   // This turn's finished steps, live only.
   steps: { key: string; text: string }[];
