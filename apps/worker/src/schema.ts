@@ -22,9 +22,6 @@ export const games = sqliteTable(
     createdAt: text("created_at")
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
-    // The Caption's old column, which Workers from before `caption` still read and write. The `games_caption_mirror`
-    // trigger keeps the two the same; both go in the migration that drops this column.
-    description: text("description").notNull().default(""),
     draftId: text("draft_id").unique(),
     id: integer("id").primaryKey({ autoIncrement: true }),
     owner: text("owner").notNull(),
@@ -128,8 +125,6 @@ export const reports = sqliteTable(
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
     creator: text("creator").notNull(),
-    // The snapshot's old column, as `games.description` is; the `reports_caption` trigger copies it to `caption`.
-    description: text("description"),
     gameId: integer("game_id").notNull(),
     handle: text("handle"),
     id: integer("id").primaryKey({ autoIncrement: true }),
