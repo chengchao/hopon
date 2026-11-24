@@ -349,7 +349,7 @@ export const Feed = ({
                     <View className="flex-1">
                       <Text
                         numberOfLines={1}
-                        className="font-display text-[26px] leading-7 text-primary"
+                        className="font-display text-[26px] leading-[34px] text-primary"
                       >
                         {item.title}
                       </Text>

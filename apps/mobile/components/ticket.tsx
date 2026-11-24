@@ -19,7 +19,7 @@ export const Ticket = ({
     <View className="min-h-8 justify-center">{byline}</View>
     <Text
       numberOfLines={1}
-      className="font-display text-[32px] leading-[36px] text-primary-foreground"
+      className="font-display text-[32px] leading-[42px] text-primary-foreground"
     >
       {title}
     </Text>
