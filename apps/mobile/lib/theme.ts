@@ -5,6 +5,7 @@ import type { Theme } from "expo-router/react-navigation";
 export const COLORS = {
   bulb: "#FF5A4E",
   ink: "#17162E",
+  mist: "#AEB0E0",
   night: "#1C1D45",
   paper: "#F4F3FF",
   raised: "#2A2C66",

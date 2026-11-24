@@ -194,6 +194,7 @@ export const zh: Strings = {
     rules: "规则",
     rulesHint: "打开使用条款",
     saved: "收藏",
+    savedHint: "打开你收藏的游戏",
     signOut: "退出登录",
     signedOut: "登录后就能做游戏，还能收藏喜欢的游戏。",
     title: "我",
@@ -251,7 +252,6 @@ export const zh: Strings = {
   saved: {
     empty: "点游戏下方的书签，就能收藏到这里。",
     openHint: "从这里打开你的收藏",
-    signedOut: "登录后查看你收藏的游戏",
     title: "收藏",
   },
   signIn: {
@@ -276,7 +276,6 @@ export const zh: Strings = {
     drafts: "草稿",
     makeGame: "做个游戏",
     me: "我",
-    saved: "收藏",
   },
   ticket: {
     anonymous: "一位 hopon 玩家",

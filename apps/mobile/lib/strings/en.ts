@@ -208,6 +208,7 @@ export const en = {
     rules: "Rules",
     rulesHint: "Opens the Terms of Use",
     saved: "Saved",
+    savedHint: "Opens your saved games",
     signOut: "Sign out",
     signedOut: "Sign in to make games and keep the ones you like.",
     title: "Me",
@@ -265,7 +266,6 @@ export const en = {
   saved: {
     empty: "Tap the bookmark under a game to keep it here.",
     openHint: "Opens your saved games from here",
-    signedOut: "Sign in to see your saved games",
     title: "Saved",
   },
   signIn: {
@@ -290,7 +290,6 @@ export const en = {
     drafts: "Drafts",
     makeGame: "Make a game",
     me: "Me",
-    saved: "Saved",
   },
   ticket: {
     anonymous: "A hopon player",

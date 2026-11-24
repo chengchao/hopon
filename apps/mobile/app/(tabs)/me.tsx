@@ -1,6 +1,7 @@
 import { useAuth, useUser } from "@clerk/expo";
 import type { BlockedAccounts } from "@hopon/schemas";
 import { router, useFocusEffect } from "expo-router";
+import { ChevronRight } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -10,12 +11,34 @@ import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { contactUs, openRules } from "@/lib/rules";
+import { COLORS } from "@/lib/theme";
 
-const Stat = ({ value, label }: { value: number | string; label: string }) => (
-  <View className="flex-1 rounded-2xl bg-card px-4 py-3">
+// A count on Me. With `onPress` it is also the way to what it counts, and shows a chevron.
+const Stat = ({
+  value,
+  label,
+  hint,
+  onPress,
+}: {
+  value: number | string;
+  label: string;
+  hint?: string;
+  onPress?: () => void;
+}) => (
+  <Pressable
+    accessibilityRole={onPress ? "button" : undefined}
+    accessibilityLabel={`${label}, ${value}`}
+    accessibilityHint={hint}
+    disabled={!onPress}
+    onPress={onPress}
+    className="flex-1 rounded-2xl bg-card px-4 py-3 active:opacity-80"
+  >
     <Text className="font-display text-[36px] leading-[40px]">{value}</Text>
-    <Text className="text-sm text-muted-foreground">{label}</Text>
-  </View>
+    <View className="flex-row items-center justify-between">
+      <Text className="text-sm text-muted-foreground">{label}</Text>
+      {onPress && <ChevronRight color={COLORS.mist} size={18} />}
+    </View>
+  </Pressable>
 );
 
 const Me = () => {
@@ -118,7 +141,12 @@ const Me = () => {
             </View>
             <View className="flex-row gap-3">
               <Stat value={liked ?? "–"} label={t.me.liked} />
-              <Stat value={saved ?? "–"} label={t.me.saved} />
+              <Stat
+                value={saved ?? "–"}
+                label={t.me.saved}
+                hint={t.me.savedHint}
+                onPress={() => router.push("/saved")}
+              />
             </View>
             <Pressable
               accessibilityRole="button"

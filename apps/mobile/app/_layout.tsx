@@ -123,6 +123,14 @@ const RootLayout = () => {
             options={{ gestureEnabled: false, presentation: "modal" }}
           />
           <Stack.Screen
+            name="saved"
+            options={{
+              headerBackButtonDisplayMode: "minimal",
+              headerShown: true,
+              title: t.saved.title,
+            }}
+          />
+          <Stack.Screen
             name="saved-feed"
             options={{
               headerBackButtonDisplayMode: "minimal",

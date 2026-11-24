@@ -1,7 +1,7 @@
 import { router } from "expo-router";
 import { Tabs } from "expo-router/js-tabs";
 import type { BottomTabBarProps } from "expo-router/js-tabs";
-import { Bookmark, Compass, Hammer, Plus, User } from "lucide-react-native";
+import { Compass, Hammer, Plus, User } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -11,11 +11,9 @@ import { t } from "@/lib/i18n";
 import { COLORS } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
-const MIST = "#AEB0E0";
 const TABS: { name: string; label: string; Icon: LucideIcon }[] = [
   { Icon: Compass, label: t.tabs.discover, name: "index" },
   { Icon: Hammer, label: t.tabs.drafts, name: "drafts" },
-  { Icon: Bookmark, label: t.tabs.saved, name: "saved" },
   { Icon: User, label: t.tabs.me, name: "me" },
 ];
 
@@ -43,7 +41,7 @@ const TabBar = ({ state, navigation }: BottomTabBarProps) => {
               <Icon
                 size={22}
                 strokeWidth={focused ? 2.5 : 2}
-                color={focused ? COLORS.ticket : MIST}
+                color={focused ? COLORS.ticket : COLORS.mist}
               />
               <Text
                 className={cn(
@@ -75,7 +73,6 @@ const TabsLayout = () => (
   <Tabs screenOptions={{ headerShown: false }} tabBar={renderTabBar}>
     <Tabs.Screen name="index" />
     <Tabs.Screen name="drafts" />
-    <Tabs.Screen name="saved" />
     <Tabs.Screen name="me" />
   </Tabs>
 );
