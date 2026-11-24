@@ -59,7 +59,7 @@ export const TERMS = page(
 
 <h2>What happens</h2>
 <ul>
-<li>Screening checks every message to the Maker, a game's title and description, comments and names, and refuses text that breaks the Rules before anyone else sees it.</li>
+<li>Screening checks every message to the Maker, a game's title and caption, comments and names, and refuses text that breaks the Rules before anyone else sees it.</li>
 <li>We review every report within 24 hours.</li>
 <li>Games and comments that break the Rules are deleted.</li>
 <li>People who post them can be banned: they can no longer sign in, and all their games and comments are deleted.</li>
