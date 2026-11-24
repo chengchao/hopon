@@ -81,6 +81,12 @@ export const en = {
     deleting: "Deleting…",
     full: "Delete a Draft to start a new one",
     newGame: "New game",
+    status: {
+      making: (clock: string) => `Making · ${clock}`,
+      ready: (ago: string) => `Ready to play · ${ago}`,
+      unmade: (ago: string) => `No game yet · ${ago}`,
+      updating: (clock: string) => `Updating · ${clock}`,
+    },
     title: "Drafts",
   },
   feed: {

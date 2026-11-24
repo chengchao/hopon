@@ -110,6 +110,8 @@ test("batches stream the Maker's reply into its bubble, and the turn's end settl
     "maker: Speeding it up.",
   ]);
   assert.equal(streaming.running, true);
+  // The reply takes the status row's place in the chat; the view still says the Maker is working.
+  assert.equal(streaming.work, "Thinking");
   const done = view(
     ...start,
     batch(
@@ -124,6 +126,7 @@ test("batches stream the Maker's reply into its bubble, and the turn's end settl
     "maker: Speeding it up. Done!",
   ]);
   assert.equal(done.running, false);
+  assert.equal(done.work, undefined);
 });
 
 test("a turn running at connect shows its partial reply, and a tick changes nothing", () => {

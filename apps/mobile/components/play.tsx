@@ -14,7 +14,7 @@ import { GameView } from "@/components/game-view";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { api } from "@/lib/api";
-import { draftTitle } from "@/lib/draft-list";
+import { draftTitle } from "@/lib/drafts";
 import { t } from "@/lib/i18n";
 import { newRevision } from "@/lib/maker-chat";
 import { COLORS } from "@/lib/theme";

@@ -32,7 +32,7 @@ import { Text } from "@/components/ui/text";
 import { Textarea } from "@/components/ui/textarea";
 import { allowanceLine, low, usedUp } from "@/lib/allowance";
 import { api, ApiError } from "@/lib/api";
-import { draftTitle } from "@/lib/draft-list";
+import { draftTitle } from "@/lib/drafts";
 import { t } from "@/lib/i18n";
 import {
   chatView,

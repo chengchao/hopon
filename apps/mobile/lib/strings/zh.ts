@@ -73,6 +73,12 @@ export const zh: Strings = {
     deleting: "删除中…",
     full: "删掉一份草稿才能新建",
     newGame: "新游戏",
+    status: {
+      making: (clock: string) => `制作中 · ${clock}`,
+      ready: (ago: string) => `可以玩了 · ${ago}`,
+      unmade: (ago: string) => `还没有游戏 · ${ago}`,
+      updating: (clock: string) => `更新中 · ${clock}`,
+    },
     title: "草稿",
   },
   feed: {

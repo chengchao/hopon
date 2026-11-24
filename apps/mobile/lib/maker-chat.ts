@@ -295,7 +295,7 @@ const WHO: Record<string, Row["who"]> = {
 };
 
 // "1:12"
-const clock = (ms: number) => {
+export const clock = (ms: number) => {
   const seconds = Math.max(0, Math.floor(ms / 1000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 };
@@ -455,20 +455,11 @@ const stepsOf = (entries: Entry[], live: Activity | undefined) => {
   return rows;
 };
 
-// The row for the work in flight: what the Maker is on, and how long the turn has taken.
-const statusRow = (
-  chat: Chat,
-  live: Activity | undefined,
-  now: number
-): Row => {
+// The work in flight: what the Maker is on, and how long the turn has taken.
+const workLine = (chat: Chat, live: Activity | undefined, now: number) => {
   const since = startedAt(chat.entries);
   const activity = t.make.activity[live ?? "thinking"];
-  return {
-    key: "status",
-    text:
-      since === undefined ? activity : `${activity} · ${clock(now - since)}`,
-    who: "status",
-  };
+  return since === undefined ? activity : `${activity} · ${clock(now - since)}`;
 };
 
 // How the turn ended, when it didn't end with the Maker's reply.
@@ -520,8 +511,10 @@ export const chatView = (chat: Chat, now: number) => {
   if (streaming) {
     rows.push({ key: "partial", text: streaming, who: "maker" });
   }
-  if (chat.running && !streaming) {
-    rows.push(statusRow(chat, live, now));
+  // The chat shows the work as its status row until the reply streams in; a Draft's page shows it for the whole turn.
+  const work = chat.running ? workLine(chat, live, now) : undefined;
+  if (work !== undefined && !streaming) {
+    rows.push({ key: "status", text: work, who: "status" });
   }
   for (const { key, text } of chat.pending) {
     rows.push({ key: `pending-${key}`, queued: true, text, who: "creator" });
@@ -530,8 +523,9 @@ export const chatView = (chat: Chat, now: number) => {
   if (ended) {
     rows.push(ended);
   }
-  return { game, rows, running: chat.running };
+  return { game, rows, running: chat.running, work };
 };
+export type ChatView = ReturnType<typeof chatView>;
 
 // The Revision a preview URL serves: /drafts/<id>/<n>/<exp>.<sig>/index.html (apps/worker/src/api.ts).
 const previewRevision = (url: string) =>
