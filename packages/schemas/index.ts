@@ -4,7 +4,8 @@ import * as z from "zod/mini";
 
 export const PROMPT_MAX = 2000;
 export const COMMENT_MAX = 300;
-// A Game's title and description, as the Maker writes them and the games table keeps them.
+// A Game's title and description, as the Maker writes them and the games table keeps them. A Game's Caption shares
+// the description's limit: it is stored in the description's column.
 export const GAME_TITLE_MAX = 60;
 export const GAME_DESCRIPTION_MAX = 180;
 // A Creator's 21st Draft is refused: the API checks it, and the app disables New game.
@@ -27,6 +28,25 @@ export const newComment = z.object({
       return length >= 1 && length <= COMMENT_MAX && !text.includes("\0");
     })
   ),
+});
+
+// A Game's Caption: one line of text. Empty is allowed: the feed then shows only who made the game.
+const gameCaption = z.string().check(
+  z.trim(),
+  z.refine(
+    (text) =>
+      characters(text) <= GAME_DESCRIPTION_MAX && !/[\0\n\r]/u.test(text)
+  )
+);
+
+// Publish. Without a `caption`, as from an app build older than the field, the Maker's description stands in for it.
+export const publishGame = z.object({
+  caption: z.optional(gameCaption),
+});
+
+// A request for a Caption. `current` is the one the Creator is looking at, if any, so the next one differs.
+export const newCaption = z.object({
+  current: z.optional(gameCaption),
 });
 
 // Why someone reports a game or comment, in the order the app lists them.
@@ -74,11 +94,16 @@ export interface AppVersion {
 /** The code on a message the Maker refuses because the Allowance is used up. */
 export const ALLOWANCE_USED = "allowance_used";
 
-/** A published game's id, title and description. */
+/** A published game's id and title. `description` holds its Caption, which may be empty. */
 export interface GameSummary {
   id: number;
   title: string;
   description: string;
+}
+
+/** A Caption written for a Draft's game at its Creator's request, to keep, change or replace on the publish sheet. */
+export interface Caption {
+  caption: string;
 }
 
 /** A published game on a feed, as the viewer sees it. */

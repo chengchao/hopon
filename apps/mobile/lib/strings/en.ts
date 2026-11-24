@@ -217,9 +217,14 @@ export const en = {
     restart: "Restart",
   },
   publish: {
-    body: "The chat ends and the game goes to the feed. To change the title, ask the Maker.",
+    another: "Write another",
+    body: "The chat ends and the game goes to the feed. The caption can't be changed after you publish. To change the title, ask the Maker.",
+    caption: "Caption",
+    captionPlaceholder: "Write a caption, or leave it empty",
     publishing: "Publishing…",
     title: (title: string) => `Publish '${title}'?`,
+    writeForMe: "Write it for me",
+    writing: "Writing…",
   },
   report: {
     alsoBlock: (handle: string | null | undefined) => `Also block @${handle}`,

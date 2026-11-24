@@ -12,6 +12,8 @@ Make a small game by talking to the Maker, then swipe a feed to discover and pla
 
 **Handle**: The public @name a person picks; it is shown on their published **Games** and **Comments**. _Avoid_: Username, display name
 
+**Caption**: The one line a **Creator** says under their published **Game** in the feed, beside their **Handle**. The **Creator** writes it when they publish, or asks for one to be written for them; it may be empty, and it is fixed once published. _Avoid_: Description, tagline, line
+
 **Save**: A private mark a signed-in person puts on a published **Game** so they can find it again later in their **Saved** list. Only that person ever sees their saves; unlike a like, nobody else can see or count them. _Avoid_: Bookmark, favorite
 
 **Comment**: A short plain-text note a signed-in person leaves on a published **Game**. Comments form one flat list per **Game**, with no replies, and the person who wrote it, the **Game**'s **Creator** or the **Operator** can **Delete** it. _Avoid_: Reply, message, review
@@ -30,12 +32,12 @@ Make a small game by talking to the Maker, then swipe a feed to discover and pla
 
 **Ban**: The **Operator**'s act of shutting a person out of hopon: they can no longer sign in, and all their published **Games** and **Comments** are **Deleted**. Only the **Operator** bans, never automatically, and can lift a ban, which lets the person sign in again but brings nothing back. _Avoid_: Eject, suspend, lock
 
-**Screening**: The automatic check that refuses text breaking hopon's **Rules** before anyone else can see it: every message to the **Maker**, a **Game**'s title and description when it is published, a **Comment**, and the **Handle** shown on them. Refused text is never kept; the person changes it and tries again. Unlike a **Report**, nobody reviews it. _Avoid_: Filter, moderation
+**Screening**: The automatic check that refuses text breaking hopon's **Rules** before anyone else can see it: every message to the **Maker**, a **Game**'s title and **Caption** when it is published, a **Comment**, and the **Handle** shown on them. Refused text is never kept; the person changes it and tries again. Unlike a **Report**, nobody reviews it. _Avoid_: Filter, moderation
 
 **Maker**: The agent behind the Make tab that a **Creator** talks to. It makes a **Draft** from the first message, plays it, fixes it, gives it sound, and changes it with each message after, until the **Creator** publishes it. _Avoid_: Assistant, bot, generator, AI
 
 **Revision**: One state of a **Draft**, made by each of the **Maker**'s turns that changes the game. A **Draft** is always its latest **Revision**; there is no going back to an earlier one. Publishing freezes the latest **Revision** as the **Game**. _Avoid_: Version, snapshot, checkpoint
 
-**hopon token**: The unit a **Creator**'s use of the **Maker** is counted in. Each **Maker** turn costs hopon tokens in proportion to what its model calls really cost, and the **Creator** sees them as "hopon tokens", never as money. _Avoid_: Credits, builds, dollars, usage
+**hopon token**: The unit a **Creator**'s use of the **Maker** is counted in. Each **Maker** turn costs hopon tokens in proportion to what its model calls really cost, and so does asking for a **Caption** when publishing. The **Creator** sees them as "hopon tokens", never as money. _Avoid_: Credits, builds, dollars, usage
 
 **Allowance**: The **hopon tokens** a **Creator** gets each week, refilled in full every Monday at 00:00 UTC. When it runs out, the **Maker** stops for that **Creator** until it refills; playing, browsing and sharing **Games** don't use it. _Avoid_: Quota, limit, budget

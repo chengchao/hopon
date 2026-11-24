@@ -16,7 +16,8 @@ export interface ModelEnv {
 export interface ModelCall {
   metadata: {
     draftId: string;
-    agent: "maker" | "eval";
+    // "caption": the publish sheet's Caption (the Worker's caption.ts).
+    agent: "maker" | "eval" | "caption";
     jobId?: string;
   };
   // Production drops message text from the gateway's logs (#125); the eval keeps it.

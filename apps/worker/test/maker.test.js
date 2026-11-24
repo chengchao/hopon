@@ -1372,4 +1372,108 @@ test("allowance: each model call is charged to its Creator's week; a run's work 
   assert.doesNotMatch(told.text, /Allowance is used up/u);
   assert.equal(await lastReply(draft), published(2));
   advised.close();
+
+  // Below zero, a Caption for the publish sheet is refused too: it would be a model call.
+  const caption = await call(`/api/drafts/${draft}/caption`, {});
+  assert.equal(caption.status, 429);
+  const { code } = await caption.json();
+  assert.equal(code, "allowance_used");
 });
+
+// A request as the Draft's Creator or as someone else, with a JSON `body` or with none at all.
+const post = async (route, body, sub = "user_maker") =>
+  fetch(`${ORIGIN}${route}`, {
+    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: {
+      Authorization: `Bearer ${await token(sub)}`,
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    method: "POST",
+  });
+
+test(
+  "publish: the Game's Caption is the one the Creator sends, empty included, or the Maker's description when none is sent; the caption model writes one, cut to one line",
+  { timeout: 180_000 },
+  async (t) => {
+    await serve(t);
+    // The earlier tests spent this week's Allowance.
+    kill();
+    await endWeek("2026-W03");
+    await start();
+    const MAKERS = "Tap to jump from moon to moon.";
+    const built = async () => {
+      const { id } = await json("/api/drafts", { text: "build new" });
+      const socket = await connect(id);
+      await socket.until("the build's end", over);
+      socket.close();
+      return id;
+    };
+    const publishedAs = async (draft, body) => {
+      const response = await post(`/api/drafts/${draft}/publish`, body);
+      assert.equal(response.status, 201);
+      const { id } = await response.json();
+      const { games } = await json("/api/games");
+      assert.equal(games[0].id, id);
+      assert.equal(games[0].title, "Moon Cat");
+      return games[0].description;
+    };
+
+    const draft = await built();
+    const { left: before } = await json("/api/allowance");
+    // "Write it for me": with no Caption yet.
+    const first = await post(`/api/drafts/${draft}/caption`, {});
+    assert.equal(first.status, 200);
+    const { caption } = await first.json();
+    assert.match(caption, /^I bet you can't last 30 seconds\./u);
+    assert.doesNotMatch(caption, /["\n]|second line/u);
+    assert.ok(
+      caption.length > 100 && caption.length <= 180,
+      `${caption.length}`
+    );
+    // The call is the Creator's, 1,000 hopon tokens like any of the fake model's.
+    const { left: after } = await json("/api/allowance");
+    assert.equal(after, before - 1000);
+    // "Write another" sends the one the Creator is looking at.
+    const another = await post(`/api/drafts/${draft}/caption`, {
+      current: "beat my score",
+    });
+    assert.equal(another.status, 200);
+    assert.deepEqual(Object.keys(await another.json()), ["caption"]);
+
+    // Someone else's Draft reads as a missing one.
+    const others = await post(`/api/drafts/${draft}/caption`, {}, "user_other");
+    assert.equal(others.status, 404);
+    const long = "x".repeat(181);
+    const longCurrent = await post(`/api/drafts/${draft}/caption`, {
+      current: long,
+    });
+    assert.equal(longCurrent.status, 400);
+
+    // A Caption over the limit or of two lines is refused, and the Draft stays one.
+    for (const unfit of [long, "beat my score\nif you can"]) {
+      // oxlint-disable-next-line no-await-in-loop -- one request at a time, as a Creator sends them.
+      const response = await post(`/api/drafts/${draft}/publish`, {
+        caption: unfit,
+      });
+      assert.equal(response.status, 400);
+    }
+    const { drafts } = await json("/api/drafts");
+    assert.ok(drafts.some(({ id }) => id === draft));
+
+    assert.equal(
+      await publishedAs(draft, { caption: "  beat my score 🚀  " }),
+      "beat my score 🚀"
+    );
+    assert.equal(await publishedAs(await built(), { caption: "" }), "");
+    // An app build from before the field sends no body.
+    assert.equal(await publishedAs(await built()), MAKERS);
+
+    // A Draft the Maker hasn't built has no game to write a Caption for.
+    const { id: chat } = await json("/api/drafts", { text: "hello" });
+    const socket = await connect(chat);
+    await socket.until("the chat turn's end", over);
+    socket.close();
+    const unbuilt = await post(`/api/drafts/${chat}/caption`, {});
+    assert.equal(unbuilt.status, 409);
+  }
+);
