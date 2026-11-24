@@ -35,13 +35,13 @@ export const PublishSheet = ({
   );
   const [error, setError] = useState("");
   const [caption, setCaption] = useState("");
-  // The Revision the sheet is open for. Each opening starts from the Caption kept for it, or empty.
+  // The Draft the sheet is open for. Each opening starts from the Caption kept for it, or empty.
   const shown = open && draft ? draft : null;
-  const opening = shown && `${shown.id} ${shown.updatedAt}`;
+  const opening = shown && shown.id;
   const [startedFor, setStartedFor] = useState<string | null>(null);
   if (opening !== startedFor) {
     setStartedFor(opening);
-    setCaption((shown && keptCaption(shown)) ?? "");
+    setCaption((shown && keptCaption(shown.id)) ?? "");
     setBusy("idle");
     setError("");
   }
@@ -74,7 +74,7 @@ export const PublishSheet = ({
       });
       if (asked.current === request) {
         setCaption(written.caption);
-        keepCaption(shown, written.caption);
+        keepCaption(shown.id, written.caption);
       }
     } catch (writeError) {
       if (asked.current === request) {
@@ -92,7 +92,7 @@ export const PublishSheet = ({
     }
     const next = text.replaceAll("\n", " ");
     setCaption(next);
-    keepCaption(shown, next);
+    keepCaption(shown.id, next);
   };
 
   const publish = async () => {
