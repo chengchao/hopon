@@ -4,14 +4,14 @@ import { View } from "react-native";
 import { Text } from "@/components/ui/text";
 import { t } from "@/lib/i18n";
 
-// A saved game's ride ticket: one line each for the title and the description.
+// A saved game's ride ticket: one line each for the title and the Caption.
 export const Ticket = ({
   title,
-  description,
+  caption,
   byline,
 }: {
   title: string;
-  description: string;
+  caption: string;
   /** Who made it. */
   byline: ReactNode;
 }) => (
@@ -27,7 +27,7 @@ export const Ticket = ({
       numberOfLines={1}
       className="text-[15px] leading-5 text-primary-foreground/80"
     >
-      {description}
+      {caption}
     </Text>
   </View>
 );

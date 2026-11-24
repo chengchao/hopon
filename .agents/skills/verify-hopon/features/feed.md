@@ -31,7 +31,7 @@ Preconditions:
 
 ## Gotchas
 
-- The seed has three games, so `next` is always null. Proving paging needs at least nine published games: `sql.sh` INSERT `games` rows (`owner, author, title, description, published=1`) as seeding, and report that the extra games were seeded.
+- The seed has three games, so `next` is always null. Proving paging needs at least nine published games: `sql.sh` INSERT `games` rows (`owner, author, title, caption`) as seeding, and report that the extra games were seeded.
 - A seeded game has no page in R2 until you `wrangler r2 object put … --local --persist-to "$STATE/wrangler"` one, so `play` on it is a 404. Borrow an Original's page, as in `run-ios`'s "Other accounts' content".
 - `/games/<id>/index.html` for a missing or unpublished game is a 404. It isn't a sign that seeding failed unless doctor also fails.
 - What the WebView renders (the game actually running) is out of reach here. That's `run-ios`.

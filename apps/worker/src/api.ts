@@ -2,7 +2,7 @@ import { verifyToken } from "@clerk/backend";
 import { zValidator } from "@hono/zod-validator";
 import {
   ALLOWANCE_USED,
-  GAME_DESCRIPTION_MAX,
+  GAME_CAPTION_MAX,
   MAX_DRAFTS,
   newCaption,
   newComment,
@@ -255,25 +255,31 @@ const screenWithHandle = Effect.fn("screenWithHandle")(function* (
   }
 });
 
+// A feed card as it is served: `description` is the Caption again, where app builds from before `caption` read it.
+// Take it out once MIN_IOS_BUILD is the first build that reads `caption`.
+type ServedGame = FeedGame & { description: FeedGame["caption"] };
+
 // A feed card: the public fields, counts, and whether the viewer (the signed-in user, if any) liked or saved it.
-const feedColumns = (viewer = "") => ({
-  author: games.author,
-  // Qualified by hand: Drizzle leaves columns bare in a one-table select, and a bare "id" here would mean comments.id.
-  comments: sql<number>`(SELECT COUNT(*) FROM ${comments} WHERE ${comments}.game_id = ${games}.id)`,
-  description: games.description,
-  id: games.id,
-  liked:
-    sql`EXISTS(SELECT 1 FROM ${likes} WHERE ${likes}.game_id = ${games}.id AND ${likes}.user = ${viewer})`.mapWith(
-      Boolean
-    ),
-  likes: sql<number>`(SELECT COUNT(*) FROM ${likes} WHERE ${likes}.game_id = ${games}.id)`,
-  mine: sql`${games.owner} = ${viewer}`.mapWith(Boolean),
-  saved:
-    sql`EXISTS(SELECT 1 FROM ${saves} WHERE ${saves}.game_id = ${games}.id AND ${saves}.user = ${viewer})`.mapWith(
-      Boolean
-    ),
-  title: games.title,
-});
+const feedColumns = (viewer = "") =>
+  ({
+    author: games.author,
+    caption: games.caption,
+    // Qualified by hand: Drizzle leaves columns bare in a one-table select, and a bare "id" here would mean comments.id.
+    comments: sql<number>`(SELECT COUNT(*) FROM ${comments} WHERE ${comments}.game_id = ${games}.id)`,
+    description: games.caption,
+    id: games.id,
+    liked:
+      sql`EXISTS(SELECT 1 FROM ${likes} WHERE ${likes}.game_id = ${games}.id AND ${likes}.user = ${viewer})`.mapWith(
+        Boolean
+      ),
+    likes: sql<number>`(SELECT COUNT(*) FROM ${likes} WHERE ${likes}.game_id = ${games}.id)`,
+    mine: sql`${games.owner} = ${viewer}`.mapWith(Boolean),
+    saved:
+      sql`EXISTS(SELECT 1 FROM ${saves} WHERE ${saves}.game_id = ${games}.id AND ${saves}.user = ${viewer})`.mapWith(
+        Boolean
+      ),
+    title: games.title,
+  }) satisfies Record<keyof ServedGame, unknown>;
 
 // A Block between accounts `a` and `b`, in either direction. Each is an account id or a column, named by hand (see `comments` above).
 const blockedBetween = (a: SQL | string, b: SQL | string) =>
@@ -947,7 +953,7 @@ const builtDraft = Effect.fn("builtDraft")(function* (
   return { description: draft.description ?? "", n, title: draft.title };
 });
 
-const CAPTION_TOO_LONG = `Write a caption of one line, up to ${GAME_DESCRIPTION_MAX} characters.`;
+const CAPTION_TOO_LONG = `Write a caption of one line, up to ${GAME_CAPTION_MAX} characters.`;
 
 // A Caption for the publish sheet, which the Draft's Maker has a model write (src/caption.ts): the model path needs
 // pi's packages, which this file stays clear of. It costs hopon tokens, so it stops at zero as a message does.
@@ -1030,7 +1036,7 @@ app.post(
             .insert(games)
             .values({
               author: username,
-              description: caption,
+              caption,
               draftId: id,
               owner,
               runtime: RUNTIME.exec(index)?.groups?.version ?? null,
@@ -1117,7 +1123,7 @@ const publishedGame = Effect.fn("publishedGame")(function* (id: number) {
     db
       .select({
         author: games.author,
-        description: games.description,
+        caption: games.caption,
         owner: games.owner,
         title: games.title,
       })
@@ -1284,7 +1290,7 @@ const notifyOperator = async (
     `New report: ${reason?.label}`,
     ...(report.commentId
       ? [`Comment ${report.commentId} on game ${report.gameId}`, report.body]
-      : [`Game ${report.gameId}: ${report.title}`, report.description]),
+      : [`Game ${report.gameId}: ${report.title}`, report.caption]),
     `By @${report.handle ?? "?"} (${report.creator}), reported by ${report.reporter}`,
     report.commentId
       ? `${origin}/operator#comment-${report.commentId}`
@@ -1340,8 +1346,8 @@ app.post(
           return yield* fail(400, "You can't report your own game.");
         }
         yield* fileReport(c, {
+          caption: game.caption,
           creator: game.owner,
-          description: game.description,
           gameId: id,
           handle: game.author,
           reason: c.req.valid("json").reason,
@@ -1489,9 +1495,9 @@ const reportQueue = Effect.gen(function* () {
     db
       .select({
         body: reports.body,
+        caption: reports.caption,
         commentId: reports.commentId,
         createdAt: reports.createdAt,
-        description: reports.description,
         gameId: reports.gameId,
         handle: reports.handle,
         live: sql`CASE WHEN ${reports}.comment_id IS NULL
@@ -1512,7 +1518,7 @@ const reportQueue = Effect.gen(function* () {
     const [oldest] = group;
     return {
       body: oldest.body,
-      description: oldest.description,
+      caption: oldest.caption,
       gameId: oldest.gameId,
       handle: oldest.handle,
       id: oldest.commentId ?? oldest.gameId,

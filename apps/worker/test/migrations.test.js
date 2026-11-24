@@ -236,3 +236,98 @@ test("games are files: published Games' HTML lands in R2 and still plays; unpubl
     assert.equal(await page.text(), html);
   }
 });
+
+test("captions: every Game's description is its caption, and a Worker from before `caption` still publishes, reports and reads", async (t) => {
+  const proxy = await getPlatformProxy({
+    configPath: new URL("wrangler.jsonc", import.meta.url).pathname,
+    envFiles: [],
+    persist: false,
+    remoteBindings: false,
+  });
+  t.after(() => proxy.dispose());
+  const { DB } = proxy.env;
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith(".sql"))
+    .toSorted();
+  const at = files.findIndex((f) => f.endsWith("_captions.sql"));
+  const run = (sql) => DB.batch(sql.map((s) => DB.prepare(s)));
+  const all = async (sql) => {
+    const { results } = await DB.prepare(sql).all();
+    return results;
+  };
+  await run(files.slice(0, at).flatMap(statements));
+  // D1 as it was: the originals, a Creator's Game with a like, a comment, a save and a report, and one with no text.
+  await run([
+    `INSERT INTO games(id, owner, title, description, author, draft_id) VALUES (100, 'user_a', 'Made', 'Tap, don''t "blink" 星', 'maya', 'd1')`,
+    "INSERT INTO games(id, owner, title, description) VALUES (101, 'user_a', 'Bare', '')",
+    "INSERT INTO likes(game_id, user) VALUES (100, 'user_b')",
+    "INSERT INTO comments(game_id, user, author, body) VALUES (100, 'user_b', 'b', 'nice')",
+    "INSERT INTO saves(game_id, user) VALUES (100, 'user_b')",
+    "INSERT INTO reports(creator, game_id, reason, reporter, title, description) VALUES ('user_a', 100, 'spam', 'user_b', 'Made', 'Tap')",
+    "INSERT INTO reports(creator, game_id, comment_id, reason, reporter, body) VALUES ('user_b', 100, 1, 'hate', 'user_a', 'nice')",
+  ]);
+  const before = await all(
+    "SELECT author, created_at, description, draft_id, id, owner, runtime, title FROM games ORDER BY id"
+  );
+  const reported = await all("SELECT id, description FROM reports ORDER BY id");
+
+  await run(files.slice(at).flatMap(statements));
+
+  assert.deepEqual(
+    await all(
+      "SELECT author, created_at, description, draft_id, id, owner, runtime, title FROM games ORDER BY id"
+    ),
+    before
+  );
+  assert.deepEqual(
+    await all("SELECT id, caption AS description FROM games ORDER BY id"),
+    before.map(({ description, id }) => ({ description, id }))
+  );
+  assert.deepEqual(
+    await all("SELECT id, caption AS description FROM reports ORDER BY id"),
+    reported
+  );
+  for (const table of ["likes", "comments", "saves"]) {
+    // oxlint-disable-next-line no-await-in-loop -- three counts
+    const rows = await all(`SELECT * FROM ${table}`);
+    assert.equal(rows.length, 1, table);
+  }
+  await assert.rejects(
+    DB.prepare("INSERT INTO likes(game_id, user) VALUES (999, 'x')").run(),
+    /FOREIGN KEY/u
+  );
+  await assert.rejects(
+    DB.prepare(
+      "INSERT INTO games(owner, title, draft_id) VALUES ('user_a', 'Again', 'd1')"
+    ).run(),
+    /UNIQUE/u
+  );
+  await assert.rejects(
+    DB.prepare("INSERT INTO games(owner, title, caption) VALUES (?, ?, ?)")
+      .bind("user_a", "Long", "x".repeat(181))
+      .run(),
+    /CHECK/u
+  );
+
+  // The Worker from before `caption`, still serving or on another Preview, and this one, each see the other's rows.
+  await run([
+    "INSERT INTO games(owner, title, description) VALUES ('user_a', 'Old Worker', 'by description')",
+    "INSERT INTO games(owner, title, caption) VALUES ('user_a', 'New Worker', 'by caption')",
+    "INSERT INTO games(owner, title, caption) VALUES ('user_a', 'No Caption', '')",
+    "INSERT INTO reports(creator, game_id, reason, reporter, title, description) VALUES ('user_a', 101, 'spam', 'user_c', 'Bare', 'old')",
+  ]);
+  assert.deepEqual(
+    await all(
+      "SELECT id, caption, description FROM games WHERE id > 101 ORDER BY id"
+    ),
+    [
+      { caption: "by description", description: "by description", id: 102 },
+      { caption: "by caption", description: "by caption", id: 103 },
+      { caption: "", description: "", id: 104 },
+    ]
+  );
+  assert.deepEqual(
+    await all("SELECT caption FROM reports WHERE reporter = 'user_c'"),
+    [{ caption: "old" }]
+  );
+});

@@ -343,7 +343,9 @@ test("publish: every file the current Revision's page loads becomes the Game's, 
     { ...row, created_at: undefined },
     {
       author: "maya_makes",
+      caption: made.description,
       created_at: undefined,
+      // The Caption's old column, until the migration that drops it.
       description: made.description,
       draft_id: id,
       id: gameId,
@@ -436,6 +438,9 @@ test("publish: every file the current Revision's page loads becomes the Game's, 
   assert.equal(list.games.length, ORIGINALS + 1);
   assert.equal(list.games[0].id, gameId);
   assert.equal(list.games[0].owner, undefined);
+  // An app build from before `caption` sent none and reads `description`: it gets the Maker's description in both.
+  assert.equal(list.games[0].caption, made.description);
+  assert.equal(list.games[0].description, made.description);
   // The handle from the publisher's token.
   assert.equal(list.games[0].author, "maya_makes");
   assert.deepEqual(
@@ -577,7 +582,7 @@ test("version: the minimum iOS build, signed in or not", async (t) => {
 test("cursor pages have no duplicates", async (t) => {
   const { call, env, owner } = await setup(t);
   const insert = env.DB.prepare(
-    "INSERT INTO games(owner,title,description) VALUES (?,?,?)"
+    "INSERT INTO games(owner,title,caption) VALUES (?,?,?)"
   );
   await env.DB.batch(
     Array.from({ length: 17 }, (_, i) => insert.bind(owner, `game ${i}`, ""))
@@ -1412,7 +1417,7 @@ test("saves: private to the person who saved", async (t) => {
 test("saves: newest save first, 8 per page, no duplicates", async (t) => {
   const { call, env, owner } = await setup(t);
   const insert = env.DB.prepare(
-    "INSERT INTO games(owner,title,description) VALUES (?,?,?)"
+    "INSERT INTO games(owner,title,caption) VALUES (?,?,?)"
   );
   await env.DB.batch(
     Array.from({ length: 17 }, (_, i) => insert.bind(owner, `game ${i}`, ""))
@@ -1486,12 +1491,13 @@ test("reports: one open snapshot per person and game, which outlives the game", 
     { ...results[0], created_at: undefined, id: undefined },
     {
       body: null,
+      caption: game.caption,
       closed_at: null,
       closed_how: null,
       comment_id: null,
       created_at: undefined,
       creator: "hopon",
-      description: game.description,
+      description: null,
       game_id: game.id,
       handle: "hopon",
       id: undefined,
@@ -1644,6 +1650,7 @@ test("comment reports: someone else's comment, even on your own game; never your
     [
       {
         body: "you stink",
+        caption: null,
         closed_at: null,
         closed_how: null,
         comment_id: comment.id,
@@ -1952,7 +1959,7 @@ test("operator: the queue lists open reports by target, oldest first, with reaso
     {
       actions: [`/games/${older.id}/index.html`, ...actions("game", older.id)],
       id: `game-${older.id}`,
-      text: `Game · @hopon · DATE UTC ${older.title} ${older.description} Not suitable for ages 13+ × 1 Spam or scam × 2 Play Delete Ban Dismiss`,
+      text: `Game · @hopon · DATE UTC ${older.title} ${older.caption} Not suitable for ages 13+ × 1 Spam or scam × 2 Play Delete Ban Dismiss`,
     },
     {
       actions: actions("comment", comment.id),
@@ -1962,7 +1969,7 @@ test("operator: the queue lists open reports by target, oldest first, with reaso
     {
       actions: actions("game", newer.id).slice(1),
       id: `game-${newer.id}`,
-      text: `Game · @hopon · DATE UTC ${newer.title} ${newer.description} Content deleted Something else × 1 Ban Dismiss`,
+      text: `Game · @hopon · DATE UTC ${newer.title} ${newer.caption} Content deleted Something else × 1 Ban Dismiss`,
     },
   ]);
 });

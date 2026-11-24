@@ -55,7 +55,7 @@ The simulator's `text` action can drop the end of what it types (it lost `@examp
 Checking what the signed-in account sees on someone else's game or comment needs rows written as another account, which only SQL can do. Find the simulator account's id from what it has written (`SELECT owner FROM games` / `SELECT user FROM likes`), or from `clerk users list --instance dev` in a fresh local database where it has written nothing; insert content as any other `user_…` id with `pnpm -F worker exec wrangler d1 execute DB --local --command "INSERT …"`, and delete those rows before step 6. A published Game is a `games` row plus its files in R2 under `games/<id>/`, so a seeded one borrows an Original's page (from `apps/worker`, with the id the `INSERT` returned):
 
 ```sh
-pnpm exec wrangler d1 execute DB --local --command "INSERT INTO games (owner, author, title, description) VALUES ('user_rival', 'rival', 'Rival Run', 'A seeded game.') RETURNING id"
+pnpm exec wrangler d1 execute DB --local --command "INSERT INTO games (owner, author, title, caption) VALUES ('user_rival', 'rival', 'Rival Run', 'A seeded game.') RETURNING id"
 pnpm exec wrangler r2 object get hopon/games/2/index.html --local --file "$TMPDIR/index.html"
 pnpm exec wrangler r2 object put hopon/games/<id>/index.html --local --file "$TMPDIR/index.html"
 ```

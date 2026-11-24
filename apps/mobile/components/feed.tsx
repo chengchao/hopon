@@ -223,7 +223,7 @@ export const Feed = ({
     ]);
   };
 
-  // Only the name/description area pages the feed; the game keeps every touch. A drag moves at most one game.
+  // Only the name/caption area pages the feed; the game keeps every touch. A drag moves at most one game.
   // `active` only changes when a drag settles, so `origin` holds for the whole gesture.
   const pan = useMemo(() => {
     const origin = active * height;
@@ -291,7 +291,7 @@ export const Feed = ({
                   {...pan.panHandlers}
                   accessible
                   accessibilityRole="adjustable"
-                  accessibilityLabel={`${item.title}. ${item.description}`}
+                  accessibilityLabel={`${item.title}. ${item.caption}`}
                   accessibilityHint={t.feed.swipeHint}
                   // The info area is one VoiceOver element, so its buttons are offered as custom actions too.
                   accessibilityActions={[
@@ -353,7 +353,7 @@ export const Feed = ({
                       <Text className="font-strong text-sm leading-[20px] text-foreground">
                         {item.author ? `@${item.author}` : t.ticket.anonymous}
                       </Text>
-                      {!!item.description && `  ${item.description}`}
+                      {!!item.caption && `  ${item.caption}`}
                     </Text>
                   </View>
                   <GameActions

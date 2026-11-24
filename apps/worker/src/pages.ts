@@ -126,7 +126,7 @@ const actionPath = (
 const card = (target: ReportTarget) => html`<section id="${anchor(target)}">
 <p class="meta">${target.kind === "game" ? "Game" : `Comment on game ${target.gameId}`} · @${target.handle ?? "?"} · ${target.reportedAt} UTC</p>
 ${target.title ? html`<h2>${target.title}</h2>` : ""}
-<p>${target.description ?? target.body}</p>
+<p>${target.caption ?? target.body}</p>
 ${target.live ? "" : html`<p class="gone">Content deleted</p>`}
 <p>${target.reasons.map(
   ({ count, reason }) =>
