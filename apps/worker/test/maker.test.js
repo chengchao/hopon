@@ -641,11 +641,12 @@ test(
         liked: false,
         likes: undefined,
         mine: true,
+        remixOf: null,
         saved: false,
         title: "Moon Cat",
       }
     );
-    // The Game is what the page loads: the source stays with the Draft.
+    // The Game serves what the page loads, and keeps its source for a Remix without serving it.
     const game = await fetch(`${ORIGIN}/games/${gameId}/game.js`);
     assert.equal(await game.text(), "// built");
     const source = await fetch(`${ORIGIN}/games/${gameId}/source.tgz`);

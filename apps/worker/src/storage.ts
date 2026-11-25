@@ -23,6 +23,26 @@ export const removeFiles = async (files: R2Bucket, prefix: string) => {
   }
 };
 
+// Every object under `from` to the same name under `to`, index.html last, so a copy cut short is no Revision.
+export const copyFiles = async (files: R2Bucket, from: string, to: string) => {
+  const { objects } = await files.list({ prefix: from });
+  const copy = async (key: string) => {
+    const object = await files.get(key);
+    if (!object) {
+      throw new Error(`${key} is missing`);
+    }
+    await files.put(
+      `${to}${key.slice(from.length)}`,
+      await object.arrayBuffer()
+    );
+  };
+  const index = `${from}index.html`;
+  await Promise.all(
+    objects.filter(({ key }) => key !== index).map(({ key }) => copy(key))
+  );
+  await copy(index);
+};
+
 // A Draft's current Revision n, 0 before its first: the highest `<n>/` in R2 with its index.html, which `build` writes
 // last (publish.ts). One without it is a write an eviction cut short.
 export const currentRevision = async (files: R2Bucket, id: string) => {

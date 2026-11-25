@@ -12,7 +12,8 @@ import {
 
 // A published Game (#117); a Draft becomes one on Publish. Its files are in R2 (storage.ts).
 // `draft_id` is the Draft it came from, so the gateway's logs, keyed by Draft, still map to it (#120); null for Games
-// from before the Maker. `runtime` is the runtime its index.html loads ("v2"), null for plain DOM.
+// from before the Maker. `runtime` is the runtime its index.html loads ("v2"), null for plain DOM. `remix_of` is the Game
+// it was remixed from; no FK, so it outlives that Game's Delete.
 export const games = sqliteTable(
   "games",
   {
@@ -25,6 +26,7 @@ export const games = sqliteTable(
     draftId: text("draft_id").unique(),
     id: integer("id").primaryKey({ autoIncrement: true }),
     owner: text("owner").notNull(),
+    remixOf: integer("remix_of"),
     runtime: text("runtime"),
     title: text("title").notNull(),
   },
@@ -173,7 +175,8 @@ export const blocks = sqliteTable(
 // lives only in the Maker's SQLite. `id` is the Maker's name, 64 hex characters. `title` is null until the first
 // Revision, and so is `description`, what the Maker says the game is. The Maker sets `updated_at` at the end of each
 // turn and when it takes a message; milliseconds, so the list's order has no ties. `turn_started_at` is the Maker's
-// too (markTurn): when it took the message its turn answers, null while it waits for the Creator.
+// too (markTurn): when it took the message its turn answers, null while it waits for the Creator. `remix_of` is the Game
+// a Remix copied, which Publish carries over.
 export const now = sql`(strftime('%Y-%m-%dT%H:%M:%fZ'))`;
 export const drafts = sqliteTable(
   "drafts",
@@ -184,6 +187,7 @@ export const drafts = sqliteTable(
     description: text("description"),
     id: text("id").primaryKey(),
     owner: text("owner").notNull(),
+    remixOf: integer("remix_of"),
     title: text("title"),
     turnStartedAt: text("turn_started_at"),
     updatedAt: text("updated_at").notNull().default(now),

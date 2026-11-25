@@ -115,6 +115,8 @@ export const en = {
     loading: "Loading games…",
     more: "More",
     play: (title: string) => `Play: ${title}`,
+    remix: "Remix",
+    remixOf: (handle: string) => `Remix of @${handle}`,
     removeSaved: "Remove from saved",
     reportGame: "Report game",
     save: "Save",

@@ -4,6 +4,7 @@ import {
   Heart,
   MessageCircle,
   MoreHorizontal,
+  Shuffle,
 } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
@@ -44,18 +45,20 @@ const Action = ({
   </Pressable>
 );
 
-// Like, comment, save and "more" sit under the game, never over it, so they can't steal the game's touches.
+// Like, comment, save, remix and "more" sit under the game, never over it, so they can't steal the game's touches.
 export const GameActions = ({
   game,
   onLike,
   onComments,
   onSave,
+  onRemix,
   onMore,
 }: {
   game: FeedGame;
   onLike: () => void;
   onComments: () => void;
   onSave: () => void;
+  onRemix: () => void;
   /** Opens the menu with Report game and Block; left out on the viewer's own games. */
   onMore?: () => void;
 }) => {
@@ -93,6 +96,9 @@ export const GameActions = ({
           color={isSaved ? COLORS.ticket : COLORS.paper}
           fill={isSaved ? COLORS.ticket : "none"}
         />
+      </Action>
+      <Action label={t.feed.remix} onPress={onRemix}>
+        <Shuffle {...ICON} />
       </Action>
       <View className="flex-1" />
       {onMore && (

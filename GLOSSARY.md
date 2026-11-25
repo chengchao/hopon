@@ -8,6 +8,8 @@ Make a small game by talking to the Maker, then swipe a feed to discover and pla
 
 **Draft**: A **Game** that only its **Creator** can see and play.
 
+**Remix**: A new **Draft** that starts as a copy of someone's published **Game**, for the person who remixed it to change with the **Maker**. It publishes only once the **Maker** has changed it, and the feed shows the **Handle** of the **Game** it came from while that **Game** is up. _Avoid_: Fork, copy, clone
+
 **Creator**: The signed-in person who made a **Game**. _Avoid_: Author, owner (in product language)
 
 **Handle**: The public @name a person picks; it is shown on their published **Games** and **Comments**. _Avoid_: Username, display name
