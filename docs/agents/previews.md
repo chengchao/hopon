@@ -1,6 +1,6 @@
 # Deploying and debugging a Worker Preview
 
-A Preview has no logs to read yet: `wrangler tail` sees only production, and Workers Observability is off until #35. Read the Preview's **state** instead: per-object statuses, its namespace ids, its container instances. Every recipe below runs with wrangler's own OAuth token, `T=$(npx wrangler auth token | tail -1)` (from `apps/worker`), and the account `A=51a5a41f7bd8425703a6f1d92f867f4d`. A Preview's slug is its branch with `/` as `-`.
+A Preview's `console.*` lines and exceptions are in Workers Logs (dashboard → Workers → hopon → Observability), though `wrangler tail` sees only production. Read the Preview's **state** too: per-object statuses, its namespace ids, its container instances. Every recipe below runs with wrangler's own OAuth token, `T=$(npx wrangler auth token | tail -1)` (from `apps/worker`), and the account `A=51a5a41f7bd8425703a6f1d92f867f4d`. A Preview's slug is its branch with `/` as `-`.
 
 ## Which Durable Objects failed
 
