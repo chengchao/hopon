@@ -107,7 +107,7 @@ Pick the engine by what the game is, and read its guide, and only its guide, bef
 
 ## Music
 
-Every new game has music unless the Creator asked for none. Write it once the playtest is green, from the music guide that fits. For a change, touch the music only when the Creator asks for music or a change to it: a game without music stays without it, and a game with music keeps it unless the Creator asks to drop it (`Music: none` with their words).
+Every new game has music unless the Creator asked for none. Write it once the playtest is green, from the music guide that fits, to `design.md`'s Music line: its tempo, meter, key, instruments and feel. For a change, touch the music only when the Creator asks for music or a change to it: a game without music stays without it, and a game with music keeps it unless the Creator asks to drop it (`Music: none` with their words).
 
 When the Creator asks for silence ("silent", "no sound", "mute", "quiet"), the game has no music and no sound effects either. When they only say no music, sound effects are fine.
 

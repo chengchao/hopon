@@ -9,14 +9,25 @@ The music is one original loop, played on repeat under the game. You write it as
 - It must loop seamlessly: no fade-in or fade-out and no silence at either end. Write every sample through `put`, which wraps tails onto the start; the echo and the low-pass wrap too.
 - Build on the skeleton and keep its oscillators and master chain: its saw and pulse are band-limited, and the chain (echo, low-pass, soft limit) sets the level. Never write a raw square or saw such as `p % 1 < 0.5 ? 1 : -1`: it aliases into a harsh fizz.
 - Volumes are relative; the master normalizes the mix.
-- Fit the brief's genre and mood, and keep it under the game.
+- Follow `design.md`'s Music line, and keep it under the game. Set `BPM`, `BEATS_PER_BAR`, `BARS` and `CUTOFF` from it: the skeleton leaves them empty, and doesn't run until you do.
 - Render it with bash: `node music.mjs`, then check the printed duration. For a change, edit the script and render again.
 
 ## Arranging
 
-- Give each part its own register, wave and place: bass on `triangle` or `sine`, low, centered and dry; chords or a pad on `saw` or `pulse` with a slow attack and a low volume; the lead on `pulse` or `saw` with `vibrato` around 0.15 and some `echo`; an arpeggio quiet and panned side to side.
-- Set `CUTOFF` to the style: 8000 for bright ones such as chiptune or pop, 4000–6000 for soft, warm or lo-fi ones.
+- Give each part its own register and place: the bass low, centered and dry, the lead above the chords, quiet parts panned to the sides.
 - Change something at each section: add or drop a part, lift the melody, busier hats.
+- The style decides the parts, their waves and the drums. Start from the row nearest the design's Music line, never from the same one out of habit, and take the key, the tempo and the melody from the design:
+
+| Style | Parts | Drums | Mix |
+| --- | --- | --- | --- |
+| Chiptune, arcade (130–170 BPM) | `pulse` lead at duty 0.125 or 0.25, no vibrato; the chords as a fast `pulse` arpeggio, a note every quarter-beat, and no pad; `triangle` bass | kick and snare, hats on every half-beat | `CUTOFF` 9000, little echo |
+| Synthwave, driving (100–125) | `saw` bass on every half-beat; a `saw` pad with attack 0.3; a `saw` lead with vibrato 0.15 and echo 0.4 | kick on every beat, snare on 2 and 4 with echo 0.3 | `CUTOFF` 7000 |
+| Lo-fi, calm (70–90) | a `sine` or `triangle` lead with long rests; soft `triangle` seventh chords held a bar; `sine` bass | a sparse kick, off-beat hats played 0.1 beat late for swing, no open hats | `CUTOFF` 3500–4500 |
+| Ambient, dreamy (60–80) | `sine` and `triangle` notes of 4–8 beats with attack 0.5–1.5 and release 1–2; a few high notes with echo 0.6 | none | `CUTOFF` 5000, `pingPong(1.5, 0.5)` |
+| Funk, bouncy (95–115) | a syncopated `triangle` or `pulse` bass in quarter-beat notes with rests; chord stabs of a quarter-beat, off the beat | open hats on the off-beats, quiet extra snares between the main ones | `CUTOFF` 8000, dry |
+| Waltz, fairground (3 beats a bar, 120–160) | `triangle` bass on beat 1 and `pulse` chords on 2 and 3; a short-noted lead | a soft kick on 1 and hats on 2 and 3, or none | `CUTOFF` 6000 |
+| Spooky, tense (60–100) | a low `sine` drone; a slow `triangle` figure in phrygian or harmonic minor; few high notes with echo 0.6 and long rests | a hat tick, or none | `CUTOFF` 4000 |
+| March, heroic (100–120) | a `pulse` fanfare lead at duty 0.5 with dotted rhythms; short `saw` chords on each beat; a `triangle` bass on the root and the fifth | snare hits every quarter-beat, growing louder, into each section | `CUTOFF` 8000 |
 
 ## Skeleton
 
@@ -24,11 +35,12 @@ The music is one original loop, played on repeat under the game. You write it as
 import { writeFileSync } from "node:fs";
 
 const RATE = 44100;
-const BPM = 120;
+const BPM = /* the design's tempo */;
+const BEATS_PER_BAR = /* the design's meter: 4, 3 for a waltz; for 6/8, 2 dotted quarters */;
+const BARS = /* BARS * BEATS_PER_BAR * 60 / BPM is 20 to 40 s */;
+const CUTOFF = /* the style's, from Arranging */;
 const BEAT = 60 / BPM;
-const BARS = 16;
-const CUTOFF = 8000;
-const LENGTH = Math.round(BARS * 4 * BEAT * RATE);
+const LENGTH = Math.round(BARS * BEATS_PER_BAR * BEAT * RATE);
 const mix = [new Float32Array(LENGTH), new Float32Array(LENGTH)];
 const send = [new Float32Array(LENGTH), new Float32Array(LENGTH)];
 
@@ -173,7 +185,7 @@ function lowpass(x, cutoff) {
 
 // … write the sections: chords, bass, melody, drums …
 
-pingPong(0.75, 0.4);
+pingPong(0.75, 0.4); // the echo's beats and feedback, to the style
 lowpass(mix[0], CUTOFF);
 lowpass(mix[1], CUTOFF);
 const DRIVE = 1.2;

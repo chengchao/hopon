@@ -13,6 +13,7 @@ You write the notes; FluidSynth plays them with recorded instruments: strings, f
 
 ## Writing it well
 
+- Follow `design.md`'s Music line: its tempo, meter, key and mode, instruments and feel. Set `BPM`, `BEATS_PER_BAR` and `BARS` from it: the skeleton leaves them empty, and doesn't run until you do.
 - Pick the instruments a real ensemble of the style would have, 3–6 parts, and spread them: the lead and bass in the centre, the others panned left and right (30–50 from centre), so the mix isn't mono.
 - Give each part its own register: bass below MIDI 52, accompaniment 48–72, the lead above it.
 - Sampled instruments sound fake on robotic playing. Vary velocity (stronger on the downbeat, softer on passing notes), let sustained notes overlap slightly (beats a touch longer than the gap), and give plucked and percussive ones short, varied lengths.
@@ -29,9 +30,9 @@ import wave
 import numpy as np
 from midiutil import MIDIFile
 
-BPM = 120
-BEATS_PER_BAR = 4  # 3 for a waltz; for 6/8, count dotted quarters as beats
-BARS = 16  # 16 bars of 4/4 at 120 BPM = 32 s
+BPM =  # the design's tempo
+BEATS_PER_BAR =  # the design's meter: 4, 3 for a waltz; for 6/8, 2 dotted quarters
+BARS =  # BARS * BEATS_PER_BAR * 60 / BPM is 20 to 40 s
 LENGTH_BEATS = BARS * BEATS_PER_BAR
 TAIL_BEATS = 8  # rendered past the end, then folded onto the start
 RATE = 44100
