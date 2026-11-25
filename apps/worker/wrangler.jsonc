@@ -3,6 +3,9 @@
   "name": "hopon",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
+  // Workers Logs (#35): every console.* line and uncaught exception is kept for the dashboard, production's and each
+  // Preview's (wrangler falls back to this block for a Preview). Lower head_sampling_rate if volume grows.
+  "observability": { "enabled": true, "logs": { "invocation_logs": true } },
   "d1_databases": [
     {
       "binding": "DB",
