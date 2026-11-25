@@ -1,6 +1,6 @@
 # Sound effects
 
-The scaffold synthesizes every sound: `hopon.play({...})` plays an oscillator or filtered noise with a pitch glide and a short fade. No files, nothing to load. It goes silent when the feed mutes the game, stops while the feed has it paused, and starts at the player's first touch, as iOS requires. The scaffold plays the music too.
+The scaffold synthesizes every sound: `hopon.play({...})` plays an oscillator or filtered noise with a pitch glide and a short fade. No files, nothing to load. It stops while the feed has it paused, and starts at the player's first touch, as iOS requires. The scaffold plays the music too.
 
 ## src/sfx.ts
 
