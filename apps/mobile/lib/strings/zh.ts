@@ -103,7 +103,6 @@ export const zh: Strings = {
     like: "点赞",
     loading: "正在加载游戏…",
     more: "更多",
-    mute: "静音",
     play: (title: string) => `游戏：${title}`,
     removeSaved: "取消收藏",
     reportGame: "举报游戏",
@@ -111,7 +110,6 @@ export const zh: Strings = {
     savedEmpty: "这个游戏已经不在你的收藏里了。",
     swipeHint: "在这里上下滑动切换游戏",
     unlike: "取消点赞",
-    unmute: "取消静音",
   },
   handle: {
     continue: "继续",

@@ -45,7 +45,7 @@ And a game is ready for `build` only when every line here is true of it:
 - **It starts and moves.** The scaffold's start screen shows the game's title and hint, takes the first tap, and sets `hopon.state` to `"play"`. Within a second something happens on screen. Nothing advances before that. The game has no title screen of its own.
 - **The controls work on the first touch,** where the design puts them, and do what it says. A tap target is at least 48 CSS px across.
 - **It ends.** The player can lose, and win when the game has a win. The game then calls `hopon.gameOver()`, and the scaffold's end screen and its tap start a fresh round, in which the game resets everything.
-- **It stops when the feed pauses it** (`hopon.paused`), and goes silent when the feed mutes it.
+- **It stops when the feed pauses it** (`hopon.paused`).
 - **The rules are the ones on screen.** What hits, scores and hurts matches what the player sees. Nothing that matters is off screen or too small to see.
 - **No dead ends.** No state where nothing can happen and the game hasn't ended: a level with no way forward, a timer that never runs out, a board with no move left.
 - **Every Done-when criterion of the design is met,** shown by the tests, the playtest's `state`, `score` and `overAt`, or its screenshots.

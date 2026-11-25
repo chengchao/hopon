@@ -8,21 +8,19 @@ import { COLORS } from "@/lib/theme";
 // Generated games are untrusted code. The server's CSP (`sandbox allow-scripts`, no network) does the isolating, and
 // its opaque origin gets no storage; these props keep the WebView from navigating away, opening windows or talking to
 // the app (no onMessage). Not incognito, so the runtime (/runtime/v3.js) stays cached between games.
-// The app talks to the game, one way: the runtime pauses while `active` is false or the app is in the background, and
-// goes silent while `muted`. Its audio session is "playback" (#213), which iOS keeps playing in the background.
+// The app talks to the game, one way: the runtime pauses while `active` is false or the app is in the background.
+// Its audio session is "playback" (#213), which iOS keeps playing in the background.
 export const GameView = ({
   uri,
   title,
   token,
   active = true,
-  muted = false,
   onCrash,
 }: {
   uri: string;
   title: string;
   token?: string;
   active?: boolean;
-  muted?: boolean;
   // WebKit killed the game's content process; the WebView stays blank until reloaded.
   onCrash?: () => void;
 }) => {
@@ -41,10 +39,9 @@ export const GameView = ({
     view.current?.postMessage(
       JSON.stringify({ type: playing ? "resume" : "pause" })
     );
-    view.current?.postMessage(JSON.stringify({ on: muted, type: "mute" }));
   };
-  // oxlint-disable-next-line react/exhaustive-effect-dependencies -- `sync` is new each render; only these matter.
-  useEffect(sync, [playing, muted]);
+  // oxlint-disable-next-line react/exhaustive-effect-dependencies -- `sync` is new each render; only `playing` matters.
+  useEffect(sync, [playing]);
   return (
     <WebView
       ref={view}

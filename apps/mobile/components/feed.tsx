@@ -49,7 +49,6 @@ export const Feed = ({
   const [reduceMotion, setReduceMotion] = useState(false);
   const [commentsFor, setCommentsFor] = useState<FeedGame | null>(null);
   const [reportFor, setReportFor] = useState<ReportTarget | null>(null);
-  const [muted, setMuted] = useState(false);
   const { isSignedIn, getToken } = useAuth();
   // Clerk's getToken isn't referentially stable, so `load` reads it through a ref instead of its deps.
   const token = useRef(getToken);
@@ -265,7 +264,7 @@ export const Feed = ({
             })}
             initialNumToRender={3}
             windowSize={3}
-            extraData={`${active} ${muted}`}
+            extraData={active}
             renderItem={({ item, index }) => (
               <View style={{ height }} className="px-1.5 pb-1 pt-2">
                 <View
@@ -281,7 +280,6 @@ export const Feed = ({
                     <GameView
                       key={index}
                       active={index === active && focused}
-                      muted={muted}
                       uri={gameUrl(item.id)}
                       title={item.title}
                     />
@@ -306,10 +304,6 @@ export const Feed = ({
                       label: item.saved ? t.feed.removeSaved : t.feed.save,
                       name: "save",
                     },
-                    {
-                      label: muted ? t.feed.unmute : t.feed.mute,
-                      name: "mute",
-                    },
                     ...(item.mine
                       ? []
                       : [
@@ -328,8 +322,6 @@ export const Feed = ({
                       like(item);
                     } else if (action === "save") {
                       save(item);
-                    } else if (action === "mute") {
-                      setMuted((on) => !on);
                     } else if (action === "comments") {
                       setCommentsFor(item);
                     } else if (action === "report") {
@@ -361,8 +353,6 @@ export const Feed = ({
                     onLike={() => like(item)}
                     onComments={() => setCommentsFor(item)}
                     onSave={() => save(item)}
-                    muted={muted}
-                    onMute={() => setMuted((on) => !on)}
                     onMore={item.mine ? undefined : () => more(item)}
                   />
                 </View>

@@ -114,7 +114,6 @@ export const en = {
     like: "Like",
     loading: "Loading games…",
     more: "More",
-    mute: "Mute",
     play: (title: string) => `Play: ${title}`,
     removeSaved: "Remove from saved",
     reportGame: "Report game",
@@ -122,7 +121,6 @@ export const en = {
     savedEmpty: "This game is no longer in your saved games.",
     swipeHint: "Swipe up or down here to change games",
     unlike: "Unlike",
-    unmute: "Unmute",
   },
   handle: {
     continue: "Continue",
