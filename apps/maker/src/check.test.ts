@@ -371,12 +371,17 @@ for bar in range(BARS):
     drum(bar * 4 + 2, 54, 60)
 flute.note(LENGTH_BEATS - 1, 81, 3, 100)
 `;
+// The skeleton leaves its tempo, meter and length to the design, and is a syntax error until they are set.
 const MUSIC_PY = (
   /```python\n(?<code>[\s\S]*?)```/u.exec(SF2_SKILL)?.groups?.code ?? ""
-).replace(
-  "# … write the score: parts, chords, bass, melody, percussion …\n",
-  SCORE
-);
+)
+  .replace(
+    "# … write the score: parts, chords, bass, melody, percussion …\n",
+    SCORE
+  )
+  .replace(/^BPM = {2}#.*$/mu, "BPM = 120")
+  .replace(/^BEATS_PER_BAR = {2}#.*$/mu, "BEATS_PER_BAR = 4")
+  .replace(/^BARS = {2}#.*$/mu, "BARS = 16");
 const WAV_HEADER = 44;
 
 test(

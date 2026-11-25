@@ -11,6 +11,8 @@ const SKILL = new URL(
 );
 const SKELETON = /```js\n(?<code>[\s\S]*?)```/u;
 const SECTIONS = "// … write the sections: chords, bass, melody, drums …\n";
+// The skeleton leaves these to the design, and is a syntax error until they are set.
+const SETTINGS = { BARS: 16, BEATS_PER_BAR: 4, BPM: 120, CUTOFF: 8000 };
 const MIN_S = 20;
 const MAX_S = 40;
 const MAX_PEAK = 0.9;
@@ -41,7 +43,13 @@ const render = () => {
     "the skeleton has a place for the sections"
   );
   const dir = mkdtempSync(path.join(tmpdir(), "music-synth-"));
-  writeFileSync(path.join(dir, "music.mjs"), skeleton.replace(SECTIONS, SCORE));
+  let score = skeleton.replace(SECTIONS, SCORE);
+  for (const [name, value] of Object.entries(SETTINGS)) {
+    const empty = new RegExp(`const ${name} = /\\*.*?\\*/;`, "u");
+    assert.match(score, empty, `the skeleton leaves ${name} empty`);
+    score = score.replace(empty, `const ${name} = ${value};`);
+  }
+  writeFileSync(path.join(dir, "music.mjs"), score);
   execFileSync(process.execPath, ["music.mjs"], { cwd: dir });
   const wav = readFileSync(path.join(dir, "music.wav"));
   const frames = (wav.length - HEADER_BYTES) / FRAME_BYTES;
