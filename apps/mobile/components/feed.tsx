@@ -169,6 +169,27 @@ export const Feed = ({
     }
   };
 
+  const remixing = useRef(false);
+  const remix = async (game: FeedGame) => {
+    if (!isSignedIn) {
+      return router.push("/sign-in");
+    }
+    if (remixing.current) {
+      return;
+    }
+    remixing.current = true;
+    try {
+      const { id } = await api<{ id: string }>(`/api/games/${game.id}/remix`, {
+        method: "POST",
+        token: await getToken(),
+      });
+      router.push({ params: { id }, pathname: "/draft/[id]" });
+    } catch (remixError) {
+      Alert.alert((remixError as Error).message);
+    }
+    remixing.current = false;
+  };
+
   // Takes games out at once. The game after the one on screen takes its place; if none is left after it, the one before.
   const drop = (gone: (game: FeedGame) => boolean) => {
     const rest = latest.current.filter((g) => !gone(g));
@@ -304,6 +325,7 @@ export const Feed = ({
                       label: item.saved ? t.feed.removeSaved : t.feed.save,
                       name: "save",
                     },
+                    { label: t.feed.remix, name: "remix" },
                     ...(item.mine
                       ? []
                       : [
@@ -322,6 +344,8 @@ export const Feed = ({
                       like(item);
                     } else if (action === "save") {
                       save(item);
+                    } else if (action === "remix") {
+                      remix(item);
                     } else if (action === "comments") {
                       setCommentsFor(item);
                     } else if (action === "report") {
@@ -348,11 +372,20 @@ export const Feed = ({
                       {!!item.caption && `  ${item.caption}`}
                     </Text>
                   </View>
+                  {item.remixOf !== null && (
+                    <Text
+                      numberOfLines={1}
+                      className="pl-12 text-xs leading-4 text-muted-foreground"
+                    >
+                      {t.feed.remixOf(item.remixOf)}
+                    </Text>
+                  )}
                   <GameActions
                     game={item}
                     onLike={() => like(item)}
                     onComments={() => setCommentsFor(item)}
                     onSave={() => save(item)}
+                    onRemix={() => remix(item)}
                     onMore={item.mine ? undefined : () => more(item)}
                   />
                 </View>

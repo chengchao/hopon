@@ -104,6 +104,8 @@ export const zh: Strings = {
     loading: "正在加载游戏…",
     more: "更多",
     play: (title: string) => `游戏：${title}`,
+    remix: "改编",
+    remixOf: (handle: string) => `改编自 @${handle}`,
     removeSaved: "取消收藏",
     reportGame: "举报游戏",
     save: "收藏",

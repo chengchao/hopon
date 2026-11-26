@@ -71,6 +71,7 @@ import {
 import {
   allowanceLeft,
   COVER,
+  copyFiles,
   currentRevision,
   draftFiles,
   gameFiles,
@@ -269,6 +270,9 @@ const feedColumns = (viewer = "") =>
       ),
     likes: sql<number>`(SELECT COUNT(*) FROM ${likes} WHERE ${likes}.game_id = ${games}.id)`,
     mine: sql`${games.owner} = ${viewer}`.mapWith(Boolean),
+    remixOf: sql<
+      string | null
+    >`(SELECT original.author FROM ${games} AS original WHERE original.id = ${games}.remix_of)`,
     saved:
       sql`EXISTS(SELECT 1 FROM ${saves} WHERE ${saves}.game_id = ${games}.id AND ${saves}.user = ${viewer})`.mapWith(
         Boolean
@@ -927,6 +931,7 @@ app.get(`/drafts/${DRAFT}/:n{[0-9]{1,9}}/:token/${FILE}`, async (c) => {
 // row comes first for its id, then the files; a copy that fails takes the row back out. A retry after a failed Delete
 // finds the row by its Draft and finishes the job.
 const RUNTIME = /\/runtime\/(?<version>v\d+)\.js/u;
+// A Game keeps its Revision's source and the agent's notes for a Remix, and serves only what its page loads.
 const SOURCE_ONLY = new Set(["design.md", "source.tgz", "tests.json"]);
 // The Draft's game as Publish needs it: the Maker's title and description of it, and the current Revision n. A Draft the
 // Maker hasn't built yet has none.
@@ -936,7 +941,11 @@ const builtDraft = Effect.fn("builtDraft")(function* (
 ) {
   const draft = yield* query((db) =>
     db
-      .select({ description: drafts.description, title: drafts.title })
+      .select({
+        description: drafts.description,
+        remixOf: drafts.remixOf,
+        title: drafts.title,
+      })
       .from(drafts)
       .where(eq(drafts.id, id))
       .get()
@@ -945,7 +954,12 @@ const builtDraft = Effect.fn("builtDraft")(function* (
   if (!n || !draft?.title) {
     return yield* fail(409, "This Draft has no game yet.");
   }
-  return { description: draft.description ?? "", n, title: draft.title };
+  return {
+    description: draft.description ?? "",
+    n,
+    remixOf: draft.remixOf,
+    title: draft.title,
+  };
 });
 
 const CAPTION_TOO_LONG = `Write a caption of one line, up to ${GAME_CAPTION_MAX} characters.`;
@@ -998,7 +1012,14 @@ app.post(
         if (!username) {
           return yield* fail(400, "Pick your name before publishing.");
         }
-        const { n, title } = yield* builtDraft(c.env, id);
+        const { n, remixOf, title } = yield* builtDraft(c.env, id);
+        // A Remix's Revision 1 is the Game it copied.
+        if (remixOf !== null && n === 1) {
+          return yield* fail(
+            409,
+            "Change the game with the Maker before you publish your remix."
+          );
+        }
         const status = yield* maker(c.env, id, "busy");
         const { busy } = yield* Effect.promise(() =>
           status.json<{ busy: boolean }>()
@@ -1032,6 +1053,7 @@ app.post(
               caption,
               draftId: id,
               owner,
+              remixOf,
               runtime: RUNTIME.exec(index)?.groups?.version ?? null,
               title,
             })
@@ -1039,25 +1061,10 @@ app.post(
             .returning({ id: games.id })
             .get()
         );
-        // Every file the page loads as it is, binary or not: the Game plays as its Creator last played it. The source and
-        // the agent's notes stay with the Draft and go with it.
-        yield* Effect.promise(async () => {
-          const { objects } = await c.env.FILES.list({ prefix: revision });
-          await Promise.all(
-            objects
-              .filter(({ key }) => !SOURCE_ONLY.has(key.slice(revision.length)))
-              .map(async ({ key }) => {
-                const object = await c.env.FILES.get(key);
-                if (!object) {
-                  throw new Error(`${key} is missing`);
-                }
-                await c.env.FILES.put(
-                  `${gameFiles(game.id)}${key.slice(revision.length)}`,
-                  await object.arrayBuffer()
-                );
-              })
-          );
-        }).pipe(
+        // The whole Revision as it is, binary or not: the Game plays as its Creator last played it.
+        yield* Effect.promise(() =>
+          copyFiles(c.env.FILES, revision, gameFiles(game.id))
+        ).pipe(
           Effect.onError(() =>
             query((db) => db.delete(games).where(eq(games.id, game.id)))
           )
@@ -1069,9 +1076,13 @@ app.post(
 );
 
 // A published Game's file, public: the feed loads `/games/<id>/index.html`.
-app.get(`/games/${ID}/${FILE}`, (c) =>
-  gameFile(c, `${gameFiles(Number(c.req.param("id")))}${c.req.param("file")}`)
-);
+app.get(`/games/${ID}/${FILE}`, (c) => {
+  const file = c.req.param("file");
+  if (SOURCE_ONLY.has(file)) {
+    throw fail(404, "File not found.");
+  }
+  return gameFile(c, `${gameFiles(Number(c.req.param("id")))}${file}`);
+});
 
 // Deletes a comment, closing its open reports as `how`.
 const deleteComment = (id: number, how: ClosedHow) =>
@@ -1161,6 +1172,61 @@ const deleteGame = (env: HoponEnv, id: number, how: ClosedHow) =>
       ])
     );
   });
+
+// The row comes first for the Draft cap; a copy that fails takes it and the files back out.
+app.post(`/api/games/${ID}/remix`, (c) =>
+  run(
+    c,
+    Effect.gen(function* () {
+      const owner = yield* signedIn("Sign in to remix a game.");
+      const gameId = Number(c.req.param("id"));
+      const original = yield* query((db) =>
+        db
+          .select({ title: games.title })
+          .from(games)
+          .where(and(eq(games.id, gameId), visibleTo(owner)))
+          .get()
+      );
+      if (!original) {
+        return yield* fail(404, GAME_UNAVAILABLE);
+      }
+      const { title } = original;
+      const from = gameFiles(gameId);
+      const source = yield* Effect.promise(() =>
+        c.env.FILES.head(`${from}source.tgz`)
+      );
+      if (!source) {
+        return yield* fail(409, "This game can't be remixed.");
+      }
+      const cover = yield* Effect.promise(() =>
+        c.env.FILES.head(`${from}${COVER}`)
+      );
+      const id = c.env.MAKER.newUniqueId().toString();
+      const { meta } = yield* query((db) =>
+        db.run(
+          sql`INSERT INTO ${drafts} (id, owner, title, remix_of, cover_revision)
+            SELECT ${id}, ${owner}, ${title}, ${gameId}, ${cover ? 1 : null}
+            WHERE (SELECT COUNT(*) FROM ${drafts} WHERE ${drafts}.owner = ${owner}) < ${MAX_DRAFTS}`
+        )
+      );
+      if (!meta.changes) {
+        return yield* fail(409, "Delete a Draft to start a new one.");
+      }
+      yield* Effect.promise(() =>
+        copyFiles(c.env.FILES, from, revisionFiles(id, 1))
+      ).pipe(
+        Effect.onError(() =>
+          Effect.promise(() => removeFiles(c.env.FILES, draftFiles(id))).pipe(
+            Effect.andThen(
+              query((db) => db.delete(drafts).where(eq(drafts.id, id)))
+            )
+          )
+        )
+      );
+      return c.json({ id }, 201);
+    })
+  )
+);
 
 // The Creator deletes their published game. Anyone else gets the same 404 as a missing game.
 app.delete(`/api/games/${ID}`, (c) =>

@@ -363,13 +363,15 @@ test("publish: every file the current Revision's page loads becomes the Game's, 
       draft_id: id,
       id: gameId,
       owner: "user_owner",
+      remix_of: null,
       runtime: "v2",
       title: made.title,
     }
   );
-  // The source and the agent's notes stay with the Draft, and go with it.
+  // The whole Revision, source and the agent's notes too, kept for a Remix.
   assert.deepEqual(await filesIn(env, `games/${gameId}/`), [
     `games/${gameId}/art.bin`,
+    `games/${gameId}/design.md`,
     `games/${gameId}/game.css`,
     `games/${gameId}/game.js`,
     `games/${gameId}/hit-AB12.wav`,
@@ -379,7 +381,9 @@ test("publish: every file the current Revision's page loads becomes the Game's, 
     `games/${gameId}/physics-AB12.wasm`,
     `games/${gameId}/scene-AB12.gltf`,
     `games/${gameId}/ship-AB12.glb`,
+    `games/${gameId}/source.tgz`,
     `games/${gameId}/star-AB12.svg`,
+    `games/${gameId}/tests.json`,
   ]);
   // Public, under the game CSP, each file typed by its extension.
   const file = (name) => call(`/games/${gameId}/${name}`, { user: "" });
@@ -510,6 +514,85 @@ test("publish: refused before the first Revision or while a turn runs; the Draft
   assert.equal(await count("games"), ORIGINALS);
   maker.busy = false;
   assert.equal(await status(publish(id)), 201);
+});
+
+test("remix: a new Draft of the remixer's holds the Game as published, publishes only once changed, and names whom it remixed", async (t) => {
+  const { call, env, publish } = await setup(t);
+  const files = {
+    "cover.png": new Uint8Array([137, 80, 78, 71]),
+    "design.md": "# Toast",
+    "game.js": "engineInit();",
+    "index.html": INDEX_HTML,
+    "source.tgz": new Uint8Array([31, 139, 8, 0]),
+  };
+  const gameId = await publish({ files });
+  const remix = (id = gameId, options = {}) =>
+    call(`/api/games/${id}/remix`, {
+      method: "POST",
+      user: "user_other",
+      ...options,
+    });
+  assert.equal(await status(remix(gameId, { user: "" })), 401);
+  assert.equal(await status(remix(999)), 404);
+  // A Game published before Games kept their source has none to remix.
+  const old = await remix(1);
+  assert.equal(old.status, 409);
+  assert.deepEqual(await old.json(), { error: "This game can't be remixed." });
+
+  const created = await remix();
+  assert.equal(created.status, 201);
+  const { id } = await created.json();
+  const { drafts } = await json(call("/api/drafts", { user: "user_other" }));
+  assert.deepEqual(
+    drafts.map((d) => ({ cover: !!d.cover, id: d.id, title: d.title })),
+    [{ cover: true, id, title: made.title }]
+  );
+  assert.deepEqual(await filesIn(env, `drafts/${id}/`), [
+    `drafts/${id}/1/cover.png`,
+    `drafts/${id}/1/design.md`,
+    `drafts/${id}/1/game.js`,
+    `drafts/${id}/1/index.html`,
+    `drafts/${id}/1/source.tgz`,
+  ]);
+  // The original stays as it was.
+  const original = await filesIn(env, `games/${gameId}/`);
+  assert.equal(original.length, 5);
+
+  const publishRemix = () =>
+    call(`/api/drafts/${id}/publish`, {
+      body: { caption: CAPTION },
+      method: "POST",
+      user: "user_other",
+      username: "remixer",
+    });
+  const unchanged = await publishRemix();
+  assert.equal(unchanged.status, 409);
+  assert.deepEqual(await unchanged.json(), {
+    error: "Change the game with the Maker before you publish your remix.",
+  });
+  // The Maker's first build of the Remix is Revision 2.
+  await Promise.all(
+    Object.entries(files).map(([name, body]) =>
+      env.FILES.put(`drafts/${id}/2/${name}`, body)
+    )
+  );
+  const published = await publishRemix();
+  assert.equal(published.status, 201);
+  const { id: remixId } = await published.json();
+  const remixOf = async () => {
+    const { games } = await json(call("/api/games"));
+    return Object.fromEntries(games.map((g) => [g.id, g.remixOf]));
+  };
+  assert.deepEqual(
+    Object.entries(await remixOf()).filter(([, of]) => of !== null),
+    [[String(remixId), "maya_makes"]]
+  );
+  assert.equal(
+    await status(call(`/api/games/${gameId}`, { method: "DELETE" })),
+    204
+  );
+  const after = await remixOf();
+  assert.equal(after[remixId], null);
 });
 
 test("publish: a failed Delete leaves the Draft listed, and a retry finishes it with the same Game", async (t) => {

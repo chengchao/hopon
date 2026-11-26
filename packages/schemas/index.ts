@@ -116,6 +116,8 @@ export interface FeedGame extends GameSummary {
   saved: boolean;
   /** True on the viewer's own games, which they can't report. */
   mine: boolean;
+  /** On a Remix, the @handle of the Game it was remixed from; null otherwise, or once that Game is Deleted. */
+  remixOf: string | null;
 }
 
 /** A game in the viewer's Saved list. */

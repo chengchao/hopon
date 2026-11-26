@@ -309,7 +309,7 @@ test("captions: a Game's description becomes its caption, then the old columns a
     assert.equal(others[table].length, 2, table);
   }
 
-  await run(files.slice(drop).flatMap(statements));
+  await run(files.slice(drop, drop + 1).flatMap(statements));
 
   assert.deepEqual(await all(games), before.games);
   assert.deepEqual(await all(reports), before.reports);
