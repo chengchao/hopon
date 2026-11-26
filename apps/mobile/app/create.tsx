@@ -286,8 +286,7 @@ const Create = () => {
     }
   };
 
-  // + opens the most recent Draft (#119), and a Draft's page its own; one published or Deleted since opens a new chat
-  // that says so. Once per screen: Clerk's getToken changes on every render.
+  // + opens a new chat, and a Draft's page its own. Once per screen: Clerk's getToken changes on every render.
   useEffect(() => {
     if (!isSignedIn || opened.current) {
       return;
@@ -296,13 +295,10 @@ const Create = () => {
     fetchAllowance();
     const open = async () => {
       try {
-        const { draft: opening, gone } = draftToOpen(
-          await fetchDrafts(),
-          asked
-        );
-        select(opening);
-        if (gone) {
-          setError(t.draftPage.gone);
+        const opening = draftToOpen(await fetchDrafts(), asked);
+        select(opening.draft);
+        if (opening.error) {
+          setError(opening.error);
         }
       } catch (openError) {
         select(null);
