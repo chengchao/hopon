@@ -40,9 +40,11 @@ const Drafts = () => {
       >
         {t.drafts.title}
       </Text>
-      {drafts && isFull(drafts) && (
+      {!!drafts?.length && (
         <Text className="text-sm text-muted-foreground">
-          {t.drafts.fullHint(MAX_DRAFTS)}
+          {isFull(drafts)
+            ? t.drafts.fullHint(MAX_DRAFTS)
+            : t.drafts.holdToDelete}
         </Text>
       )}
     </View>

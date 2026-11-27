@@ -9,8 +9,8 @@ export const GAME_TITLE_MAX = 60;
 export const GAME_DESCRIPTION_MAX = 180;
 // A Game's Caption, as its Creator writes it on the publish sheet.
 export const GAME_CAPTION_MAX = 180;
-// A Creator's 21st Draft is refused: the API checks it, and the app disables New game.
-export const MAX_DRAFTS = 20;
+// A Creator's Draft past this is refused: the API checks it, and the app disables New game.
+export const MAX_DRAFTS = 100;
 
 // Counts characters like SQLite's length(), not UTF-16 units.
 export const characters = (text: string) => [...text].length;

@@ -39,7 +39,7 @@ Preconditions:
 - **Publish needs a Caption.** The body's `caption` is required and may be `""`. Run `$S/call.sh "$RUN" publish-nocaption POST /api/drafts/$id/publish --as user_alice:alice --json '{}'`. 400 "Write a caption of one line, up to 180 characters." With no body at all it is a 415 "Send a JSON request."
 - **Publish.** Run `$S/call.sh "$RUN" publish POST /api/drafts/$id/publish --as user_alice:alice --json '{"caption":"Beat my score"}'`. 201 `{"id":<game id>}`. `GET /api/games --as user_alice:alice` then lists it first, with `title:"Cat Run", caption:"Beat my score", author:"alice", mine:true`. `GET /games/<game id>/index.html` is a 200, and `GET /api/drafts` is `{"drafts":[]}`, because publishing deletes the Draft.
 - **Delete one.** Start another Draft, then run `$S/call.sh "$RUN" draft-delete DELETE /api/drafts/$id2 --as user_alice:alice`. 204. Deleting it again is a 404 "Draft not found."
-- **Cap.** A Creator holds at most 20 Drafts (`MAX_DRAFTS` in `packages/schemas/index.ts`). With 20, the next `POST /api/drafts` is a 409 "Delete a Draft to start a new one." `DELETE /api/drafts` (no id) deletes them all with a 204, and `$S/sql.sh "$RUN" drafts-left "SELECT owner, count(*) n FROM drafts GROUP BY owner"` returns `[]`.
+- **Cap.** A Creator holds at most `MAX_DRAFTS` Drafts (100, in `packages/schemas/index.ts`). At the cap, the next `POST /api/drafts` is a 409 "Delete a Draft to start a new one." `DELETE /api/drafts` (no id) deletes them all with a 204, and `$S/sql.sh "$RUN" drafts-left "SELECT owner, count(*) n FROM drafts GROUP BY owner"` returns `[]`.
 
 ## Gotchas
 

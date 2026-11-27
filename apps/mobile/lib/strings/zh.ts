@@ -85,6 +85,7 @@ export const zh: Strings = {
     empty: "你正在做的游戏会放在这里，发布后会出现在“发现”里。",
     full: "删掉一份草稿才能新建",
     fullHint: (n: number) => `草稿最多 ${n} 份，已经满了。长按一份就能删除。`,
+    holdToDelete: "长按一份草稿就能删除。",
     newGame: "新游戏",
     openHint: "打开这个游戏",
     signedOut: "登录后就能做游戏，随时接着做。",
