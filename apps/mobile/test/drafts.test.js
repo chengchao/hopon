@@ -14,6 +14,7 @@ import {
   listedFacts,
   liveFacts,
 } from "../lib/drafts.ts";
+import { t } from "../lib/i18n.ts";
 import { chatView, makerChat, NEW_CHAT } from "../lib/maker-chat.ts";
 
 const NOW = Date.parse("2026-10-23T12:00:00.000Z");
@@ -245,21 +246,19 @@ test("a change to a game shows only its own turn's steps, and a queued steer as 
   assert.equal(page.asked, "And orange");
 });
 
-test("the chat opens the Draft asked for, else the newest; one that is gone opens a new chat and says so", () => {
+test("+ opens a new chat, saying so if the list is full; a Draft asked for opens, or a new chat that says it is gone", () => {
   const drafts = [draft({ id: "new" }), draft({ id: "old" })];
-  assert.deepEqual(draftToOpen(drafts), {
-    draft: drafts[0],
-    gone: false,
-  });
-  assert.deepEqual(draftToOpen(drafts, "old"), {
-    draft: drafts[1],
-    gone: false,
-  });
+  assert.deepEqual(draftToOpen(drafts), { draft: null });
+  assert.deepEqual(draftToOpen(drafts, "old"), { draft: drafts[1] });
   assert.deepEqual(draftToOpen(drafts, "published"), {
     draft: null,
-    gone: true,
+    error: t.draftPage.gone,
   });
-  assert.deepEqual(draftToOpen([]), { draft: null, gone: false });
+  assert.deepEqual(draftToOpen([]), { draft: null });
+  assert.deepEqual(
+    draftToOpen(Array.from({ length: MAX_DRAFTS }, () => draft())),
+    { draft: null, error: t.drafts.full }
+  );
 });
 
 test("the list is full at the most Drafts a Creator can keep", () => {

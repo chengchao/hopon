@@ -149,15 +149,17 @@ export const draftPage = (
 
 export const isFull = (drafts: DraftSummary[]) => drafts.length >= MAX_DRAFTS;
 
-// The Draft the chat opens: the one asked for by id, else the newest (+). One that is gone, published or Deleted
-// since, opens a new chat (null), and so does an empty list.
+// The Draft the chat opens: the one asked for by id, else a new chat (+), which says now if the list is full. One that
+// is gone, published or Deleted since, opens a new chat that says so.
 export const draftToOpen = (
   drafts: DraftSummary[],
   asked?: string
-): { draft: DraftSummary | null; gone: boolean } => {
+): { draft: DraftSummary | null; error?: string } => {
   if (asked === undefined) {
-    return { draft: drafts[0] ?? null, gone: false };
+    return isFull(drafts)
+      ? { draft: null, error: t.drafts.full }
+      : { draft: null };
   }
-  const draft = drafts.find((listed) => listed.id === asked) ?? null;
-  return { draft, gone: draft === null };
+  const draft = drafts.find((listed) => listed.id === asked);
+  return draft ? { draft } : { draft: null, error: t.draftPage.gone };
 };
