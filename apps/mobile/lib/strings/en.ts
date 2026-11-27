@@ -96,6 +96,7 @@ export const en = {
     full: "Delete a Draft to start a new one",
     fullHint: (n: number) =>
       `You have ${n} Drafts, the most you can keep. Touch and hold one to delete it.`,
+    holdToDelete: "Touch and hold a Draft to delete it.",
     newGame: "New game",
     openHint: "Opens the game",
     signedOut: "Sign in to make games and pick up where you left off.",

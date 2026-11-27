@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { gunzipSync } from "node:zlib";
 
+import { MAX_DRAFTS } from "@hopon/schemas";
 import { drizzle } from "drizzle-orm/d1";
 import { getPlatformProxy, unstable_splitSqlQuery } from "wrangler";
 
@@ -2930,10 +2931,10 @@ test("drafts: born on a screened first message, listed newest first for their ow
   });
 });
 
-test("drafts: a 21st is refused until one goes", async (t) => {
+test("drafts: one past the cap is refused until one goes", async (t) => {
   const { call, count, env, forwarded } = await setup(t);
   await env.DB.batch(
-    Array.from({ length: 19 }, (_, i) =>
+    Array.from({ length: MAX_DRAFTS - 1 }, (_, i) =>
       env.DB.prepare("INSERT INTO drafts (id, owner) VALUES (?, ?)").bind(
         `${i}`.padStart(64, "0"),
         "user_owner"
@@ -2946,29 +2947,29 @@ test("drafts: a 21st is refused until one goes", async (t) => {
     .run();
   assert.equal(
     await status(
-      call("/api/drafts", { body: { text: "Twentieth" }, method: "POST" })
+      call("/api/drafts", { body: { text: "The last" }, method: "POST" })
     ),
     201
   );
   const refused = await call("/api/drafts", {
-    body: { text: "Twenty-first" },
+    body: { text: "One too many" },
     method: "POST",
   });
   assert.equal(refused.status, 409);
   assert.deepEqual(await refused.json(), {
     error: "Delete a Draft to start a new one.",
   });
-  assert.equal(await count("drafts"), 21);
+  assert.equal(await count("drafts"), MAX_DRAFTS + 1);
   assert.deepEqual(
     forwarded.map((f) => f.text),
-    ["Twentieth"]
+    ["The last"]
   );
   await env.DB.prepare("DELETE FROM drafts WHERE id = ?")
     .bind("0".repeat(64))
     .run();
   assert.equal(
     await status(
-      call("/api/drafts", { body: { text: "Twenty-first" }, method: "POST" })
+      call("/api/drafts", { body: { text: "One too many" }, method: "POST" })
     ),
     201
   );
